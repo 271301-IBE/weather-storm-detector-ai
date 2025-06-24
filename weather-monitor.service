@@ -1,0 +1,19 @@
+[Unit]
+Description=Weather Storm Detection System
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5
+User=pi
+WorkingDirectory=/home/patrik/Documents/weather-storm-detector
+Environment=PATH=/home/pi/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/python3 /home/patrik/Documents/weather-storm-detector/main.py
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=weather-monitor
+
+[Install]
+WantedBy=multi-user.target
