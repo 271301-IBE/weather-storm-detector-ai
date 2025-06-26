@@ -121,12 +121,12 @@ def test_chmi_warnings():
         for warning in warnings:
             print(f"   🚨 {warning.event} ({warning.color}) - {warning.time_start_text}")
             
-        return True
+        return warnings
         
     except Exception as e:
         print(f"❌ ČHMÚ warnings error: {e}")
         traceback.print_exc()
-        return False
+        return []
 
 def test_database():
     """Test databáze."""
@@ -208,7 +208,7 @@ def test_email_system():
         traceback.print_exc()
         return False
 
-async def test_ai_analysis():
+async def test_ai_analysis(chmi_warnings: list):
     """Test AI analýzy (jen pokud jsou storm podmínky)."""
     print("\n🤖 TESTOVÁNÍ AI ANALÝZY...")
     
@@ -230,12 +230,17 @@ async def test_ai_analysis():
             return True
             
         # Check if AI analysis should run (cost optimization)
-        should_run = scheduler._should_run_ai_analysis(weather_data, [])
+        chmi_warnings = test_chmi_warnings()
+        if not chmi_warnings:
+            print("⚠️ Přeskakuji AI test - žádná ČHMÚ varování")
+            return True
+
+        should_run = scheduler._should_run_ai_analysis(weather_data, chmi_warnings)
         
         if should_run:
             print("🔥 Podmínky pro AI analýzu splněny - spouštím...")
             historical_data = db.get_recent_weather_data(hours=6)
-            analysis = await engine.analyze_storm_potential(weather_data, historical_data, [])
+            analysis = await engine.analyze_storm_potential(weather_data, chmi_warnings)
             
             print(f"✅ AI analýza dokončena: {analysis.alert_level.value} (confidence: {analysis.confidence_score:.1%})")
         else:
@@ -276,15 +281,19 @@ async def main():
     ]
     
     results = []
+    chmi_warnings_list = [] # To store the result of test_chmi_warnings
     
     for test_name, test_func, is_async in tests:
         print(f"\n{'='*20}")
         print(f"🧪 {test_name.upper()}")
-        print(f"{'='*20}")
+        print(f"{ '='*20}")
         
         try:
-            if is_async:
-                result = await test_func()
+            if test_name == "ČHMÚ varování":
+                chmi_warnings_list = test_func()
+                result = True if chmi_warnings_list is not None else False
+            elif is_async:
+                result = await test_func(chmi_warnings=chmi_warnings_list) if test_name == "AI analýza" else await test_func()
             else:
                 result = test_func()
             results.append((test_name, result))
