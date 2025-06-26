@@ -13,3 +13,4 @@ numpy<2.0
 matplotlib
 flask==2.3.3
 pandaspywebpush
+psutil
