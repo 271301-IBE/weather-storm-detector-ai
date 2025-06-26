@@ -130,7 +130,7 @@ class WeatherDataFetcher:
             wind_speed=wind.get("speed", 0.0),
             wind_direction=wind.get("deg", 0.0),
             precipitation=data.get("rain", {}).get("1h", 0.0),
-            precipitation_probability=0.0,  # Not available in current weather
+            precipitation_probability=None,  # Not available in current weather
             condition=condition,
             visibility=data.get("visibility", 10000) / 1000,  # Convert to km
             cloud_cover=clouds.get("all", 0.0),

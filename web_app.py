@@ -7,10 +7,11 @@ Simple web dashboard for monitoring weather data, AI analysis, and system status
 import sqlite3
 import json
 from datetime import datetime, timedelta
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, Response
 from functools import wraps
 import logging
 from pathlib import Path
+import os
 
 from config import load_config
 
@@ -78,7 +79,8 @@ def api_current_weather():
             SELECT * FROM weather_data 
             ORDER BY created_at DESC 
             LIMIT 3
-        """)
+        """
+)
         
         rows = cursor.fetchall()
         columns = [description[0] for description in cursor.description]
@@ -107,7 +109,8 @@ def api_recent_analysis():
             SELECT * FROM storm_analysis 
             ORDER BY timestamp DESC 
             LIMIT 10
-        """)
+        """
+)
         
         rows = cursor.fetchall()
         columns = [description[0] for description in cursor.description]
@@ -177,21 +180,24 @@ def api_system_stats():
         cursor.execute("""
             SELECT COUNT(*) FROM weather_data 
             WHERE datetime(timestamp) > datetime('now', '-24 hours')
-        """)
+        """
+)
         stats['weather_data_24h'] = cursor.fetchone()[0]
         
         # AI analysis count (last 24h)
         cursor.execute("""
             SELECT COUNT(*) FROM storm_analysis 
             WHERE datetime(timestamp) > datetime('now', '-24 hours')
-        """)
+        """
+)
         stats['ai_analysis_24h'] = cursor.fetchone()[0]
         
         # Email notifications count (last 24h)
         cursor.execute("""
             SELECT COUNT(*) FROM email_notifications 
             WHERE datetime(timestamp) > datetime('now', '-24 hours')
-        """)
+        """
+)
         stats['emails_24h'] = cursor.fetchone()[0]
         
         # Storm detections (last 7 days)
@@ -199,7 +205,8 @@ def api_system_stats():
             SELECT COUNT(*) FROM storm_analysis 
             WHERE datetime(timestamp) > datetime('now', '-7 days')
             AND storm_detected = 1
-        """)
+        """
+)
         stats['storms_detected_7d'] = cursor.fetchone()[0]
         
         # High confidence predictions (last 7 days)
@@ -207,14 +214,16 @@ def api_system_stats():
             SELECT COUNT(*) FROM storm_analysis 
             WHERE datetime(timestamp) > datetime('now', '-7 days')
             AND confidence_score > 0.8
-        """)
+        """
+)
         stats['high_confidence_7d'] = cursor.fetchone()[0]
         
         # Average confidence score (last 7 days)
         cursor.execute("""
             SELECT AVG(confidence_score) FROM storm_analysis 
             WHERE datetime(timestamp) > datetime('now', '-7 days')
-        """)
+        """
+)
         avg_confidence = cursor.fetchone()[0]
         stats['avg_confidence_7d'] = round(avg_confidence * 100, 1) if avg_confidence else 0
         
@@ -222,7 +231,8 @@ def api_system_stats():
         cursor.execute("""
             SELECT COUNT(*) FROM weather_condition_cache 
             WHERE expires_at > datetime('now')
-        """)
+        """
+)
         stats['active_cache_entries'] = cursor.fetchone()[0]
         
         # Database size estimation
@@ -259,7 +269,8 @@ def api_email_history():
             FROM email_notifications 
             ORDER BY timestamp DESC 
             LIMIT 20
-        """)
+        """
+)
         
         rows = cursor.fetchall()
         columns = [description[0] for description in cursor.description]
@@ -291,7 +302,8 @@ def api_usage_stats():
             WHERE datetime(timestamp) > datetime('now', '-24 hours')
             GROUP BY source
             ORDER BY call_count DESC
-        """)
+        """
+)
         
         api_usage_24h = {}
         rows = cursor.fetchall()
@@ -305,7 +317,8 @@ def api_usage_stats():
             WHERE datetime(timestamp) > datetime('now', '-7 days')
             GROUP BY source
             ORDER BY call_count DESC
-        """)
+        """
+)
         
         api_usage_7d = {}
         rows = cursor.fetchall()
@@ -318,7 +331,8 @@ def api_usage_stats():
             FROM weather_data 
             GROUP BY source
             ORDER BY call_count DESC
-        """)
+        """
+)
         
         api_usage_total = {}
         rows = cursor.fetchall()
@@ -330,7 +344,8 @@ def api_usage_stats():
             SELECT source, MAX(timestamp) as last_update
             FROM weather_data 
             GROUP BY source
-        """)
+        """
+)
         
         api_last_update = {}
         rows = cursor.fetchall()
@@ -374,19 +389,20 @@ def api_weather_averages():
                 FROM weather_data w2 
                 WHERE w2.source = w1.source
             )
-        """)
+        """
+)
         
         result = cursor.fetchone()
         if result:
             avg_temp, avg_humidity, avg_pressure, avg_wind_speed, avg_precip_prob, avg_precipitation, source_count = result
             
             averages = {
-                'temperature': round(avg_temp, 1) if avg_temp else None,
-                'humidity': round(avg_humidity, 1) if avg_humidity else None,
-                'pressure': round(avg_pressure, 1) if avg_pressure else None,
-                'wind_speed': round(avg_wind_speed, 1) if avg_wind_speed else None,
-                'precipitation_probability': round(avg_precip_prob, 1) if avg_precip_prob else None,
-                'precipitation': round(avg_precipitation, 1) if avg_precipitation else None,
+                'temperature': round(avg_temp, 1) if avg_temp is not None else None,
+                'humidity': round(avg_humidity, 1) if avg_humidity is not None else None,
+                'pressure': round(avg_pressure, 1) if avg_pressure is not None else None,
+                'wind_speed': round(avg_wind_speed, 1) if avg_wind_speed is not None else None,
+                'precipitation_probability': round(avg_precip_prob, 1) if avg_precip_prob is not None else None,
+                'precipitation': round(avg_precipitation, 1) if avg_precipitation is not None else None,
                 'source_count': source_count or 0
             }
         else:
@@ -443,6 +459,43 @@ def api_chmi_warnings():
     except Exception as e:
         logger.error(f"Error fetching ČHMÚ warnings: {e}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/live_logs')
+@login_required
+def live_logs():
+    def generate():
+        log_file_path = 'weather_monitor.log'
+        if not os.path.exists(log_file_path):
+            yield "Log file not found."
+            return
+
+        # Initial read of the last few lines
+        try:
+            with open(log_file_path, 'r') as f:
+                # Seek to the end and read backwards to get the last N lines
+                f.seek(0, os.SEEK_END)
+                buffer_size = 4096
+                f.seek(max(0, f.tell() - buffer_size), os.SEEK_SET)
+                lines = f.readlines()
+                # Get the last 50 lines
+                for line in lines[-50:]:
+                    yield f"data: {line.strip()}\n\n"
+        except Exception as e:
+            yield f"data: Error reading log file: {e}\n\n"
+            return
+
+        # Stream new lines
+        with open(log_file_path, 'r') as f:
+            f.seek(0, os.SEEK_END) # Move to the end of the file
+            while True:
+                line = f.readline()
+                if not line:
+                    # No new line, wait a bit
+                    time.sleep(1)
+                    continue
+                yield f"data: {line.strip()}\n\n"
+
+    return Response(generate(), mimetype='text/event-stream')
 
 if __name__ == '__main__':
     # Create templates directory if it doesn't exist
