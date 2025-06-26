@@ -123,7 +123,7 @@
                         <a class="nav-link active" aria-current="page" href="#dashboard" onclick="showTab('dashboard')">Dashboard</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="#live-logs" onclick="showTab('live-logs')">Live Logs</a>
+                        <a class="nav-link" href="#history" onclick="showTab('history')">History</a>
                     </li>
                 </ul>
                 <span class="navbar-text me-3" id="lastUpdate">Loading...</span>
@@ -198,21 +198,33 @@
             </div>
         </div>
 
-        <div id="live-logs-content" style="display:none;">
+        <div id="history-content" style="display:none;">
             <div class="row">
-                <div class="col-lg-6">
+                <div class="col-lg-12">
                     <div class="card">
-                        <div class="card-header">Backend Logs 📜</div>
+                        <div class="card-header">Historical Weather Data 🕰️</div>
                         <div class="card-body">
-                            <pre id="backendLogsContainer" class="log-container">Loading backend logs...</pre>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-lg-6">
-                    <div class="card">
-                        <div class="card-header">Frontend Logs 🌐</div>
-                        <div class="card-body">
-                            <pre id="frontendLogsContainer" class="log-container">Loading frontend logs...</pre>
+                            <div class="mb-3">
+                                <label for="historyTimeline" class="form-label">Select Timeline:</label>
+                                <select class="form-select" id="historyTimeline">
+                                    <option value="24">Last 24 Hours</option>
+                                    <option value="48">Last 48 Hours</option>
+                                    <option value="168">Last 7 Days</option>
+                                    <option value="720">Last 30 Days</option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label for="historyMetric" class="form-label">Select Metric:</label>
+                                <select class="form-select" id="historyMetric">
+                                    <option value="temperature">Temperature (°C)</option>
+                                    <option value="humidity">Humidity (%)</option>
+                                    <option value="pressure">Pressure (hPa)</option>
+                                    <option value="wind_speed">Wind Speed (m/s)</option>
+                                    <option value="precipitation">Precipitation (mm)</option>
+                                    <option value="precipitation_probability">Precipitation Probability (%)</option>
+                                </select>
+                            </div>
+                            <canvas id="historyChart"></canvas>
                         </div>
                     </div>
                 </div>
@@ -223,8 +235,7 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         let weatherChart;
-        let backendEventSource;
-        let frontendEventSource;
+        let historyChart;
         
         // Auto-refresh data every 30 seconds
         setInterval(loadAllData, 30000);
@@ -233,32 +244,27 @@
         window.onload = function() {
             loadAllData();
             showTab('dashboard'); // Default to dashboard tab
+
+            // Event listeners for history panel
+            document.getElementById('historyTimeline').addEventListener('change', loadHistoryChart);
+            document.getElementById('historyMetric').addEventListener('change', loadHistoryChart);
         };
         
         function showTab(tabId) {
             document.getElementById('dashboard-content').style.display = 'none';
-            document.getElementById('live-logs-content').style.display = 'none';
+            document.getElementById('history-content').style.display = 'none';
 
             document.querySelectorAll('.navbar-nav .nav-link').forEach(link => {
                 link.classList.remove('active');
             });
 
-            if (backendEventSource) {
-                backendEventSource.close();
-                backendEventSource = null;
-            }
-            if (frontendEventSource) {
-                frontendEventSource.close();
-                frontendEventSource = null;
-            }
-
             if (tabId === 'dashboard') {
                 document.getElementById('dashboard-content').style.display = 'block';
                 document.querySelector('a[href="#dashboard"]').classList.add('active');
-            } else if (tabId === 'live-logs') {
-                document.getElementById('live-logs-content').style.display = 'block';
-                document.querySelector('a[href="#live-logs"]').classList.add('active');
-                loadLiveLogs();
+            } else if (tabId === 'history') {
+                document.getElementById('history-content').style.display = 'block';
+                document.querySelector('a[href="#history"]').classList.add('active');
+                loadHistoryChart(); // Load chart when history tab is shown
             }
         }
 
@@ -366,7 +372,7 @@
                     if (data.length > 0) {
                         container.innerHTML = data.slice(0, 5).map(analysis => {
                             const confidence = (analysis.confidence_score * 100).toFixed(1);
-                            const confidenceClass = confidence > 80 ? 'text-danger' :
+                            const confidenceClass = confidence > 80 ? 'text-danger' : 
                                                   confidence > 50 ? 'text-warning' : 'text-success';
                             const timestamp = new Date(analysis.timestamp).toLocaleString();
                             
@@ -656,78 +662,89 @@
                 });
         }
 
-        function loadLiveLogs() {
-            const backendLogContainer = document.getElementById('backendLogsContainer');
-            const frontendLogContainer = document.getElementById('frontendLogsContainer');
-            backendLogContainer.innerHTML = ''; // Clear previous logs
-            frontendLogContainer.innerHTML = ''; // Clear previous logs
+        function loadHistoryChart() {
+            const timeline = document.getElementById('historyTimeline').value;
+            const metric = document.getElementById('historyMetric').value;
 
-            // Backend logs
-            backendEventSource = new EventSource('/api/live_backend_logs');
-            backendEventSource.onmessage = function(event) {
-                const newLogEntry = document.createElement('div');
-                newLogEntry.textContent = event.data;
-                backendLogContainer.appendChild(newLogEntry);
-                backendLogContainer.scrollTop = backendLogContainer.scrollHeight; // Auto-scroll to bottom
-            };
-            backendEventSource.onerror = function(err) {
-                console.error('Backend EventSource failed:', err);
-                backendEventSource.close();
-                backendLogContainer.innerHTML += '\n<span style="color: red;">Error connecting to backend log stream. Please refresh the page.</span>';
-            };
+            fetch(`/api/weather_history?hours=${timeline}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (historyChart) {
+                        historyChart.destroy();
+                    }
 
-            // Frontend logs
-            frontendEventSource = new EventSource('/api/live_frontend_logs');
-            frontendEventSource.onmessage = function(event) {
-                const newLogEntry = document.createElement('div');
-                newLogEntry.textContent = event.data;
-                frontendLogContainer.appendChild(newLogEntry);
-                frontendLogContainer.scrollTop = frontendLogContainer.scrollHeight; // Auto-scroll to bottom
-            };
-            frontendEventSource.onerror = function(err) {
-                console.error('Frontend EventSource failed:', err);
-                frontendEventSource.close();
-                frontendLogContainer.innerHTML += '\n<span style="color: red;">Error connecting to frontend log stream. Please refresh the page.</span>';
-            };
+                    const ctx = document.getElementById('historyChart').getContext('2d');
+                    const labels = data.map(d => new Date(d.timestamp));
+                    const datasets = [
+                        {
+                            label: `${metric.replace('_', ' ')} - OpenWeather`,
+                            data: data.filter(d => d.source === 'openweather').map(d => ({ x: new Date(d.timestamp), y: d[metric] })),
+                            borderColor: 'rgba(255, 99, 132, 1)',
+                            backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                            tension: 0.3,
+                            fill: false,
+                        },
+                        {
+                            label: `${metric.replace('_', ' ')} - Visual Crossing`,
+                            data: data.filter(d => d.source === 'visual_crossing').map(d => ({ x: new Date(d.timestamp), y: d[metric] })),
+                            borderColor: 'rgba(54, 162, 235, 1)',
+                            backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                            tension: 0.3,
+                            fill: false,
+                        },
+                        {
+                            label: `${metric.replace('_', ' ')} - Tomorrow.io`,
+                            data: data.filter(d => d.source === 'tomorrow_io').map(d => ({ x: new Date(d.timestamp), y: d[metric] })),
+                            borderColor: 'rgba(75, 192, 192, 1)',
+                            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                            tension: 0.3,
+                            fill: false,
+                        }
+                    ];
+
+                    historyChart = new Chart(ctx, {
+                        type: 'line',
+                        data: { datasets: datasets },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            interaction: {
+                                mode: 'index',
+                                intersect: false,
+                            },
+                            scales: {
+                                x: {
+                                    type: 'time',
+                                    time: {
+                                        unit: 'hour',
+                                        displayFormats: {
+                                            hour: 'HH:mm'
+                                        }
+                                    },
+                                    title: {
+                                        display: true,
+                                        text: 'Time'
+                                    }
+                                },
+                                y: {
+                                    title: {
+                                        display: true,
+                                        text: metric.replace('_', ' ') + (metric === 'temperature' ? ' (°C)' : metric === 'humidity' || metric === 'precipitation_probability' ? ' (%)' : metric === 'pressure' ? ' (hPa)' : metric === 'wind_speed' ? ' (m/s)' : metric === 'precipitation' ? ' (mm)' : '')
+                                    }
+                                }
+                            },
+                            plugins: {
+                                legend: {
+                                    position: 'bottom'
+                                }
+                            }
+                        }
+                    });
+                })
+                .catch(error => {
+                    console.error('Error loading history chart:', error);
+                });
         }
-
-        // Intercept console logs and send to backend
-        const originalConsoleLog = console.log;
-        const originalConsoleWarn = console.warn;
-        const originalConsoleError = console.error;
-        const originalConsoleInfo = console.info;
-
-        function sendFrontendLog(level, message) {
-            fetch('/api/log_frontend_message', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ message: `[${level.toUpperCase()}] ${message}` }),
-            }).catch(error => {
-                originalConsoleError('Error sending frontend log to backend:', error);
-            });
-        }
-
-        console.log = function(...args) {
-            originalConsoleLog(...args);
-            sendFrontendLog('log', args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' '));
-        };
-
-        console.warn = function(...args) {
-            originalConsoleWarn(...args);
-            sendFrontendLog('warn', args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' '));
-        };
-
-        console.error = function(...args) {
-            originalConsoleError(...args);
-            sendFrontendLog('error', args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' '));
-        };
-
-        console.info = function(...args) {
-            originalConsoleInfo(...args);
-            sendFrontendLog('info', args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' '));
-        };
     </script>
 </body>
 </html>
