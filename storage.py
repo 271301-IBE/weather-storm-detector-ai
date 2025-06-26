@@ -354,10 +354,6 @@ class WeatherDatabase:
                 # Keep storm analysis longer (90 days)
                 analysis_cutoff = datetime.now() - timedelta(days=90)
                 
-                cursor.execute("DELETE FROM weather_data WHERE timestamp < ?", 
-                             (cutoff_time.isoformat(),))
-                cursor.execute("DELETE FROM storm_analysis WHERE timestamp < ?", 
-                             (analysis_cutoff.isoformat(),))
                 cursor.execute("DELETE FROM email_notifications WHERE timestamp < ?", 
                              (cutoff_time.isoformat(),))
                 
