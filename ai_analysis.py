@@ -39,7 +39,20 @@ class DeepSeekAnalyzer:
             await self.session.close()
     
     def _prepare_weather_context(self, weather_data: List[WeatherData], historical_patterns: List = None, chmi_warnings: List[ChmiWarning] = None) -> str:
-        """Prepare weather data context for AI analysis."""
+        """Prepare weather data context for AI analysis, limiting size."""
+        
+        # Limit weather_data to the most recent 24 hours or a reasonable number of entries
+        # Assuming weather_data is sorted by timestamp (most recent first)
+        limited_weather_data = []
+        if weather_data:
+            # Take data from the last 24 hours, or up to 50 entries if older data is needed
+            time_limit = datetime.now() - timedelta(hours=24)
+            for data in weather_data:
+                if data.timestamp >= time_limit:
+                    limited_weather_data.append(data)
+                if len(limited_weather_data) >= 50: # Cap at 50 entries to prevent excessive size
+                    break
+        
         context = {
             "location": {
                 "city": self.config.weather.city_name,
@@ -49,12 +62,12 @@ class DeepSeekAnalyzer:
             },
             "current_conditions": [],
             "analysis_timestamp": datetime.now().isoformat(),
-            "data_sources": len(weather_data),
+            "data_sources_count": len(limited_weather_data), # Use count of limited data
             "chmi_warnings": [],
-            "historical_storm_patterns": []
+            "historical_storm_patterns_summary": []
         }
         
-        for data in weather_data:
+        for data in limited_weather_data:
             condition = {
                 "source": data.source,
                 "timestamp": data.timestamp.isoformat(),
@@ -74,7 +87,8 @@ class DeepSeekAnalyzer:
         
         # Add ČHMÚ warnings if available
         if chmi_warnings:
-            for warning in chmi_warnings:
+            # Limit to most recent/relevant warnings if there are many
+            for warning in chmi_warnings[:5]: # Limit to top 5 warnings
                 warning_data = {
                     "id": warning.identifier,
                     "event": warning.event,
@@ -92,9 +106,21 @@ class DeepSeekAnalyzer:
                 }
                 context["chmi_warnings"].append(warning_data)
 
-        # Add historical storm patterns if available
+        # Summarize historical storm patterns if available
         if historical_patterns:
-            context["historical_storm_patterns"] = historical_patterns
+            # Only include a summary of the most recent 5 patterns
+            for i, pattern_data_list in enumerate(historical_patterns[:5]):
+                if pattern_data_list:
+                    # Take the first (most recent) data point from the pattern for summary
+                    first_data_point = pattern_data_list[0]
+                    summary = {
+                        "pattern_id": i, # Simple ID for reference
+                        "timestamp": first_data_point.get('timestamp'),
+                        "condition": first_data_point.get('condition'),
+                        "precipitation_probability": first_data_point.get('precipitation_probability'),
+                        "summary": f"Historical pattern with {len(pattern_data_list)} data points, starting at {first_data_point.get('timestamp')}"
+                    }
+                    context["historical_storm_patterns_summary"].append(summary)
         
         return json.dumps(context, indent=2)
     
@@ -423,7 +449,8 @@ class StormDetectionEngine:
                 score += 0.2
             if latest_data.precipitation > 0 and pattern_latest.precipitation > 0: # both have precipitation
                 score += 0.1
-            if latest_data.precipitation_probability > 50 and pattern_latest.precipitation_probability > 50: # both have high precip probability
+            if latest_data.precipitation_probability is not None and pattern_latest.precipitation_probability is not None and \
+               latest_data.precipitation_probability > 50 and pattern_latest.precipitation_probability > 50: # both have high precip probability
                 score += 0.1
 
             best_match_score = max(best_match_score, score)
