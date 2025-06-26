@@ -135,7 +135,10 @@ ANALYSIS REQUIREMENTS:
    - Include ČHMÚ instructions if available
    - Include safety recommendations if severe weather detected
 
-RESPOND WITH VALID JSON ONLY:
+CRITICAL: YOU MUST RESPOND WITH ONLY VALID JSON. NO OTHER TEXT BEFORE OR AFTER.
+
+Your response must be exactly this JSON format (no markdown, no explanations, just pure JSON):
+
 {{
     "storm_detected": boolean,
     "confidence_score": float (0.0-1.0),
@@ -148,7 +151,7 @@ RESPOND WITH VALID JSON ONLY:
     "reasoning": "Detailed meteorological reasoning for your decision"
 }}
 
-REMEMBER: High accuracy is critical. Only indicate storm detection with high confidence when meteorological evidence strongly supports it."""
+IMPORTANT: Do not include reasoning steps, explanations, or any text outside the JSON. The JSON fields can contain your analysis. Start your response with {{ and end with }}."""
 
     async def analyze_weather_data(self, weather_data: List[WeatherData], historical_data: List = None, chmi_warnings: List[ChmiWarning] = None) -> Optional[StormAnalysis]:
         """Analyze weather data using DeepSeek AI."""
@@ -157,11 +160,11 @@ REMEMBER: High accuracy is critical. Only indicate storm detection with high con
             prompt = self._create_analysis_prompt(weather_context)
             
             payload = {
-                "model": "deepseek-reasoner",
+                "model": "deepseek-chat",
                 "messages": [
                     {
                         "role": "system",
-                        "content": "You are an expert meteorologist specializing in thunderstorm detection and analysis for the Czech Republic region."
+                        "content": "You are an expert meteorologist specializing in thunderstorm detection and analysis for the Czech Republic region. You must respond with ONLY valid JSON format, no other text, markdown, or explanations."
                     },
                     {
                         "role": "user", 
@@ -183,31 +186,86 @@ REMEMBER: High accuracy is critical. Only indicate storm detection with high con
                     
                     if "choices" in result and len(result["choices"]) > 0:
                         message = result["choices"][0]["message"]
-                        # DeepSeek Reasoner might put the actual content in reasoning_content
-                        content = message.get("content", "") or message.get("reasoning_content", "")
                         
-                        if not content.strip():
-                            logger.error("Empty response content from DeepSeek API")
+                        # Try multiple possible fields for content
+                        content_candidates = [
+                            message.get("content", ""),
+                            message.get("reasoning_content", ""),
+                            message.get("text", ""),
+                            # Sometimes the entire message is the content
+                            str(message) if isinstance(message, dict) and len(str(message)) > 50 else ""
+                        ]
+                        
+                        content = ""
+                        for candidate in content_candidates:
+                            if candidate and candidate.strip():
+                                content = candidate.strip()
+                                break
+                        
+                        if not content:
+                            logger.error(f"Empty response content from DeepSeek API. Full response: {result}")
                             return None
                         
                         logger.debug(f"AI Response content: {content[:500]}...")
                         
-                        # Parse JSON response
-                        try:
-                            # Try to extract JSON from the response (handle extra content after JSON)
+                        # Parse JSON response with multiple extraction strategies
+                        analysis_data = None
+                        
+                        # Strategy 1: Look for JSON block in markdown format
+                        json_block_start = content.find('```json')
+                        if json_block_start != -1:
+                            json_block_start += 7  # Skip ```json
+                            json_block_end = content.find('```', json_block_start)
+                            if json_block_end != -1:
+                                json_content = content[json_block_start:json_block_end].strip()
+                                try:
+                                    analysis_data = json.loads(json_content)
+                                    logger.debug("Successfully parsed JSON from markdown block")
+                                except json.JSONDecodeError:
+                                    pass
+                        
+                        # Strategy 2: Extract JSON between first { and last }
+                        if not analysis_data:
                             json_start = content.find('{')
                             json_end = content.rfind('}') + 1
                             
                             if json_start != -1 and json_end > json_start:
                                 json_content = content[json_start:json_end]
-                                analysis_data = json.loads(json_content)
-                                return self._create_storm_analysis(analysis_data, weather_data)
-                            else:
-                                logger.error("No valid JSON found in AI response")
-                                return None
-                        except json.JSONDecodeError as e:
-                            logger.error(f"Failed to parse AI response as JSON: {e}")
-                            logger.error(f"AI Response: {content}")
+                                try:
+                                    analysis_data = json.loads(json_content)
+                                    logger.debug("Successfully parsed JSON from braces extraction")
+                                except json.JSONDecodeError:
+                                    pass
+                        
+                        # Strategy 3: Try to find JSON objects line by line
+                        if not analysis_data:
+                            lines = content.split('\n')
+                            for i, line in enumerate(lines):
+                                line = line.strip()
+                                if line.startswith('{'):
+                                    # Try to find the matching closing brace
+                                    json_content = line
+                                    brace_count = 1
+                                    j = i + 1
+                                    while j < len(lines) and brace_count > 0:
+                                        next_line = lines[j].strip()
+                                        json_content += '\n' + next_line
+                                        brace_count += next_line.count('{') - next_line.count('}')
+                                        j += 1
+                                    
+                                    if brace_count == 0:
+                                        try:
+                                            analysis_data = json.loads(json_content)
+                                            logger.debug("Successfully parsed JSON from line-by-line extraction")
+                                            break
+                                        except json.JSONDecodeError:
+                                            continue
+                        
+                        if analysis_data:
+                            return self._create_storm_analysis(analysis_data, weather_data)
+                        else:
+                            logger.error("No valid JSON found in AI response")
+                            logger.error(f"Full content: {content}")
                             return None
                     else:
                         logger.error("Invalid API response structure")
@@ -222,6 +280,9 @@ REMEMBER: High accuracy is critical. Only indicate storm detection with high con
                     
         except asyncio.TimeoutError:
             logger.error("DeepSeek API timeout")
+            return None
+        except asyncio.CancelledError:
+            logger.info("AI analysis cancelled during shutdown")
             return None
         except Exception as e:
             logger.error(f"DeepSeek API error: {e}")

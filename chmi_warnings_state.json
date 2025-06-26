@@ -1,4 +1,17 @@
 {
-  "last_check": 1750781544,
-  "warnings": {}
+  "last_check": 1750934294,
+  "warnings": {
+    "chmi_1750932000": {
+      "event": "Velmi vysoké teploty",
+      "color": "orange",
+      "time_start": 1750932000,
+      "hash": "abda3d74a2847b57253508e58ecbed63"
+    },
+    "chmi_1750953600": {
+      "event": "Velmi silné bouřky",
+      "color": "orange",
+      "time_start": 1750953600,
+      "hash": "5e68cc5d9c51f3bb4cfce455b2eb64f6"
+    }
+  }
 }

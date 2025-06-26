@@ -22,9 +22,18 @@ class WeatherDataFetcher:
         
     async def __aenter__(self):
         """Async context manager entry."""
+        # Create connector with DNS caching to handle resolution issues
+        connector = aiohttp.TCPConnector(
+            limit=10,
+            ttl_dns_cache=300,  # Cache DNS for 5 minutes
+            use_dns_cache=True,
+            keepalive_timeout=30,
+            enable_cleanup_closed=True
+        )
+        
         self.session = aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=30),
-            connector=aiohttp.TCPConnector(limit=10)
+            timeout=aiohttp.ClientTimeout(total=30, connect=10),
+            connector=connector
         )
         return self
         
@@ -34,57 +43,101 @@ class WeatherDataFetcher:
             await self.session.close()
     
     async def fetch_openweather_data(self) -> Optional[WeatherData]:
-        """Fetch data from OpenWeather API."""
-        try:
-            url = "https://api.openweathermap.org/data/2.5/weather"
-            params = {
-                "lat": self.config.weather.latitude,
-                "lon": self.config.weather.longitude,
-                "appid": self.config.weather.openweather_api_key,
-                "units": "metric"
-            }
-            
-            async with self.session.get(url, params=params) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return self._parse_openweather_data(data)
+        """Fetch data from OpenWeather API with retry logic."""
+        url = "https://api.openweathermap.org/data/2.5/weather"
+        params = {
+            "lat": self.config.weather.latitude,
+            "lon": self.config.weather.longitude,
+            "appid": self.config.weather.openweather_api_key,
+            "units": "metric"
+        }
+        
+        # Retry up to 3 times with exponential backoff
+        for attempt in range(3):
+            try:
+                async with self.session.get(url, params=params) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return self._parse_openweather_data(data)
+                    else:
+                        logger.error(f"OpenWeather API error: {response.status}")
+                        return None
+                        
+            except (asyncio.TimeoutError, aiohttp.ClientConnectorError, aiohttp.ClientError) as e:
+                if attempt < 2:  # Don't log on last attempt
+                    logger.warning(f"OpenWeather API attempt {attempt + 1} failed: {e}, retrying...")
+                    await asyncio.sleep(2 ** attempt)  # Exponential backoff: 1s, 2s
                 else:
-                    logger.error(f"OpenWeather API error: {response.status}")
+                    logger.error(f"OpenWeather API failed after 3 attempts: {e}")
                     return None
-                    
-        except asyncio.TimeoutError:
-            logger.error("OpenWeather API timeout")
-            return None
-        except Exception as e:
-            logger.error(f"OpenWeather API error: {e}")
-            return None
+            except Exception as e:
+                logger.error(f"OpenWeather API error: {e}")
+                return None
     
     async def fetch_visual_crossing_data(self) -> Optional[WeatherData]:
-        """Fetch data from Visual Crossing API."""
-        try:
-            location = f"{self.config.weather.latitude},{self.config.weather.longitude}"
-            url = f"https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/{location}"
-            
-            params = {
-                "key": self.config.weather.visual_crossing_api_key,
-                "include": "current",
-                "unitGroup": "metric"
-            }
-            
-            async with self.session.get(url, params=params) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return self._parse_visual_crossing_data(data)
+        """Fetch data from Visual Crossing API with retry logic."""
+        location = f"{self.config.weather.latitude},{self.config.weather.longitude}"
+        url = f"https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/{location}"
+        
+        params = {
+            "key": self.config.weather.visual_crossing_api_key,
+            "include": "current",
+            "unitGroup": "metric"
+        }
+        
+        # Retry up to 3 times with exponential backoff
+        for attempt in range(3):
+            try:
+                async with self.session.get(url, params=params) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return self._parse_visual_crossing_data(data)
+                    else:
+                        logger.error(f"Visual Crossing API error: {response.status}")
+                        return None
+                        
+            except (asyncio.TimeoutError, aiohttp.ClientConnectorError, aiohttp.ClientError) as e:
+                if attempt < 2:  # Don't log on last attempt
+                    logger.warning(f"Visual Crossing API attempt {attempt + 1} failed: {e}, retrying...")
+                    await asyncio.sleep(2 ** attempt)  # Exponential backoff: 1s, 2s
                 else:
-                    logger.error(f"Visual Crossing API error: {response.status}")
+                    logger.error(f"Visual Crossing API failed after 3 attempts: {e}")
                     return None
-                    
-        except asyncio.TimeoutError:
-            logger.error("Visual Crossing API timeout")
-            return None
-        except Exception as e:
-            logger.error(f"Visual Crossing API error: {e}")
-            return None
+            except Exception as e:
+                logger.error(f"Visual Crossing API error: {e}")
+                return None
+    
+    async def fetch_tomorrow_io_data(self) -> Optional[WeatherData]:
+        """Fetch data from Tomorrow.io API with retry logic."""
+        url = "https://api.tomorrow.io/v4/weather/realtime"
+        
+        params = {
+            "location": f"{self.config.weather.latitude},{self.config.weather.longitude}",
+            "apikey": self.config.weather.tomorrow_io_api_key,
+            "units": "metric"
+        }
+        
+        # Retry up to 3 times with exponential backoff
+        for attempt in range(3):
+            try:
+                async with self.session.get(url, params=params) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return self._parse_tomorrow_io_data(data)
+                    else:
+                        logger.error(f"Tomorrow.io API error: {response.status}")
+                        return None
+                        
+            except (asyncio.TimeoutError, aiohttp.ClientConnectorError, aiohttp.ClientError) as e:
+                if attempt < 2:  # Don't log on last attempt
+                    logger.warning(f"Tomorrow.io API attempt {attempt + 1} failed: {e}, retrying...")
+                    await asyncio.sleep(2 ** attempt)  # Exponential backoff: 1s, 2s
+                else:
+                    logger.error(f"Tomorrow.io API failed after 3 attempts: {e}")
+                    return None
+            except Exception as e:
+                logger.error(f"Tomorrow.io API error: {e}")
+                return None
     
     def _parse_openweather_data(self, data: Dict[str, Any]) -> WeatherData:
         """Parse OpenWeather API response."""
@@ -166,11 +219,64 @@ class WeatherDataFetcher:
             raw_data=data
         )
     
+    def _parse_tomorrow_io_data(self, data: Dict[str, Any]) -> WeatherData:
+        """Parse Tomorrow.io API response."""
+        current_data = data.get("data", {})
+        values = current_data.get("values", {})
+        
+        # Map Tomorrow.io weather codes to our conditions
+        weather_code = values.get("weatherCode", 0)
+        condition_map = {
+            # Clear/Sunny
+            1000: WeatherCondition.CLEAR,
+            1100: WeatherCondition.CLEAR,  # Mostly Clear
+            1101: WeatherCondition.CLOUDS,  # Partly Cloudy
+            1102: WeatherCondition.CLOUDS,  # Mostly Cloudy
+            1001: WeatherCondition.CLOUDS,  # Cloudy
+            # Fog/Mist
+            2000: WeatherCondition.FOG,
+            2100: WeatherCondition.MIST,
+            # Rain
+            4000: WeatherCondition.DRIZZLE,  # Light Rain
+            4001: WeatherCondition.RAIN,     # Rain
+            4200: WeatherCondition.RAIN,     # Heavy Rain
+            # Thunderstorm
+            8000: WeatherCondition.THUNDERSTORM,  # Thunderstorm
+            # Snow
+            5000: WeatherCondition.SNOW,     # Light Snow
+            5001: WeatherCondition.SNOW,     # Snow
+            5100: WeatherCondition.SNOW,     # Heavy Snow
+        }
+        
+        condition = condition_map.get(weather_code, WeatherCondition.CLEAR)
+        
+        # Convert wind direction from degrees to readable direction if needed
+        wind_direction = values.get("windDirection", 0.0)
+        
+        return WeatherData(
+            timestamp=datetime.now(),
+            source="tomorrow_io",
+            temperature=values.get("temperature", 0.0),
+            humidity=values.get("humidity", 0.0),
+            pressure=values.get("pressureSeaLevel", 1013.25),
+            wind_speed=values.get("windSpeed", 0.0),
+            wind_direction=wind_direction,
+            precipitation=values.get("precipitationIntensity", 0.0),
+            precipitation_probability=values.get("precipitationProbability", 0.0),
+            condition=condition,
+            visibility=values.get("visibility", 10.0),
+            cloud_cover=values.get("cloudCover", 0.0),
+            uv_index=values.get("uvIndex"),
+            description=f"Weather code: {weather_code}",
+            raw_data=data
+        )
+    
     async def fetch_all_data(self) -> List[WeatherData]:
         """Fetch data from all available APIs concurrently."""
         tasks = [
             self.fetch_openweather_data(),
-            self.fetch_visual_crossing_data()
+            self.fetch_visual_crossing_data(),
+            self.fetch_tomorrow_io_data()
         ]
         
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -182,7 +288,7 @@ class WeatherDataFetcher:
             elif isinstance(result, Exception):
                 logger.error(f"API fetch error: {result}")
         
-        logger.info(f"Successfully fetched data from {len(weather_data)} APIs")
+        logger.info(f"Successfully fetched data from {len(weather_data)} APIs (OpenWeather, Visual Crossing, Tomorrow.io)")
         return weather_data
 
 class WeatherDataCollector:

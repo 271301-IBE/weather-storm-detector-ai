@@ -12,6 +12,7 @@ class WeatherConfig:
     """Weather API configuration."""
     openweather_api_key: str
     visual_crossing_api_key: str
+    tomorrow_io_api_key: str
     latitude: float
     longitude: float
     city_name: str
@@ -57,6 +58,7 @@ def load_config() -> Config:
         weather=WeatherConfig(
             openweather_api_key=os.getenv("OPENWEATHER_API_KEY"),
             visual_crossing_api_key=os.getenv("VISUAL_CROSSING_API_KEY"),
+            tomorrow_io_api_key=os.getenv("TOMORROW_IO_API_KEY"),
             latitude=float(os.getenv("LATITUDE", "49.2384")),
             longitude=float(os.getenv("LONGITUDE", "16.6073")),
             city_name=os.getenv("CITY_NAME", "Brno"),

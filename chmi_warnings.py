@@ -63,7 +63,7 @@ class ChmiWarningParser:
         # Czech day names for human-readable dates
         self.day_names = ['', 'po', 'út', 'st', 'čt', 'pá', 'so', 'ne']
         
-        # Warning type mapping from ČHMÚ codes
+        # Warning type mapping from ČHMÚ codes (based on CAP documentation)
         self.warning_types = {
             '1': 'Wind',
             '2': 'snow-ice', 
@@ -79,6 +79,9 @@ class ChmiWarningParser:
             '12': 'flooding',
             '13': 'rain-flood'
         }
+        
+        # Storm-related warning types that should trigger AI analysis
+        self.storm_warning_types = {'Thunderstorm', 'Rain', 'Wind', 'rain-flood', 'flooding'}
         
         # Color mapping from awareness levels
         self.color_mapping = {
@@ -150,12 +153,15 @@ class ChmiWarningParser:
             ChmiWarning object or None if not applicable
         """
         try:
+            # Define namespace for CAP XML
+            ns = '{urn:oasis:names:tc:emergency:cap:1.2}'
+            
             # Check if this is a Czech warning and not a clearance
-            language = info_element.find('language')
+            language = info_element.find(f'{ns}language')
             if language is None or language.text != 'cs':
                 return None
             
-            response_type = info_element.find('responseType')
+            response_type = info_element.find(f'{ns}responseType')
             if response_type is not None and response_type.text in ['None', 'AllClear']:
                 return None
             
@@ -164,13 +170,13 @@ class ChmiWarningParser:
                 return None
             
             # Extract basic information
-            event = self._get_text(info_element, 'event', 'Neznámá výstraha')
-            description = self._get_text(info_element, 'description', '')
-            instruction = self._get_text(info_element, 'instruction', '')
+            event = self._get_text(info_element, f'{ns}event', 'Neznámá výstraha')
+            description = self._get_text(info_element, f'{ns}description', '')
+            instruction = self._get_text(info_element, f'{ns}instruction', '')
             
             # Parse timing
-            onset = info_element.find('onset')
-            expires = info_element.find('expires')
+            onset = info_element.find(f'{ns}onset')
+            expires = info_element.find(f'{ns}expires')
             
             if onset is None:
                 logger.warning("Warning missing onset time, skipping")
@@ -182,10 +188,10 @@ class ChmiWarningParser:
                 time_end = datetime.fromisoformat(expires.text.replace('Z', '+00:00'))
             
             # Check for eventEndingTime parameter
-            for param in info_element.findall('parameter'):
-                value_name = param.find('valueName')
+            for param in info_element.findall(f'{ns}parameter'):
+                value_name = param.find(f'{ns}valueName')
                 if value_name is not None and value_name.text == 'eventEndingTime':
-                    value = param.find('value')
+                    value = param.find(f'{ns}value')
                     if value is not None:
                         time_end = datetime.fromisoformat(value.text.replace('Z', '+00:00'))
             
@@ -195,21 +201,21 @@ class ChmiWarningParser:
                 return None
             
             # Extract warning classification
-            urgency = self._get_text(info_element, 'urgency', 'Unknown')
-            severity = self._get_text(info_element, 'severity', 'Unknown') 
-            certainty = self._get_text(info_element, 'certainty', 'Unknown')
+            urgency = self._get_text(info_element, f'{ns}urgency', 'Unknown')
+            severity = self._get_text(info_element, f'{ns}severity', 'Unknown') 
+            certainty = self._get_text(info_element, f'{ns}certainty', 'Unknown')
             response_type_text = response_type.text if response_type is not None else 'Unknown'
             
             # Parse awareness level and type from parameters
             color = 'unknown'
             warning_type = 'unknown'
             
-            for param in info_element.findall('parameter'):
-                value_name = param.find('valueName')
+            for param in info_element.findall(f'{ns}parameter'):
+                value_name = param.find(f'{ns}valueName')
                 if value_name is None:
                     continue
                     
-                value = param.find('value')
+                value = param.find(f'{ns}value')
                 if value is None:
                     continue
                 
@@ -234,12 +240,12 @@ class ChmiWarningParser:
             
             # Get area description
             area_desc = "Jihomoravský kraj"
-            area = info_element.find('area/areaDesc')
+            area = info_element.find(f'{ns}area/{ns}areaDesc')
             if area is not None:
                 area_desc = area.text
             
             # Create identifier from multiple sources
-            identifier_elem = info_element.find('../identifier')
+            identifier_elem = info_element.find(f'../{ns}identifier')
             identifier = identifier_elem.text if identifier_elem is not None else f"chmi_{int(time_start.timestamp())}"
             
             return ChmiWarning(
@@ -269,13 +275,21 @@ class ChmiWarningParser:
     
     def _applies_to_region(self, info_element: ET.Element) -> bool:
         """Check if warning applies to our region (CISORP code)."""
-        for area in info_element.findall('area'):
-            for geocode in area.findall('geocode'):
-                value_name = geocode.find('valueName')
-                value = geocode.find('value')
+        ns = '{urn:oasis:names:tc:emergency:cap:1.2}'
+        for area in info_element.findall(f'{ns}area'):
+            for geocode in area.findall(f'{ns}geocode'):
+                # Použít přímý přístup k elementům místo find()
+                value_name_elem = None
+                value_elem = None
                 
-                if (value_name is not None and value_name.text == 'CISORP' and
-                    value is not None and value.text == self.region_code):
+                for child in geocode:
+                    if child.tag == f'{ns}valueName':
+                        value_name_elem = child
+                    elif child.tag == f'{ns}value':
+                        value_elem = child
+                
+                if (value_name_elem is not None and value_name_elem.text == 'CISORP' and
+                    value_elem is not None and value_elem.text == self.region_code):
                     return True
         return False
     
@@ -431,4 +445,60 @@ class ChmiWarningMonitor:
             return self.parser.get_current_warnings()
         except Exception as e:
             logger.error(f"Error fetching ČHMÚ warnings: {e}")
+            return []
+    
+    def get_storm_warnings(self) -> List[ChmiWarning]:
+        """Get only storm-related warnings (Thunderstorm, Rain, Wind, flooding)."""
+        try:
+            all_warnings = self.parser.get_current_warnings()
+            storm_warnings = []
+            
+            for warning in all_warnings:
+                # Check warning type
+                if warning.warning_type in self.parser.storm_warning_types:
+                    storm_warnings.append(warning)
+                    continue
+                
+                # Check event name for storm keywords (Czech)
+                event_lower = warning.event.lower()
+                storm_keywords = ['bouř', 'déšť', 'vichr', 'povodeň', 'vítr', 'lijavec', 'převal']
+                if any(keyword in event_lower for keyword in storm_keywords):
+                    storm_warnings.append(warning)
+                    continue
+                
+                # Check detailed text for storm indicators
+                text_lower = warning.detailed_text.lower()
+                if any(keyword in text_lower for keyword in storm_keywords):
+                    storm_warnings.append(warning)
+            
+            logger.info(f"Found {len(storm_warnings)} storm-related warnings out of {len(all_warnings)} total")
+            return storm_warnings
+            
+        except Exception as e:
+            logger.error(f"Error fetching storm warnings: {e}")
+            return []
+    
+    def get_significant_warnings(self, min_severity: str = 'Moderate') -> List[ChmiWarning]:
+        """
+        Get warnings above specified severity level.
+        
+        Args:
+            min_severity: Minimum severity level ('Minor', 'Moderate', 'Severe', 'Extreme')
+        """
+        try:
+            all_warnings = self.get_all_active_warnings()
+            severity_order = {'Minor': 1, 'Moderate': 2, 'Severe': 3, 'Extreme': 4}
+            min_level = severity_order.get(min_severity, 2)
+            
+            significant_warnings = []
+            for warning in all_warnings:
+                warning_level = severity_order.get(warning.severity, 1)
+                if warning_level >= min_level:
+                    significant_warnings.append(warning)
+            
+            logger.info(f"Found {len(significant_warnings)} warnings >= {min_severity} severity")
+            return significant_warnings
+            
+        except Exception as e:
+            logger.error(f"Error filtering significant warnings: {e}")
             return []

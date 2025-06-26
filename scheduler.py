@@ -38,6 +38,9 @@ class WeatherMonitoringScheduler:
         self.database = WeatherDatabase(config)
         self.chmi_monitor = ChmiWarningMonitor("6203")  # Brno CISORP code
         
+        # Warning analysis cache to prevent duplicate AI analysis
+        self._warning_analysis_cache = {}  # {warning_key: analysis_timestamp}
+        
         # Set up signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -64,12 +67,19 @@ class WeatherMonitoringScheduler:
             for data in weather_data:
                 self.database.store_weather_data(data)
             
-            # 3. Get ČHMÚ warnings for analysis
-            chmi_warnings = self.chmi_monitor.get_all_active_warnings()
+            # 3. Get ČHMÚ warnings for analysis (focus on storm-related warnings)
+            chmi_warnings = self.chmi_monitor.get_storm_warnings()
             
-            # 4. Analyze storm potential with ČHMÚ data
-            historical_data = self.database.get_recent_weather_data(hours=6)
-            analysis = await self.storm_engine.analyze_storm_potential(weather_data, historical_data, chmi_warnings)
+            # 4. Decide if AI analysis is needed (save costs)
+            should_run_ai = self._should_run_ai_analysis(weather_data, chmi_warnings)
+            
+            analysis = None
+            if should_run_ai:
+                logger.info("Running AI analysis - conditions indicate potential storm activity")
+                historical_data = self.database.get_recent_weather_data(hours=6)
+                analysis = await self.storm_engine.analyze_storm_potential(weather_data, historical_data, chmi_warnings)
+            else:
+                logger.debug("Skipping AI analysis - conditions normal")
             
             if analysis:
                 # 5. Store analysis results
@@ -104,35 +114,8 @@ class WeatherMonitoringScheduler:
         except Exception as e:
             logger.error(f"Error in monitoring cycle: {e}", exc_info=True)
     
-    async def daily_summary_task(self):
-        """Send daily weather summary with AI-generated content."""
-        logger.info("Executing daily summary task with AI analysis")
-        
-        try:
-            # Get recent weather data for summary
-            recent_data = self.database.get_recent_weather_data(hours=24)
-            
-            # Get current weather data
-            weather_data = await self.data_collector.collect_weather_data()
-            
-            # Get current ČHMÚ warnings for context
-            chmi_warnings = self.chmi_monitor.get_all_active_warnings()
-            
-            # Send daily summary email with AI-generated content
-            notification = await self.email_notifier.send_daily_summary_with_ai(
-                weather_data, 
-                chmi_warnings
-            )
-            
-            self.database.store_email_notification(notification)
-            
-            if notification.sent_successfully:
-                logger.info(f"Daily summary email with AI content sent successfully (ČHMÚ warnings: {len(chmi_warnings)})")
-            else:
-                logger.error(f"Failed to send daily summary: {notification.error_message}")
-                
-        except Exception as e:
-            logger.error(f"Error in daily summary task: {e}", exc_info=True)
+    # ODSTRANĚNO: Denní souhrny - uživatel je zakázal
+    # "Asi se vyser na denni emaily. Je to zbytečný. Stačí jen extremní výstrahy a bouřky a deště nad Brnem."
     
     async def cleanup_task(self):
         """Perform database cleanup and maintenance."""
@@ -141,6 +124,8 @@ class WeatherMonitoringScheduler:
         try:
             # Clean up old data (keep 30 days of regular data, 90 days of analysis)
             self.database.cleanup_old_data(days_to_keep=30)
+            # Clean up expired weather condition cache entries
+            self.database.cleanup_weather_condition_cache()
             logger.info("Database cleanup completed")
             
         except Exception as e:
@@ -199,14 +184,8 @@ class WeatherMonitoringScheduler:
             misfire_grace_time=60
         )
         
-        # Daily summary at 9 AM
-        self.scheduler.add_job(
-            self.daily_summary_task,
-            trigger=CronTrigger(hour=self.config.system.daily_summary_hour, minute=0),
-            id='daily_summary',
-            name='Daily Weather Summary',
-            max_instances=1
-        )
+        # ODSTRANĚNO: Denní souhrny - uživatel je zakázal
+        # "Asi se vyser na denni emaily. Je to zbytečný. Stačí jen extremní výstrahy a bouřky a deště nad Brnem."
         
         # ČHMÚ warning check every 10 minutes (same as weather monitoring)
         self.scheduler.add_job(
@@ -239,7 +218,7 @@ class WeatherMonitoringScheduler:
         logger.info("Starting Weather Storm Detection System...")
         logger.info(f"Monitoring location: {self.config.weather.city_name}, {self.config.weather.region}")
         logger.info(f"Monitoring interval: {self.config.system.monitoring_interval_minutes} minutes")
-        logger.info(f"Daily summary time: {self.config.system.daily_summary_hour}:00")
+        logger.info("Daily summaries: DISABLED (only storm alerts enabled)")
         logger.info(f"Storm confidence threshold: {self.config.ai.storm_confidence_threshold:.1%}")
         
         # Set up jobs
@@ -282,6 +261,160 @@ class WeatherMonitoringScheduler:
             logger.info("Monitoring system cancelled")
         finally:
             await self.stop()
+    
+    def _should_run_ai_analysis(self, weather_data, chmi_warnings) -> bool:
+        """
+        Determine if AI analysis should run to save API costs.
+        Only run AI when there are storm indicators.
+        """
+        # Check ČHMÚ warnings with smart filtering (based on CAP documentation)
+        if chmi_warnings:
+            current_time = datetime.now()
+            
+            for warning in chmi_warnings:
+                # Check for storm-related warning types (already filtered by get_storm_warnings)
+                # Focus on significant warnings (yellow, orange, red)
+                if warning.color in ['yellow', 'orange', 'red']:
+                    
+                    # Parse warning start time to check if it's within next 24 hours
+                    try:
+                        if hasattr(warning, 'time_start_iso') and warning.time_start_iso:
+                            # Handle timezone info properly
+                            start_time_str = warning.time_start_iso.replace('Z', '+00:00')
+                            warning_start = datetime.fromisoformat(start_time_str)
+                            
+                            # Convert to local time if needed
+                            if warning_start.tzinfo:
+                                warning_start = warning_start.replace(tzinfo=None)
+                            
+                            # Smart timing for warnings:
+                            # - Immediate warnings (next 6 hours): analyze immediately
+                            # - Tomorrow's warnings: analyze only 3 hours before start time
+                            # - Far future warnings (>48h): ignore completely
+                            time_until_warning = (warning_start - current_time).total_seconds()
+                            
+                            if time_until_warning > 172800:  # More than 48 hours away
+                                logger.info(f"Skipping AI analysis for far future warning: {warning.event} starts in {time_until_warning/3600:.1f} hours")
+                                continue
+                            elif time_until_warning > 21600:  # More than 6 hours away (tomorrow's warnings)
+                                # Only analyze if warning starts within 3 hours 
+                                if time_until_warning > 10800:  # More than 3 hours away
+                                    logger.info(f"Tomorrow's warning scheduled - will analyze 3h before: {warning.event} starts in {time_until_warning/3600:.1f} hours")
+                                    continue
+                                
+                        # Check if we've already analyzed this specific warning recently
+                        warning_cache_key = f"chmi_{warning.identifier}_{warning.event}"
+                        if self._is_warning_recently_analyzed(warning_cache_key):
+                            logger.info(f"Skipping AI analysis - warning already analyzed recently: {warning.event}")
+                            continue
+                            
+                        # Mark this warning as analyzed
+                        self._mark_warning_analyzed(warning_cache_key)
+                        logger.info(f"AI analysis triggered by ČHMÚ warning: {warning.event}")
+                        return True
+                        
+                    except (ValueError, AttributeError) as e:
+                        logger.warning(f"Could not parse warning time for {warning.event}: {e}")
+                        # If we can't parse time, analyze it to be safe (but cache it)
+                        warning_cache_key = f"chmi_{warning.identifier}_{warning.event}"
+                        if not self._is_warning_recently_analyzed(warning_cache_key):
+                            self._mark_warning_analyzed(warning_cache_key)
+                            logger.info(f"AI analysis triggered by ČHMÚ warning (unparseable time): {warning.event}")
+                            return True
+        
+        # Check weather conditions for storm indicators with caching
+        current_time = datetime.now()
+        
+        for data in weather_data:
+            # Very high precipitation probability (more conservative)
+            if data.precipitation_probability and data.precipitation_probability > 80:
+                cache_key = f"precip_prob_{data.precipitation_probability:.0f}"
+                if not self.database.is_weather_condition_recently_analyzed(cache_key):
+                    self.database.mark_weather_condition_analyzed(cache_key)
+                    logger.info(f"AI analysis triggered by very high precipitation probability: {data.precipitation_probability}%")
+                    return True
+            
+            # Heavy precipitation only
+            if data.precipitation and data.precipitation > 5.0:
+                cache_key = f"precipitation_{data.precipitation:.1f}"
+                if not self.database.is_weather_condition_recently_analyzed(cache_key):
+                    self.database.mark_weather_condition_analyzed(cache_key)
+                    logger.info(f"AI analysis triggered by active precipitation: {data.precipitation}mm")
+                    return True
+            
+            # High humidity + low pressure (storm conditions)
+            if data.humidity > 80 and data.pressure < 1010:
+                cache_key = f"storm_conditions_{data.humidity:.0f}_{data.pressure:.0f}"
+                if not self.database.is_weather_condition_recently_analyzed(cache_key):
+                    self.database.mark_weather_condition_analyzed(cache_key)
+                    logger.info(f"AI analysis triggered by storm conditions: humidity {data.humidity}%, pressure {data.pressure}hPa")
+                    return True
+            
+            # Extreme wind speeds (severe gale/storm force winds only)
+            if data.wind_speed and data.wind_speed > 24:  # >24 m/s (~86 km/h, severe gale force)
+                # Group wind speeds into ranges to avoid repeated analysis for similar values
+                wind_range = int(data.wind_speed // 5) * 5  # Group into 5 m/s ranges
+                cache_key = f"extreme_wind_range_{wind_range}"
+                if not self.database.is_weather_condition_recently_analyzed(cache_key):
+                    self.database.mark_weather_condition_analyzed(cache_key)
+                    logger.info(f"AI analysis triggered by very high wind speed: {data.wind_speed} m/s (range {wind_range}-{wind_range+4})")
+                    return True
+                else:
+                    logger.debug(f"Skipping AI analysis - high wind speed {data.wind_speed} m/s already analyzed recently")
+            
+            # Stormy conditions in description
+            if data.description:
+                stormy_keywords = ['storm', 'thunder', 'lightning', 'heavy rain', 
+                                 'bouř', 'déšť', 'blesk', 'prudký']
+                if any(keyword in data.description.lower() for keyword in stormy_keywords):
+                    cache_key = f"description_{hash(data.description.lower())}"
+                    if not self.database.is_weather_condition_recently_analyzed(cache_key):
+                        self.database.mark_weather_condition_analyzed(cache_key)
+                        logger.info(f"AI analysis triggered by weather description: {data.description}")
+                        return True
+        
+        # Run AI analysis occasionally even in normal conditions (once per hour max)
+        last_analysis = self.database.get_last_storm_analysis()
+        if last_analysis is None:
+            logger.info("AI analysis triggered - no previous analysis found")
+            return True
+        
+        # If last analysis was more than 1 hour ago, run periodic check
+        time_since_last = datetime.now() - last_analysis.timestamp
+        if time_since_last.total_seconds() > 3600:  # 1 hour
+            logger.info("AI analysis triggered - periodic check (>1 hour since last)")
+            return True
+        
+        # Skip AI analysis - normal conditions
+        return False
+    
+    def _is_warning_recently_analyzed(self, warning_key: str) -> bool:
+        """Check if a warning has been analyzed recently (within 6 hours)."""
+        if warning_key not in self._warning_analysis_cache:
+            return False
+            
+        last_analysis = self._warning_analysis_cache[warning_key]
+        time_since_analysis = (datetime.now() - last_analysis).total_seconds()
+        
+        # Consider warning recently analyzed if within 6 hours
+        return time_since_analysis < 21600  # 6 hours
+    
+    def _mark_warning_analyzed(self, warning_key: str):
+        """Mark a warning as analyzed with current timestamp."""
+        self._warning_analysis_cache[warning_key] = datetime.now()
+        
+        # Clean up old cache entries (older than 24 hours)
+        current_time = datetime.now()
+        expired_keys = [
+            key for key, timestamp in self._warning_analysis_cache.items()
+            if (current_time - timestamp).total_seconds() > 86400  # 24 hours
+        ]
+        
+        for key in expired_keys:
+            del self._warning_analysis_cache[key]
+        
+        logger.debug(f"Warning cache updated. Current entries: {len(self._warning_analysis_cache)}")
+    
 
 async def main():
     """Main entry point for the weather monitoring system."""

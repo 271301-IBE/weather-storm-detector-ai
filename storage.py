@@ -91,6 +91,17 @@ class WeatherDatabase:
                 )
             """)
             
+            # Weather condition cache table for AI analysis triggers
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS weather_condition_cache (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    cache_key TEXT UNIQUE NOT NULL,
+                    analyzed_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
             conn.commit()
             logger.info("Database initialized successfully")
     
@@ -163,6 +174,67 @@ class WeatherDatabase:
         except Exception as e:
             logger.error(f"Error storing storm analysis: {e}")
             return False
+    
+    def get_last_storm_analysis(self) -> Optional[StormAnalysis]:
+        """Get the most recent storm analysis."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT timestamp, confidence_score, storm_detected, alert_level,
+                           predicted_arrival, predicted_intensity, analysis_summary,
+                           recommendations, data_quality_score
+                    FROM storm_analysis 
+                    ORDER BY timestamp DESC 
+                    LIMIT 1
+                """)
+                
+                row = cursor.fetchone()
+                if row:
+                    from models import StormAnalysis, AlertLevel
+                    
+                    # Parse alert level
+                    alert_level_map = {
+                        'LOW': AlertLevel.LOW,
+                        'MEDIUM': AlertLevel.MEDIUM,
+                        'HIGH': AlertLevel.HIGH,
+                        'CRITICAL': AlertLevel.CRITICAL
+                    }
+                    alert_level = alert_level_map.get(row[3], AlertLevel.LOW)
+                    
+                    # Parse predicted arrival
+                    predicted_arrival = None
+                    if row[4]:
+                        try:
+                            predicted_arrival = datetime.fromisoformat(row[4])
+                        except:
+                            pass
+                    
+                    # Parse recommendations
+                    recommendations = []
+                    if row[7]:
+                        try:
+                            recommendations = json.loads(row[7])
+                        except:
+                            pass
+                    
+                    return StormAnalysis(
+                        timestamp=datetime.fromisoformat(row[0]),
+                        confidence_score=float(row[1]),
+                        storm_detected=bool(row[2]),
+                        alert_level=alert_level,
+                        predicted_arrival=predicted_arrival,
+                        predicted_intensity=row[5],
+                        analysis_summary=row[6] or "",
+                        recommendations=recommendations,
+                        data_quality_score=float(row[8]) if row[8] else 0.0
+                    )
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error getting last storm analysis: {e}")
+            return None
     
     def store_email_notification(self, notification: EmailNotification) -> bool:
         """Store email notification record."""
@@ -256,3 +328,65 @@ class WeatherDatabase:
                 
         except Exception as e:
             logger.error(f"Error cleaning up old data: {e}")
+    
+    def is_weather_condition_recently_analyzed(self, cache_key: str) -> bool:
+        """Check if a weather condition has been analyzed recently."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Check if cache entry exists and hasn't expired
+                cursor.execute("""
+                    SELECT COUNT(*) FROM weather_condition_cache 
+                    WHERE cache_key = ? AND expires_at > datetime('now')
+                """, (cache_key,))
+                
+                count = cursor.fetchone()[0]
+                return count > 0
+                
+        except Exception as e:
+            logger.error(f"Error checking weather condition cache: {e}")
+            return False
+    
+    def mark_weather_condition_analyzed(self, cache_key: str, expires_hours: int = 1):
+        """Mark a weather condition as analyzed with expiration time."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                now = datetime.now()
+                expires_at = now + timedelta(hours=expires_hours)
+                
+                # Insert or replace cache entry
+                cursor.execute("""
+                    INSERT OR REPLACE INTO weather_condition_cache 
+                    (cache_key, analyzed_at, expires_at)
+                    VALUES (?, ?, ?)
+                """, (cache_key, now.isoformat(), expires_at.isoformat()))
+                
+                conn.commit()
+                logger.debug(f"Marked weather condition as analyzed: {cache_key} (expires in {expires_hours}h)")
+                
+        except Exception as e:
+            logger.error(f"Error marking weather condition as analyzed: {e}")
+    
+    def cleanup_weather_condition_cache(self):
+        """Clean up expired weather condition cache entries."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Remove expired entries
+                cursor.execute("""
+                    DELETE FROM weather_condition_cache 
+                    WHERE expires_at < datetime('now')
+                """)
+                
+                deleted_count = cursor.rowcount
+                conn.commit()
+                
+                if deleted_count > 0:
+                    logger.debug(f"Cleaned up {deleted_count} expired weather condition cache entries")
+                    
+        except Exception as e:
+            logger.error(f"Error cleaning up weather condition cache: {e}")

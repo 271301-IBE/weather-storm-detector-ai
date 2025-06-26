@@ -70,5 +70,16 @@ test_output.log
 # Service files
 *.service
 
+# Process ID files
+*.pid
+
+# Email samples with sensitive data
+sample_emails/
+
+# Temporary files
+*.tmp
+temp/
+tmp/
+
 # Embedded git repositories
 ChmiWarnings/
