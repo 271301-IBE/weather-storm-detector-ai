@@ -131,6 +131,7 @@
                     </li>
                 </ul>
                 <span class="navbar-text me-3" id="lastUpdate">Loading...</span>
+                <button class="btn btn-outline-info me-2" id="enableNotifications">Enable Notifications</button>
                 <a href="/logout" class="btn btn-outline-light">Logout</a>
             </div>
         </div>
@@ -793,6 +794,53 @@
                     console.error('Error loading history charts:', error);
                 });
         }
+
+        function urlBase64ToUint8Array(base64String) {
+            const padding = '='.repeat((4 - base64String.length % 4) % 4);
+            const base64 = (base64String + padding)
+                .replace(/\-/g, '+')
+                .replace(/_/g, '/');
+
+            const rawData = window.atob(base64);
+            const outputArray = new Uint8Array(rawData.length);
+
+            for (let i = 0; i < rawData.length; ++i) {
+                outputArray[i] = rawData.charCodeAt(i);
+            }
+            return outputArray;
+        }
+
+        document.getElementById('enableNotifications').addEventListener('click', () => {
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('/sw.js').then(registration => {
+                    console.log('Service Worker registered with scope:', registration.scope);
+                    Notification.requestPermission().then(permission => {
+                        if (permission === 'granted') {
+                            console.log('Notification permission granted.');
+                            fetch('/api/vapid_public_key')
+                                .then(response => response.json())
+                                .then(data => {
+                                    const vapidPublicKey = data.public_key;
+                                    const convertedVapidKey = urlBase64ToUint8Array(vapidPublicKey);
+
+                                    registration.pushManager.subscribe({
+                                        userVisibleOnly: true,
+                                        applicationServerKey: convertedVapidKey
+                                    }).then(subscription => {
+                                        fetch('/api/subscribe', {
+                                            method: 'POST',
+                                            body: JSON.stringify(subscription),
+                                            headers: {
+                                                'Content-Type': 'application/json'
+                                            }
+                                        });
+                                    });
+                                });
+                        }
+                    });
+                });
+            }
+        });
     </script>
 </body>
 </html>

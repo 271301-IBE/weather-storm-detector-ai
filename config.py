@@ -52,6 +52,12 @@ class WebAppConfig:
     secret_key: str
 
 @dataclass
+class WebNotificationConfig:
+    """Web push notification configuration."""
+    vapid_private_key: str
+    vapid_public_key: str
+
+@dataclass
 class SystemConfig:
     """System operation configuration."""
     monitoring_interval_minutes: int
@@ -67,6 +73,7 @@ class Config:
     system: SystemConfig
     chmi: ChmiConfig
     webapp: WebAppConfig
+    web_notification: WebNotificationConfig
 
 def load_config() -> Config:
     """Load configuration from environment variables."""
@@ -109,5 +116,9 @@ def load_config() -> Config:
             username=os.getenv("WEBAPP_USERNAME", "pi"),
             password=os.getenv("WEBAPP_PASSWORD", "pica1234"),
             secret_key=os.getenv("WEBAPP_SECRET_KEY", "weather_storm_detector_secret_key_2025")
+        ),
+        web_notification=WebNotificationConfig(
+            vapid_private_key=os.getenv("VAPID_PRIVATE_KEY"),
+            vapid_public_key=os.getenv("VAPID_PUBLIC_KEY")
         )
     )

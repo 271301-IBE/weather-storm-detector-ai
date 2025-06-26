@@ -9,11 +9,14 @@ from typing import Optional
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
+import json
+import os
 
 from config import Config, load_config
 from data_fetcher import WeatherDataCollector
 from ai_analysis import StormDetectionEngine
 from email_notifier import EmailNotifier
+from web_notifier import WebNotifier
 from pdf_generator import WeatherReportGenerator
 from storage import WeatherDatabase
 from models import EmailNotification
@@ -34,6 +37,7 @@ class WeatherMonitoringScheduler:
         self.data_collector = WeatherDataCollector(config)
         self.storm_engine = StormDetectionEngine(config)
         self.email_notifier = EmailNotifier(config)
+        self.web_notifier = WebNotifier(config)
         self.pdf_generator = WeatherReportGenerator(config)
         self.database = WeatherDatabase(config)
         self.chmi_monitor = ChmiWarningMonitor(config)
@@ -102,6 +106,12 @@ class WeatherMonitoringScheduler:
                         
                         if notification.sent_successfully:
                             logger.warning(f"COMBINED WEATHER ALERT SENT: AI Confidence {analysis.confidence_score:.1%}, ČHMÚ warnings: {len(chmi_warnings)}")
+                            # Send web push notifications
+                            if os.path.exists('subscriptions.json'):
+                                with open('subscriptions.json', 'r') as f:
+                                    subscriptions = json.load(f)
+                                for sub in subscriptions:
+                                    self.web_notifier.send_notification(sub, analysis)
                         else:
                             logger.error(f"Failed to send combined weather alert: {notification.error_message}")
                     else:

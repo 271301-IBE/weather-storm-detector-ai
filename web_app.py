@@ -7,7 +7,7 @@ Simple web dashboard for monitoring weather data, AI analysis, and system status
 import sqlite3
 import json
 from datetime import datetime, timedelta
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, Response
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, Response, send_from_directory
 from functools import wraps
 import logging
 from pathlib import Path
@@ -20,7 +20,7 @@ from config import load_config
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__)
+app = Flask(__name__, static_url_path='/static')
 
 # Load configuration
 config = load_config()
@@ -29,6 +29,7 @@ app.secret_key = config.webapp.secret_key
 # Simple authentication
 USERNAME = config.webapp.username
 PASSWORD = config.webapp.password
+SUBSCRIPTIONS_FILE = 'subscriptions.json'
 
 def login_required(f):
     @wraps(f)
@@ -41,6 +42,23 @@ def login_required(f):
 def get_db_connection():
     """Get database connection."""
     return sqlite3.connect('./weather_data.db')
+
+def save_subscription(subscription):
+    """Save a push notification subscription."""
+    try:
+        subscriptions = []
+        if os.path.exists(SUBSCRIPTIONS_FILE):
+            with open(SUBSCRIPTIONS_FILE, 'r') as f:
+                subscriptions = json.load(f)
+        
+        subscriptions.append(subscription)
+        
+        with open(SUBSCRIPTIONS_FILE, 'w') as f:
+            json.dump(subscriptions, f)
+            
+        logger.info("Saved new push notification subscription.")
+    except Exception as e:
+        logger.error(f"Error saving subscription: {e}")
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -66,6 +84,24 @@ def logout():
 def dashboard():
     """Main dashboard page."""
     return render_template('dashboard.html')
+
+@app.route('/sw.js')
+def service_worker():
+    return send_from_directory('static', 'sw.js')
+
+@app.route('/api/vapid_public_key')
+@login_required
+def vapid_public_key():
+    """Provide the VAPID public key to the client."""
+    return jsonify({'public_key': config.web_notification.vapid_public_key})
+
+@app.route('/api/subscribe', methods=['POST'])
+@login_required
+def subscribe():
+    """Subscribe a user for push notifications."""
+    subscription_info = request.json
+    save_subscription(subscription_info)
+    return jsonify({'success': True})
 
 @app.route('/api/current_weather')
 @login_required
