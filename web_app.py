@@ -153,6 +153,7 @@ def api_weather_history():
         history_data = []
         for row in rows:
             data = dict(zip(columns, row))
+            data['timestamp'] = datetime.fromisoformat(data['timestamp']).timestamp() * 1000
             history_data.append(data)
         
         conn.close()
@@ -407,7 +408,7 @@ def api_chmi_warnings():
         from chmi_warnings import ChmiWarningMonitor
         
         config = load_config()
-        chmi_monitor = ChmiWarningMonitor('6203')  # Brno region code
+        chmi_monitor = ChmiWarningMonitor(config)
         
         # Get all current warnings and filter only for Brno/Jihomoravský kraj
         all_warnings = chmi_monitor.get_all_active_warnings()

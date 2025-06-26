@@ -36,7 +36,7 @@ class WeatherMonitoringScheduler:
         self.email_notifier = EmailNotifier(config)
         self.pdf_generator = WeatherReportGenerator(config)
         self.database = WeatherDatabase(config)
-        self.chmi_monitor = ChmiWarningMonitor("6203")  # Brno CISORP code
+        self.chmi_monitor = ChmiWarningMonitor(config)
         
         # Warning analysis cache to prevent duplicate AI analysis
         self._warning_analysis_cache = {}  # {warning_key: analysis_timestamp}

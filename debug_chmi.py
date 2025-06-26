@@ -2,8 +2,10 @@
 
 from chmi_warnings import ChmiWarningParser
 import xml.etree.ElementTree as ET
+from config import load_config
 
-parser = ChmiWarningParser('6203')
+config = load_config()
+parser = ChmiWarningParser(config)
 xml_content = parser.fetch_xml_data()
 root = ET.fromstring(xml_content)
 

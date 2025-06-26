@@ -109,10 +109,13 @@ def test_chmi_warnings():
     print("\n🏛️ TESTOVÁNÍ ČHMÚ VAROVÁNÍ...")
     
     try:
+        from config import load_config
         from chmi_warnings import ChmiWarningMonitor
         
-        monitor = ChmiWarningMonitor("6203")  # Brno
+        config = load_config()
+        monitor = ChmiWarningMonitor(config)  # Brno
         warnings = monitor.get_all_active_warnings()
+
         
         print(f"✅ Nalezeno {len(warnings)} aktivních varování")
         for warning in warnings:

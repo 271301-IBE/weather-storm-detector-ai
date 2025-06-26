@@ -45,7 +45,7 @@ async def test_combined_ai_chmi_analysis():
             return False
         
         # Get ČHMÚ warnings
-        chmi_monitor = ChmiWarningMonitor("6203")
+        chmi_monitor = ChmiWarningMonitor(config)
         chmi_warnings = chmi_monitor.get_all_active_warnings()
         
         print(f"📊 Weather data sources: {len(weather_data)}")
@@ -88,7 +88,7 @@ async def test_combined_email_generation():
         weather_data = await collector.collect_weather_data()
         
         # Get ČHMÚ warnings
-        chmi_monitor = ChmiWarningMonitor("6203")
+        chmi_monitor = ChmiWarningMonitor(config)
         chmi_warnings = chmi_monitor.get_all_active_warnings()
         
         # Create test analysis
@@ -146,7 +146,7 @@ async def test_daily_summary_with_ai():
         weather_data = await collector.collect_weather_data()
         
         # Get ČHMÚ warnings
-        chmi_monitor = ChmiWarningMonitor("6203")
+        chmi_monitor = ChmiWarningMonitor(config)
         chmi_warnings = chmi_monitor.get_all_active_warnings()
         
         # Test AI summary generation

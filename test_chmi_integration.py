@@ -34,7 +34,7 @@ async def test_chmi_xml_parsing():
     print("\n🧪 Testing ČHMÚ XML parsing...")
     
     try:
-        parser = ChmiWarningParser("6203")  # Brno code
+        parser = ChmiWarningParser(config)
         
         # Test XML fetching
         print("📥 Fetching ČHMÚ XML data...")
@@ -63,7 +63,7 @@ def test_chmi_change_detection():
     print("\n🔄 Testing ČHMÚ change detection...")
     
     try:
-        monitor = ChmiWarningMonitor("6203")
+        monitor = ChmiWarningMonitor(config)
         
         # First check - should detect as new if state file doesn't exist
         print("🔍 First check for warnings...")
@@ -207,7 +207,7 @@ def test_sample_xml_data():
     print("\n📁 Testing with sample XML data...")
     
     try:
-        parser = ChmiWarningParser("6203")
+        parser = ChmiWarningParser(config)
         
         # Find sample XML files
         sample_files = list(Path("ChmiWarnings/test-data").glob("*.xml"))
