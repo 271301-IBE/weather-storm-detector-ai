@@ -108,6 +108,10 @@
             word-wrap: break-word;
             margin-bottom: 15px;
         }
+        .history-chart-container {
+            height: 300px; /* Fixed height for history charts */
+            margin-bottom: 20px;
+        }
     </style>
 </head>
 <body>
@@ -213,18 +217,38 @@
                                     <option value="720">Last 30 Days</option>
                                 </select>
                             </div>
-                            <div class="mb-3">
-                                <label for="historyMetric" class="form-label">Select Metric:</label>
-                                <select class="form-select" id="historyMetric">
-                                    <option value="temperature">Temperature (°C)</option>
-                                    <option value="humidity">Humidity (%)</option>
-                                    <option value="pressure">Pressure (hPa)</option>
-                                    <option value="wind_speed">Wind Speed (m/s)</option>
-                                    <option value="precipitation">Precipitation (mm)</option>
-                                    <option value="precipitation_probability">Precipitation Probability (%)</option>
-                                </select>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="history-chart-container">
+                                        <canvas id="historyChartTemperature"></canvas>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="history-chart-container">
+                                        <canvas id="historyChartHumidity"></canvas>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="history-chart-container">
+                                        <canvas id="historyChartPressure"></canvas>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="history-chart-container">
+                                        <canvas id="historyChartWindSpeed"></canvas>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="history-chart-container">
+                                        <canvas id="historyChartPrecipitation"></canvas>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="history-chart-container">
+                                        <canvas id="historyChartPrecipitationProbability"></canvas>
+                                    </div>
+                                </div>
                             </div>
-                            <canvas id="historyChart"></canvas>
                         </div>
                     </div>
                 </div>
@@ -235,7 +259,7 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         let weatherChart;
-        let historyChart;
+        const historyCharts = {}; // Object to store multiple history chart instances
         
         // Auto-refresh data every 30 seconds
         setInterval(loadAllData, 30000);
@@ -246,8 +270,7 @@
             showTab('dashboard'); // Default to dashboard tab
 
             // Event listeners for history panel
-            document.getElementById('historyTimeline').addEventListener('change', loadHistoryChart);
-            document.getElementById('historyMetric').addEventListener('change', loadHistoryChart);
+            document.getElementById('historyTimeline').addEventListener('change', loadAllHistoryCharts);
         };
         
         function showTab(tabId) {
@@ -264,7 +287,7 @@
             } else if (tabId === 'history') {
                 document.getElementById('history-content').style.display = 'block';
                 document.querySelector('a[href="#history"]').classList.add('active');
-                loadHistoryChart(); // Load chart when history tab is shown
+                loadAllHistoryCharts(); // Load all charts when history tab is shown
             }
         }
 
@@ -662,87 +685,112 @@
                 });
         }
 
-        function loadHistoryChart() {
+        const metricConfigs = {
+            temperature: { label: 'Temperature (°C)', unit: '°C', color: 'rgba(255, 99, 132, 1)' },
+            humidity: { label: 'Humidity (%)', unit: '%', color: 'rgba(54, 162, 235, 1)' },
+            pressure: { label: 'Pressure (hPa)', unit: 'hPa', color: 'rgba(75, 192, 192, 1)' },
+            wind_speed: { label: 'Wind Speed (m/s)', unit: 'm/s', color: 'rgba(153, 102, 255, 1)' },
+            precipitation: { label: 'Precipitation (mm)', unit: 'mm', color: 'rgba(255, 159, 64, 1)' },
+            precipitation_probability: { label: 'Precipitation Probability (%)', unit: '%', color: 'rgba(201, 203, 207, 1)' }
+        };
+
+        function loadAllHistoryCharts() {
             const timeline = document.getElementById('historyTimeline').value;
-            const metric = document.getElementById('historyMetric').value;
 
             fetch(`/api/weather_history?hours=${timeline}`)
                 .then(response => response.json())
                 .then(data => {
-                    if (historyChart) {
-                        historyChart.destroy();
+                    if (data.length === 0) {
+                        // Clear all history charts if no data
+                        Object.keys(metricConfigs).forEach(metric => {
+                            const ctx = document.getElementById(`historyChart${metric.charAt(0).toUpperCase() + metric.slice(1)}`).getContext('2d');
+                            if (historyCharts[metric]) {
+                                historyCharts[metric].destroy();
+                                delete historyCharts[metric];
+                            }
+                            ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                        });
+                        return;
                     }
 
-                    const ctx = document.getElementById('historyChart').getContext('2d');
-                    const labels = data.map(d => new Date(d.timestamp));
-                    const datasets = [
-                        {
-                            label: `${metric.replace('_', ' ')} - OpenWeather`,
-                            data: data.filter(d => d.source === 'openweather').map(d => ({ x: new Date(d.timestamp), y: d[metric] })),
-                            borderColor: 'rgba(255, 99, 132, 1)',
-                            backgroundColor: 'rgba(255, 99, 132, 0.2)',
-                            tension: 0.3,
-                            fill: false,
-                        },
-                        {
-                            label: `${metric.replace('_', ' ')} - Visual Crossing`,
-                            data: data.filter(d => d.source === 'visual_crossing').map(d => ({ x: new Date(d.timestamp), y: d[metric] })),
-                            borderColor: 'rgba(54, 162, 235, 1)',
-                            backgroundColor: 'rgba(54, 162, 235, 0.2)',
-                            tension: 0.3,
-                            fill: false,
-                        },
-                        {
-                            label: `${metric.replace('_', ' ')} - Tomorrow.io`,
-                            data: data.filter(d => d.source === 'tomorrow_io').map(d => ({ x: new Date(d.timestamp), y: d[metric] })),
-                            borderColor: 'rgba(75, 192, 192, 1)',
-                            backgroundColor: 'rgba(75, 192, 192, 0.2)',
-                            tension: 0.3,
-                            fill: false,
-                        }
-                    ];
+                    Object.keys(metricConfigs).forEach(metric => {
+                        const config = metricConfigs[metric];
+                        const canvasId = `historyChart${metric.charAt(0).toUpperCase() + metric.slice(1)}`;
+                        const ctx = document.getElementById(canvasId).getContext('2d');
 
-                    historyChart = new Chart(ctx, {
-                        type: 'line',
-                        data: { datasets: datasets },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            interaction: {
-                                mode: 'index',
-                                intersect: false,
+                        if (historyCharts[metric]) {
+                            historyCharts[metric].destroy();
+                        }
+
+                        const datasets = [
+                            {
+                                label: `${config.label} - OpenWeather`,
+                                data: data.filter(d => d.source === 'openweather').map(d => ({ x: new Date(d.timestamp), y: d[metric] })),
+                                borderColor: config.color,
+                                backgroundColor: config.color.replace('1)', '0.2)'),
+                                tension: 0.3,
+                                fill: false,
                             },
-                            scales: {
-                                x: {
-                                    type: 'time',
-                                    time: {
-                                        unit: 'hour',
-                                        displayFormats: {
-                                            hour: 'HH:mm'
+                            {
+                                label: `${config.label} - Visual Crossing`,
+                                data: data.filter(d => d.source === 'visual_crossing').map(d => ({ x: new Date(d.timestamp), y: d[metric] })),
+                                borderColor: config.color,
+                                backgroundColor: config.color.replace('1)', '0.2)'),
+                                tension: 0.3,
+                                fill: false,
+                            },
+                            {
+                                label: `${config.label} - Tomorrow.io`,
+                                data: data.filter(d => d.source === 'tomorrow_io').map(d => ({ x: new Date(d.timestamp), y: d[metric] })),
+                                borderColor: config.color,
+                                backgroundColor: config.color.replace('1)', '0.2)'),
+                                tension: 0.3,
+                                fill: false,
+                            }
+                        ];
+
+                        historyCharts[metric] = new Chart(ctx, {
+                            type: 'line',
+                            data: { datasets: datasets },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                interaction: {
+                                    mode: 'index',
+                                    intersect: false,
+                                },
+                                scales: {
+                                    x: {
+                                        type: 'time',
+                                        time: {
+                                            unit: 'hour',
+                                            displayFormats: {
+                                                hour: 'HH:mm'
+                                            }
+                                        },
+                                        title: {
+                                            display: true,
+                                            text: 'Time'
                                         }
                                     },
-                                    title: {
-                                        display: true,
-                                        text: 'Time'
+                                    y: {
+                                        title: {
+                                            display: true,
+                                            text: `${config.label}`
+                                        }
                                     }
                                 },
-                                y: {
-                                    title: {
-                                        display: true,
-                                        text: metric.replace('_', ' ') + (metric === 'temperature' ? ' (°C)' : metric === 'humidity' || metric === 'precipitation_probability' ? ' (%)' : metric === 'pressure' ? ' (hPa)' : metric === 'wind_speed' ? ' (m/s)' : metric === 'precipitation' ? ' (mm)' : '')
+                                plugins: {
+                                    legend: {
+                                        position: 'bottom'
                                     }
                                 }
-                            },
-                            plugins: {
-                                legend: {
-                                    position: 'bottom'
-                                }
                             }
-                        }
+                        });
                     });
                 })
                 .catch(error => {
-                    console.error('Error loading history chart:', error);
+                    console.error('Error loading history charts:', error);
                 });
         }
     </script>
