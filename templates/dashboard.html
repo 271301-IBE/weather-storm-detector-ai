@@ -277,6 +277,41 @@
             document.getElementById('historyTimeline').addEventListener('change', loadAllHistoryCharts);
         };
         
+        function getSeverityClass(value, type) {
+            if (value === null || value === undefined) {
+                return 'bg-secondary'; // Grey for N/A
+            }
+
+            switch (type) {
+                case 'temperature':
+                    if (value > 30 || value < -10) return 'bg-danger'; // Extreme hot/cold
+                    if (value > 25 || value < 0) return 'bg-warning';  // Very hot/cold
+                    return 'bg-success'; // Normal
+                case 'humidity':
+                    if (value > 90 || value < 20) return 'bg-danger'; // Too humid/dry
+                    if (value > 80 || value < 30) return 'bg-warning'; // Very humid/dry
+                    return 'bg-success'; // Normal
+                case 'pressure': // Assuming hPa
+                    if (value < 980 || value > 1030) return 'bg-danger'; // Very low/high pressure (stormy/very stable)
+                    if (value < 1000 || value > 1020) return 'bg-warning'; // Low/high pressure
+                    return 'bg-success'; // Normal
+                case 'wind_speed': // m/s
+                    if (value > 15) return 'bg-danger'; // Storm/Gale
+                    if (value > 8) return 'bg-warning';  // Strong wind
+                    return 'bg-success'; // Moderate/Light wind
+                case 'precipitation': // mm
+                    if (value > 10) return 'bg-danger'; // Heavy rain
+                    if (value > 2) return 'bg-warning';  // Moderate rain
+                    return 'bg-success'; // Light/No rain
+                case 'precipitation_probability': // %
+                    if (value > 70) return 'bg-danger'; // High probability
+                    if (value > 40) return 'bg-warning'; // Moderate probability
+                    return 'bg-success'; // Low probability
+                default:
+                    return 'bg-primary'; // Default blue for unknown types
+            }
+        }
+
         function showTab(tabId) {
             document.getElementById('dashboard-content').style.display = 'none';
             document.getElementById('history-content').style.display = 'none';
@@ -321,23 +356,23 @@
                             <ul class="list-group list-group-flush">
                                 <li class="list-group-item d-flex justify-content-between align-items-center">
                                     Temperature
-                                    <span class="badge bg-primary rounded-pill">${latest.temperature?.toFixed(1) || 'N/A'}°C</span>
+                                    <span class="badge rounded-pill ${getSeverityClass(latest.temperature, 'temperature')}">${latest.temperature?.toFixed(1) || 'N/A'}°C</span>
                                 </li>
                                 <li class="list-group-item d-flex justify-content-between align-items-center">
                                     Humidity
-                                    <span class="badge bg-primary rounded-pill">${latest.humidity?.toFixed(0) || 'N/A'}%</span>
+                                    <span class="badge rounded-pill ${getSeverityClass(latest.humidity, 'humidity')}">${latest.humidity?.toFixed(0) || 'N/A'}%</span>
                                 </li>
                                 <li class="list-group-item d-flex justify-content-between align-items-center">
                                     Pressure
-                                    <span class="badge bg-primary rounded-pill">${latest.pressure?.toFixed(0) || 'N/A'} hPa</span>
+                                    <span class="badge rounded-pill ${getSeverityClass(latest.pressure, 'pressure')}">${latest.pressure?.toFixed(0) || 'N/A'} hPa</span>
                                 </li>
                                 <li class="list-group-item d-flex justify-content-between align-items-center">
                                     Wind Speed
-                                    <span class="badge bg-primary rounded-pill">${latest.wind_speed?.toFixed(1) || 'N/A'} m/s</span>
+                                    <span class="badge rounded-pill ${getSeverityClass(latest.wind_speed, 'wind_speed')}">${latest.wind_speed?.toFixed(1) || 'N/A'} m/s</span>
                                 </li>
                                 <li class="list-group-item d-flex justify-content-between align-items-center">
                                     Precipitation
-                                    <span class="badge bg-primary rounded-pill">${latest.precipitation?.toFixed(1) || 'N/A'} mm</span>
+                                    <span class="badge rounded-pill ${getSeverityClass(latest.precipitation, 'precipitation')}">${latest.precipitation?.toFixed(1) || 'N/A'} mm</span>
                                 </li>
                                 <li class="list-group-item d-flex justify-content-between align-items-center">
                                     Source
@@ -403,11 +438,16 @@
                                                   confidence > 50 ? 'text-warning' : 'text-success';
                             const timestamp = new Date(analysis.timestamp).toLocaleString();
                             
+                            let alertLevelClass = 'text-secondary';
+                            if (analysis.alert_level === 'Green') alertLevelClass = 'text-success';
+                            else if (analysis.alert_level === 'Yellow') alertLevelClass = 'text-warning';
+                            else if (analysis.alert_level === 'Orange' || analysis.alert_level === 'Red') alertLevelClass = 'text-danger';
+
                             return `
                                 <div class="list-group-item">
                                     <strong>${analysis.storm_detected ? '⚡ Storm Detected' : '✅ Normal Conditions'}</strong>
                                     <span class="float-end ${confidenceClass}">${confidence}%</span>
-                                    <div class="text-muted small">${timestamp} - Alert: ${analysis.alert_level}</div>
+                                    <div class="text-muted small">${timestamp} - Alert: <span class="${alertLevelClass}">${analysis.alert_level}</span></div>
                                 </div>
                             `;
                         }).join('');
@@ -609,23 +649,23 @@
                             <ul class="list-group list-group-flush">
                                 <li class="list-group-item d-flex justify-content-between align-items-center">
                                     Průměr teplota
-                                    <span class="badge bg-primary rounded-pill">${data.temperature?.toFixed(1) || 'N/A'}°C</span>
+                                    <span class="badge rounded-pill ${getSeverityClass(data.temperature, 'temperature')}">${data.temperature?.toFixed(1) || 'N/A'}°C</span>
                                 </li>
                                 <li class="list-group-item d-flex justify-content-between align-items-center">
                                     Průměr vlhkost
-                                    <span class="badge bg-primary rounded-pill">${data.humidity?.toFixed(0) || 'N/A'}%</span>
+                                    <span class="badge rounded-pill ${getSeverityClass(data.humidity, 'humidity')}">${data.humidity?.toFixed(0) || 'N/A'}%</span>
                                 </li>
                                 <li class="list-group-item d-flex justify-content-between align-items-center">
                                     Průměr tlak
-                                    <span class="badge bg-primary rounded-pill">${data.pressure?.toFixed(0) || 'N/A'} hPa</span>
+                                    <span class="badge rounded-pill ${getSeverityClass(data.pressure, 'pressure')}">${data.pressure?.toFixed(0) || 'N/A'} hPa</span>
                                 </li>
                                 <li class="list-group-item d-flex justify-content-between align-items-center">
                                     Průměr vítr
-                                    <span class="badge bg-primary rounded-pill">${data.wind_speed?.toFixed(1) || 'N/A'} m/s</span>
+                                    <span class="badge rounded-pill ${getSeverityClass(data.wind_speed, 'wind_speed')}">${data.wind_speed?.toFixed(1) || 'N/A'} m/s</span>
                                 </li>
                                 <li class="list-group-item d-flex justify-content-between align-items-center">
                                     Srážky pravděp.
-                                    <span class="badge bg-primary rounded-pill">${data.precipitation_probability?.toFixed(0) || 'N/A'}%</span>
+                                    <span class="badge rounded-pill ${getSeverityClass(data.precipitation_probability, 'precipitation_probability')}">${data.precipitation_probability?.toFixed(0) || 'N/A'}%</span>
                                 </li>
                                 <li class="list-group-item d-flex justify-content-between align-items-center">
                                     API zdrojů
