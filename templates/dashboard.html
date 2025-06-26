@@ -4,417 +4,89 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Weather Storm Detection - Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #f5f5f5;
-            color: #333;
+            background-color: #f8f9fa;
         }
-        
-        .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        
-        .header h1 {
-            font-size: 24px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        
-        .header-actions {
-            display: flex;
-            gap: 15px;
-            align-items: center;
-        }
-        
-        .status-indicator {
-            padding: 5px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: bold;
-        }
-        
-        .status-active {
-            background: #4caf50;
-            color: white;
-        }
-        
-        .logout-btn {
-            background: rgba(255,255,255,0.2);
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 5px;
-            cursor: pointer;
-            text-decoration: none;
-            display: inline-block;
-        }
-        
-        .logout-btn:hover {
-            background: rgba(255,255,255,0.3);
-        }
-        
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        
-        .dashboard-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-        
         .card {
-            background: white;
-            border-radius: 10px;
-            padding: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            transition: transform 0.2s;
-        }
-        
-        .card:hover {
-            transform: translateY(-2px);
-        }
-        
-        .card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid #eee;
-        }
-        
-        .card-title {
-            font-size: 18px;
-            font-weight: bold;
-            color: #333;
-        }
-        
-        .card-icon {
-            font-size: 24px;
-        }
-        
-        .metric {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 8px 0;
-            border-bottom: 1px solid #f0f0f0;
-        }
-        
-        .metric:last-child {
-            border-bottom: none;
-        }
-        
-        .metric-label {
-            color: #666;
-            font-size: 14px;
-        }
-        
-        .metric-value {
-            font-weight: bold;
-            color: #333;
-        }
-        
-        .weather-current {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-            gap: 15px;
-        }
-        
-        .weather-item {
-            text-align: center;
-            padding: 10px;
-            background: #f8f9fa;
-            border-radius: 8px;
-        }
-        
-        .weather-value {
-            font-size: 24px;
-            font-weight: bold;
-            color: #667eea;
-        }
-        
-        .weather-label {
-            font-size: 12px;
-            color: #666;
-            margin-top: 5px;
-        }
-        
-        .chart-container {
-            position: relative;
-            height: 300px;
-            margin-top: 15px;
-        }
-        
-        .analysis-item {
-            padding: 10px;
-            border-left: 4px solid #667eea;
-            background: #f8f9fa;
-            margin-bottom: 10px;
-            border-radius: 0 5px 5px 0;
-        }
-        
-        .analysis-confidence {
-            display: inline-block;
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 12px;
-            font-weight: bold;
-            margin-left: 10px;
-        }
-        
-        .confidence-low {
-            background: #e8f5e8;
-            color: #2e7d32;
-        }
-        
-        .confidence-medium {
-            background: #fff3e0;
-            color: #f57c00;
-        }
-        
-        .confidence-high {
-            background: #ffebee;
-            color: #c62828;
-        }
-        
-        .api-usage-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 8px 0;
-            border-bottom: 1px solid #eee;
-        }
-        
-        .api-source {
-            font-weight: bold;
-            color: #333;
-        }
-        
-        .api-count {
-            background: #667eea;
-            color: white;
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 12px;
-        }
-        
-        .warning-item {
-            padding: 12px;
-            margin-bottom: 10px;
-            border-radius: 8px;
-            border-left: 5px solid;
-        }
-        
-        .warning-green {
-            border-left-color: #4caf50;
-            background: #e8f5e8;
-        }
-        
-        .warning-yellow {
-            border-left-color: #ff9800;
-            background: #fff3e0;
-        }
-        
-        .warning-orange {
-            border-left-color: #ff5722;
-            background: #fbe9e7;
-        }
-        
-        .warning-red {
-            border-left-color: #f44336;
-            background: #ffebee;
-        }
-        
-        .warning-title {
-            font-weight: bold;
-            margin-bottom: 5px;
-        }
-        
-        .warning-time {
-            font-size: 12px;
-            color: #666;
-            margin-top: 5px;
-        }
-        
-        .weather-avg-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 15px;
-        }
-        
-        .avg-item {
-            text-align: center;
-            padding: 10px;
-            background: #f8f9fa;
-            border-radius: 5px;
-        }
-        
-        .avg-value {
-            font-size: 18px;
-            font-weight: bold;
-            color: #667eea;
-        }
-        
-        .avg-label {
-            font-size: 11px;
-            color: #666;
-            margin-top: 3px;
-        }
-        
-        .email-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 8px 0;
-            border-bottom: 1px solid #f0f0f0;
-        }
-        
-        .email-success {
-            color: #4caf50;
-        }
-        
-        .email-failed {
-            color: #f44336;
-        }
-        
-        .loading {
-            text-align: center;
-            padding: 20px;
-            color: #666;
-        }
-        
-        .refresh-btn {
-            background: #667eea;
-            color: white;
-            border: none;
-            padding: 5px 10px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 12px;
-        }
-        
-        .large-grid {
-            grid-column: 1 / -1;
-        }
-        
-        @media (max-width: 768px) {
-            .dashboard-grid {
-                grid-template-columns: 1fr;
-            }
-            
-            .weather-current {
-                grid-template-columns: repeat(2, 1fr);
-            }
+            margin-bottom: 20px;
         }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>🌩️ Weather Storm Detection Dashboard</h1>
-        <div class="header-actions">
-            <div class="status-indicator status-active" id="systemStatus">System Active</div>
-            <span id="lastUpdate">Loading...</span>
-            <a href="/logout" class="logout-btn">Logout</a>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">🌩️ Weather Storm Detection</a>
+            <div class="d-flex">
+                <span class="navbar-text me-3" id="lastUpdate">Loading...</span>
+                <a href="/logout" class="btn btn-outline-light">Logout</a>
+            </div>
         </div>
-    </div>
+    </nav>
     
-    <div class="container">
-        <div class="dashboard-grid">
-            <!-- Current Weather -->
-            <div class="card">
-                <div class="card-header">
-                    <span class="card-title">Current Weather</span>
-                    <span class="card-icon">🌤️</span>
-                </div>
-                <div id="currentWeather" class="loading">Loading weather data...</div>
-            </div>
-            
-            <!-- System Statistics -->
-            <div class="card">
-                <div class="card-header">
-                    <span class="card-title">System Stats (24h)</span>
-                    <span class="card-icon">📊</span>
-                </div>
-                <div id="systemStats" class="loading">Loading statistics...</div>
-            </div>
-            
-            <!-- AI Analysis -->
-            <div class="card">
-                <div class="card-header">
-                    <span class="card-title">Recent AI Analysis</span>
-                    <span class="card-icon">🤖</span>
-                </div>
-                <div id="recentAnalysis" class="loading">Loading analysis data...</div>
-            </div>
-            
-            <!-- Email History -->
-            <div class="card">
-                <div class="card-header">
-                    <span class="card-title">Email Notifications</span>
-                    <span class="card-icon">📧</span>
-                </div>
-                <div id="emailHistory" class="loading">Loading email history...</div>
-            </div>
-            
-            <!-- Weather Chart -->
-            <div class="card large-grid">
-                <div class="card-header">
-                    <span class="card-title">Weather Trends (24h)</span>
-                    <div>
-                        <button class="refresh-btn" onclick="loadWeatherChart()">Refresh</button>
-                        <span class="card-icon">📈</span>
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-lg-4">
+                <div class="card">
+                    <div class="card-header">Current Weather 🌤️</div>
+                    <div class="card-body" id="currentWeather">
+                        <p class="text-center">Loading weather data...</p>
                     </div>
                 </div>
-                <div class="chart-container">
-                    <canvas id="weatherChart"></canvas>
+            </div>
+            <div class="col-lg-4">
+                <div class="card">
+                    <div class="card-header">System Stats (24h) 📊</div>
+                    <div class="card-body" id="systemStats">
+                        <p class="text-center">Loading statistics...</p>
+                    </div>
                 </div>
             </div>
-            
-            <!-- API Usage Statistics -->
-            <div class="card">
-                <div class="card-header">
-                    <span class="card-title">API Usage Stats</span>
-                    <span class="card-icon">🔗</span>
+            <div class="col-lg-4">
+                <div class="card">
+                    <div class="card-header">Recent AI Analysis 🤖</div>
+                    <div class="card-body" id="recentAnalysis">
+                        <p class="text-center">Loading analysis data...</p>
+                    </div>
                 </div>
-                <div id="apiUsageStats" class="loading">Loading API usage...</div>
             </div>
-            
-            <!-- Weather Averages -->
-            <div class="card">
-                <div class="card-header">
-                    <span class="card-title">Combined Weather Data</span>
-                    <span class="card-icon">⚖️</span>
+        </div>
+        <div class="row">
+            <div class="col-lg-12">
+                <div class="card">
+                    <div class="card-header">Weather Trends (24h) 📈</div>
+                    <div class="card-body">
+                        <canvas id="weatherChart"></canvas>
+                    </div>
                 </div>
-                <div id="weatherAverages" class="loading">Loading averages...</div>
             </div>
-            
-            <!-- ČHMÚ Warnings -->
-            <div class="card">
-                <div class="card-header">
-                    <span class="card-title">ČHMÚ Varování - Brno</span>
-                    <span class="card-icon">⚠️</span>
+        </div>
+        <div class="row">
+            <div class="col-lg-4">
+                <div class="card">
+                    <div class="card-header">API Usage Stats 🔗</div>
+                    <div class="card-body" id="apiUsageStats">
+                        <p class="text-center">Loading API usage...</p>
+                    </div>
                 </div>
-                <div id="chmiWarnings" class="loading">Loading warnings...</div>
+            </div>
+            <div class="col-lg-4">
+                <div class="card">
+                    <div class="card-header">Combined Weather Data ⚖️</div>
+                    <div class="card-body" id="weatherAverages">
+                        <p class="text-center">Loading averages...</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-4">
+                <div class="card">
+                    <div class="card-header">ČHMÚ Varování - Brno ⚠️</div>
+                    <div class="card-body" id="chmiWarnings">
+                        <p class="text-center">Loading warnings...</p>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -434,7 +106,6 @@
             loadCurrentWeather();
             loadSystemStats();
             loadRecentAnalysis();
-            loadEmailHistory();
             loadWeatherChart();
             loadApiUsageStats();
             loadWeatherAverages();
@@ -454,39 +125,39 @@
                     if (data.length > 0) {
                         const latest = data[0];
                         container.innerHTML = `
-                            <div class="weather-current">
-                                <div class="weather-item">
-                                    <div class="weather-value">${latest.temperature?.toFixed(1) || 'N/A'}°</div>
-                                    <div class="weather-label">Temperature</div>
-                                </div>
-                                <div class="weather-item">
-                                    <div class="weather-value">${latest.humidity?.toFixed(0) || 'N/A'}%</div>
-                                    <div class="weather-label">Humidity</div>
-                                </div>
-                                <div class="weather-item">
-                                    <div class="weather-value">${latest.pressure?.toFixed(0) || 'N/A'}</div>
-                                    <div class="weather-label">Pressure (hPa)</div>
-                                </div>
-                                <div class="weather-item">
-                                    <div class="weather-value">${latest.wind_speed?.toFixed(1) || 'N/A'}</div>
-                                    <div class="weather-label">Wind (m/s)</div>
-                                </div>
-                                <div class="weather-item">
-                                    <div class="weather-value">${latest.precipitation?.toFixed(1) || 'N/A'}</div>
-                                    <div class="weather-label">Rain (mm)</div>
-                                </div>
-                                <div class="weather-item">
-                                    <div class="weather-value">${latest.source || 'N/A'}</div>
-                                    <div class="weather-label">Source</div>
-                                </div>
-                            </div>
+                            <ul class="list-group list-group-flush">
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    Temperature
+                                    <span class="badge bg-primary rounded-pill">${latest.temperature?.toFixed(1) || 'N/A'}°C</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    Humidity
+                                    <span class="badge bg-primary rounded-pill">${latest.humidity?.toFixed(0) || 'N/A'}%</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    Pressure
+                                    <span class="badge bg-primary rounded-pill">${latest.pressure?.toFixed(0) || 'N/A'} hPa</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    Wind Speed
+                                    <span class="badge bg-primary rounded-pill">${latest.wind_speed?.toFixed(1) || 'N/A'} m/s</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    Precipitation
+                                    <span class="badge bg-primary rounded-pill">${latest.precipitation?.toFixed(1) || 'N/A'} mm</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    Source
+                                    <span class="badge bg-secondary rounded-pill">${latest.source || 'N/A'}</span>
+                                </li>
+                            </ul>
                         `;
                     } else {
-                        container.innerHTML = '<div class="loading">No weather data available</div>';
+                        container.innerHTML = '<p class="text-center">No weather data available</p>';
                     }
                 })
                 .catch(error => {
-                    document.getElementById('currentWeather').innerHTML = '<div class="loading">Error loading weather data</div>';
+                    document.getElementById('currentWeather').innerHTML = '<p class="text-center text-danger">Error loading weather data</p>';
                     console.error('Error:', error);
                 });
         }
@@ -497,38 +168,32 @@
                 .then(data => {
                     const container = document.getElementById('systemStats');
                     container.innerHTML = `
-                        <div class="metric">
-                            <span class="metric-label">Weather Data Points</span>
-                            <span class="metric-value">${data.weather_data_24h || 0}</span>
-                        </div>
-                        <div class="metric">
-                            <span class="metric-label">AI Analyses</span>
-                            <span class="metric-value">${data.ai_analysis_24h || 0}</span>
-                        </div>
-                        <div class="metric">
-                            <span class="metric-label">Emails Sent</span>
-                            <span class="metric-value">${data.emails_24h || 0}</span>
-                        </div>
-                        <div class="metric">
-                            <span class="metric-label">Storms Detected (7d)</span>
-                            <span class="metric-value">${data.storms_detected_7d || 0}</span>
-                        </div>
-                        <div class="metric">
-                            <span class="metric-label">Avg Confidence (7d)</span>
-                            <span class="metric-value">${data.avg_confidence_7d || 0}%</span>
-                        </div>
-                        <div class="metric">
-                            <span class="metric-label">Est. AI Cost (24h)</span>
-                            <span class="metric-value">$${data.estimated_ai_cost_24h || 0}</span>
-                        </div>
-                        <div class="metric">
-                            <span class="metric-label">Cache Entries</span>
-                            <span class="metric-value">${data.active_cache_entries || 0}</span>
-                        </div>
+                        <ul class="list-group list-group-flush">
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Weather Data Points
+                                <span class="badge bg-primary rounded-pill">${data.weather_data_24h || 0}</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                AI Analyses
+                                <span class="badge bg-primary rounded-pill">${data.ai_analysis_24h || 0}</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Emails Sent
+                                <span class="badge bg-primary rounded-pill">${data.emails_24h || 0}</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Storms Detected (7d)
+                                <span class="badge bg-primary rounded-pill">${data.storms_detected_7d || 0}</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Avg Confidence (7d)
+                                <span class="badge bg-primary rounded-pill">${data.avg_confidence_7d || 0}%</span>
+                            </li>
+                        </ul>
                     `;
                 })
                 .catch(error => {
-                    document.getElementById('systemStats').innerHTML = '<div class="loading">Error loading statistics</div>';
+                    document.getElementById('systemStats').innerHTML = '<p class="text-center text-danger">Error loading statistics</p>';
                     console.error('Error:', error);
                 });
         }
@@ -541,59 +206,24 @@
                     if (data.length > 0) {
                         container.innerHTML = data.slice(0, 5).map(analysis => {
                             const confidence = (analysis.confidence_score * 100).toFixed(1);
-                            const confidenceClass = confidence > 80 ? 'confidence-high' : 
-                                                  confidence > 50 ? 'confidence-medium' : 'confidence-low';
+                            const confidenceClass = confidence > 80 ? 'text-danger' : 
+                                                  confidence > 50 ? 'text-warning' : 'text-success';
                             const timestamp = new Date(analysis.timestamp).toLocaleString();
                             
                             return `
-                                <div class="analysis-item">
-                                    <div>
-                                        <strong>${analysis.storm_detected ? '⚡ Storm Detected' : '✅ Normal Conditions'}</strong>
-                                        <span class="analysis-confidence ${confidenceClass}">${confidence}%</span>
-                                    </div>
-                                    <div style="font-size: 12px; color: #666; margin-top: 5px;">
-                                        ${timestamp} - Alert: ${analysis.alert_level}
-                                    </div>
+                                <div class="list-group-item">
+                                    <strong>${analysis.storm_detected ? '⚡ Storm Detected' : '✅ Normal Conditions'}</strong>
+                                    <span class="float-end ${confidenceClass}">${confidence}%</span>
+                                    <div class="text-muted small">${timestamp} - Alert: ${analysis.alert_level}</div>
                                 </div>
                             `;
                         }).join('');
                     } else {
-                        container.innerHTML = '<div class="loading">No analysis data available</div>';
+                        container.innerHTML = '<p class="text-center">No analysis data available</p>';
                     }
                 })
                 .catch(error => {
-                    document.getElementById('recentAnalysis').innerHTML = '<div class="loading">Error loading analysis data</div>';
-                    console.error('Error:', error);
-                });
-        }
-        
-        function loadEmailHistory() {
-            fetch('/api/email_history')
-                .then(response => response.json())
-                .then(data => {
-                    const container = document.getElementById('emailHistory');
-                    if (data.length > 0) {
-                        container.innerHTML = data.slice(0, 8).map(email => {
-                            const timestamp = new Date(email.timestamp).toLocaleString();
-                            const statusClass = email.sent_successfully ? 'email-success' : 'email-failed';
-                            const statusIcon = email.sent_successfully ? '✅' : '❌';
-                            
-                            return `
-                                <div class="email-item">
-                                    <div>
-                                        <div><strong>${email.message_type}</strong></div>
-                                        <div style="font-size: 12px; color: #666;">${timestamp}</div>
-                                    </div>
-                                    <div class="${statusClass}">${statusIcon}</div>
-                                </div>
-                            `;
-                        }).join('');
-                    } else {
-                        container.innerHTML = '<div class="loading">No email history available</div>';
-                    }
-                })
-                .catch(error => {
-                    document.getElementById('emailHistory').innerHTML = '<div class="loading">Error loading email history</div>';
+                    document.getElementById('recentAnalysis').innerHTML = '<p class="text-center text-danger">Error loading analysis data</p>';
                     console.error('Error:', error);
                 });
         }
@@ -606,7 +236,6 @@
                     
                     const ctx = document.getElementById('weatherChart').getContext('2d');
                     
-                    // Group data by source
                     const openweatherData = data.filter(d => d.source === 'openweather');
                     const visualcrossingData = data.filter(d => d.source === 'visual_crossing');
                     const tomorrowioData = data.filter(d => d.source === 'tomorrow_io');
@@ -621,108 +250,42 @@
                             datasets: [
                                 {
                                     label: 'Temperature (°C) - OpenWeather',
-                                    data: openweatherData.map(d => ({
-                                        x: new Date(d.timestamp),
-                                        y: d.temperature
-                                    })),
-                                    borderColor: '#ff6b6b',
-                                    backgroundColor: 'rgba(255, 107, 107, 0.1)',
-                                    tension: 0.3,
+                                    data: openweatherData.map(d => ({ x: new Date(d.timestamp), y: d.temperature })),
+                                    borderColor: 'red',
                                     yAxisID: 'y'
                                 },
                                 {
                                     label: 'Temperature (°C) - Visual Crossing',
-                                    data: visualcrossingData.map(d => ({
-                                        x: new Date(d.timestamp),
-                                        y: d.temperature
-                                    })),
-                                    borderColor: '#ff9f43',
-                                    backgroundColor: 'rgba(255, 159, 67, 0.1)',
-                                    tension: 0.3,
+                                    data: visualcrossingData.map(d => ({ x: new Date(d.timestamp), y: d.temperature })),
+                                    borderColor: 'orange',
                                     yAxisID: 'y'
                                 },
                                 {
                                     label: 'Temperature (°C) - Tomorrow.io',
-                                    data: tomorrowioData.map(d => ({
-                                        x: new Date(d.timestamp),
-                                        y: d.temperature
-                                    })),
-                                    borderColor: '#10ac84',
-                                    backgroundColor: 'rgba(16, 172, 132, 0.1)',
-                                    tension: 0.3,
+                                    data: tomorrowioData.map(d => ({ x: new Date(d.timestamp), y: d.temperature })),
+                                    borderColor: 'green',
                                     yAxisID: 'y'
                                 },
                                 {
-                                    label: 'Wind Speed (m/s) - OpenWeather',
-                                    data: openweatherData.map(d => ({
-                                        x: new Date(d.timestamp),
-                                        y: d.wind_speed
-                                    })),
-                                    borderColor: '#54a0ff',
-                                    backgroundColor: 'rgba(84, 160, 255, 0.1)',
-                                    tension: 0.3,
+                                    label: 'Wind Speed (m/s)',
+                                    data: openweatherData.map(d => ({ x: new Date(d.timestamp), y: d.wind_speed })),
+                                    borderColor: 'blue',
                                     yAxisID: 'y1'
                                 },
                                 {
-                                    label: 'Humidity (%) - OpenWeather',
-                                    data: openweatherData.map(d => ({
-                                        x: new Date(d.timestamp),
-                                        y: d.humidity
-                                    })),
-                                    borderColor: '#5f27cd',
-                                    backgroundColor: 'rgba(95, 39, 205, 0.1)',
-                                    tension: 0.3,
+                                    label: 'Humidity (%)',
+                                    data: openweatherData.map(d => ({ x: new Date(d.timestamp), y: d.humidity })),
+                                    borderColor: 'purple',
                                     yAxisID: 'y2'
                                 }
                             ]
                         },
                         options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            interaction: {
-                                mode: 'index',
-                                intersect: false,
-                            },
                             scales: {
-                                x: {
-                                    type: 'time',
-                                    time: {
-                                        displayFormats: {
-                                            hour: 'HH:mm'
-                                        }
-                                    }
-                                },
-                                y: {
-                                    type: 'linear',
-                                    display: true,
-                                    position: 'left',
-                                    title: {
-                                        display: true,
-                                        text: 'Temperature (°C)'
-                                    }
-                                },
-                                y1: {
-                                    type: 'linear',
-                                    display: true,
-                                    position: 'right',
-                                    title: {
-                                        display: true,
-                                        text: 'Wind Speed (m/s)'
-                                    },
-                                    grid: {
-                                        drawOnChartArea: false,
-                                    },
-                                },
-                                y2: {
-                                    type: 'linear',
-                                    display: false,
-                                    position: 'right',
-                                }
-                            },
-                            plugins: {
-                                legend: {
-                                    position: 'bottom'
-                                }
+                                x: { type: 'time' },
+                                y: { position: 'left', title: { display: true, text: 'Temperature (°C)' } },
+                                y1: { position: 'right', title: { display: true, text: 'Wind Speed (m/s)' }, grid: { drawOnChartArea: false } },
+                                y2: { position: 'right', display: false }
                             }
                         }
                     });
@@ -737,38 +300,26 @@
                 .then(response => response.json())
                 .then(data => {
                     const container = document.getElementById('apiUsageStats');
-                    let html = '<div>';
+                    let html = '<ul class="list-group list-group-flush">';
                     
-                    // 24 hour usage
-                    html += '<h4 style="margin-bottom: 10px;">24h API volání:</h4>';
+                    html += '<li class="list-group-item"><strong>24h API volání:</strong></li>';
                     if (data.usage_24h && Object.keys(data.usage_24h).length > 0) {
                         Object.entries(data.usage_24h).forEach(([source, count]) => {
-                            html += `<div class="api-usage-item">
-                                <span class="api-source">${source}</span>
-                                <span class="api-count">${count}</span>
-                            </div>`;
+                            html += `<li class="list-group-item d-flex justify-content-between align-items-center">
+                                ${source}
+                                <span class="badge bg-primary rounded-pill">${count}</span>
+                            </li>`;
                         });
                     } else {
-                        html += '<p style="color: #666;">Žádná data za posledních 24h</p>';
+                        html += '<li class="list-group-item">Žádná data za posledních 24h</li>';
                     }
                     
-                    // Total usage summary
-                    html += '<h4 style="margin-top: 15px; margin-bottom: 10px;">Celkem:</h4>';
-                    if (data.usage_total && Object.keys(data.usage_total).length > 0) {
-                        Object.entries(data.usage_total).forEach(([source, count]) => {
-                            html += `<div class="api-usage-item">
-                                <span class="api-source">${source}</span>
-                                <span class="api-count">${count}</span>
-                            </div>`;
-                        });
-                    }
-                    
-                    html += '</div>';
+                    html += '</ul>';
                     container.innerHTML = html;
                 })
                 .catch(error => {
                     console.error('Error loading API usage stats:', error);
-                    document.getElementById('apiUsageStats').innerHTML = 'Error loading API usage data';
+                    document.getElementById('apiUsageStats').innerHTML = '<p class="text-center text-danger">Error loading API usage data</p>';
                 });
         }
         
@@ -780,40 +331,40 @@
                     
                     if (data.source_count > 0) {
                         container.innerHTML = `
-                            <div class="weather-avg-grid">
-                                <div class="avg-item">
-                                    <div class="avg-value">${data.temperature?.toFixed(1) || 'N/A'}°</div>
-                                    <div class="avg-label">Průměr teplota</div>
-                                </div>
-                                <div class="avg-item">
-                                    <div class="avg-value">${data.humidity?.toFixed(0) || 'N/A'}%</div>
-                                    <div class="avg-label">Průměr vlhkost</div>
-                                </div>
-                                <div class="avg-item">
-                                    <div class="avg-value">${data.pressure?.toFixed(0) || 'N/A'}</div>
-                                    <div class="avg-label">Průměr tlak (hPa)</div>
-                                </div>
-                                <div class="avg-item">
-                                    <div class="avg-value">${data.wind_speed?.toFixed(1) || 'N/A'}</div>
-                                    <div class="avg-label">Průměr vítr (m/s)</div>
-                                </div>
-                                <div class="avg-item">
-                                    <div class="avg-value">${data.precipitation_probability?.toFixed(0) || 'N/A'}%</div>
-                                    <div class="avg-label">Srážky pravděp.</div>
-                                </div>
-                                <div class="avg-item">
-                                    <div class="avg-value">${data.source_count}</div>
-                                    <div class="avg-label">API zdrojů</div>
-                                </div>
-                            </div>
+                            <ul class="list-group list-group-flush">
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    Průměr teplota
+                                    <span class="badge bg-primary rounded-pill">${data.temperature?.toFixed(1) || 'N/A'}°C</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    Průměr vlhkost
+                                    <span class="badge bg-primary rounded-pill">${data.humidity?.toFixed(0) || 'N/A'}%</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    Průměr tlak
+                                    <span class="badge bg-primary rounded-pill">${data.pressure?.toFixed(0) || 'N/A'} hPa</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    Průměr vítr
+                                    <span class="badge bg-primary rounded-pill">${data.wind_speed?.toFixed(1) || 'N/A'} m/s</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    Srážky pravděp.
+                                    <span class="badge bg-primary rounded-pill">${data.precipitation_probability?.toFixed(0) || 'N/A'}%</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    API zdrojů
+                                    <span class="badge bg-secondary rounded-pill">${data.source_count}</span>
+                                </li>
+                            </ul>
                         `;
                     } else {
-                        container.innerHTML = '<p>Žádná aktuální data k dispozici</p>';
+                        container.innerHTML = '<p class="text-center">Žádná aktuální data k dispozici</p>';
                     }
                 })
                 .catch(error => {
                     console.error('Error loading weather averages:', error);
-                    document.getElementById('weatherAverages').innerHTML = 'Error loading average data';
+                    document.getElementById('weatherAverages').innerHTML = '<p class="text-center text-danger">Error loading average data</p>';
                 });
         }
         
@@ -824,44 +375,34 @@
                     const container = document.getElementById('chmiWarnings');
                     
                     if (data.warnings && data.warnings.length > 0) {
-                        let html = `<div style="margin-bottom: 10px;">
+                        let html = `<div class="alert alert-warning">
                             <strong>Aktivních varování: ${data.total_warnings}</strong>
-                            ${data.storm_warnings > 0 ? `<br><span style="color: #f44336;">Bouřková varování: ${data.storm_warnings}</span>` : ''}
+                            ${data.storm_warnings > 0 ? `<br><span class="text-danger">Bouřková varování: ${data.storm_warnings}</span>` : ''}
                         </div>`;
                         
                         data.warnings.forEach(warning => {
-                            const colorClass = `warning-${warning.color}`;
+                            const colorClass = `alert-${warning.color}`;
                             const startTime = warning.time_start ? new Date(warning.time_start).toLocaleString('cs-CZ') : 'Neuvedeno';
                             const endTime = warning.time_end ? new Date(warning.time_end).toLocaleString('cs-CZ') : 'Neuvedeno';
                             
-                            html += `<div class="warning-item ${colorClass}">
-                                <div class="warning-title">${warning.event}</div>
-                                <div>${warning.description || 'Bez popisu'}</div>
-                                <div class="warning-time">
-                                    🕐 Od: ${startTime}<br>
-                                    🕐 Do: ${endTime}<br>
-                                    📊 Závažnost: ${warning.severity || 'N/A'} (${warning.color})
-                                </div>
+                            html += `<div class="alert ${colorClass}">
+                                <h5 class="alert-heading">${warning.event}</h5>
+                                <p>${warning.description || 'Bez popisu'}</p>
+                                <hr>
+                                <p class="mb-0">Od: ${startTime} Do: ${endTime}</p>
                             </div>`;
                         });
                         
-                        if (data.last_updated) {
-                            html += `<div style="font-size: 11px; color: #666; margin-top: 10px;">
-                                Poslední aktualizace: ${new Date(data.last_updated).toLocaleString('cs-CZ')}
-                            </div>`;
-                        }
-                        
                         container.innerHTML = html;
                     } else {
-                        container.innerHTML = `<div style="text-align: center; color: #4caf50; padding: 20px;">
-                            ✅ Žádná aktivní varování pro Brno<br>
-                            <small style="color: #666;">Poslední kontrola: ${data.last_updated ? new Date(data.last_updated).toLocaleString('cs-CZ') : 'Neuvedeno'}</small>
+                        container.innerHTML = `<div class="alert alert-success">
+                            ✅ Žádná aktivní varování pro Brno
                         </div>`;
                     }
                 })
                 .catch(error => {
                     console.error('Error loading ČHMÚ warnings:', error);
-                    document.getElementById('chmiWarnings').innerHTML = 'Error loading ČHMÚ warnings';
+                    document.getElementById('chmiWarnings').innerHTML = '<p class="text-center text-danger">Error loading ČHMÚ warnings</p>';
                 });
         }
     </script>

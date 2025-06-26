@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from contextlib import contextmanager
 
-from models import WeatherData, StormAnalysis, EmailNotification
+from models import WeatherData, StormAnalysis, EmailNotification, WeatherCondition
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -98,6 +98,17 @@ class WeatherDatabase:
                     cache_key TEXT UNIQUE NOT NULL,
                     analyzed_at TEXT NOT NULL,
                     expires_at TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # Storm patterns table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS storm_patterns (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    recorded_at TEXT NOT NULL,
+                    triggering_event TEXT NOT NULL,
+                    weather_data_json TEXT NOT NULL,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -270,14 +281,41 @@ class WeatherDatabase:
                 cursor = conn.cursor()
                 
                 cursor.execute("""
-                    SELECT * FROM weather_data 
+                    SELECT timestamp, source, temperature, humidity, pressure, wind_speed, 
+                           wind_direction, precipitation, precipitation_probability, condition,
+                           visibility, cloud_cover, uv_index, description, raw_data
+                    FROM weather_data 
                     WHERE timestamp > ? 
                     ORDER BY timestamp DESC
                 """, (cutoff_time.isoformat(),))
                 
                 rows = cursor.fetchall()
-                # Convert rows to WeatherData objects would require reconstruction
-                return rows  # Return raw data for now
+                columns = [description[0] for description in cursor.description]
+                
+                weather_data_list = []
+                for row in rows:
+                    data = dict(zip(columns, row))
+                    # Reconstruct WeatherData object
+                    wd = WeatherData(
+                        timestamp=datetime.fromisoformat(data['timestamp']),
+                        source=data['source'],
+                        temperature=data['temperature'],
+                        humidity=data['humidity'],
+                        pressure=data['pressure'],
+                        wind_speed=data['wind_speed'],
+                        wind_direction=data['wind_direction'],
+                        precipitation=data['precipitation'],
+                        precipitation_probability=data['precipitation_probability'],
+                        condition=WeatherCondition(data['condition']),
+                        visibility=data['visibility'],
+                        cloud_cover=data['cloud_cover'],
+                        uv_index=data['uv_index'],
+                        description=data['description'],
+                        raw_data=json.loads(data['raw_data'])
+                    )
+                    weather_data_list.append(wd)
+                
+                return weather_data_list
                 
         except Exception as e:
             logger.error(f"Error retrieving weather data: {e}")
@@ -390,3 +428,45 @@ class WeatherDatabase:
                     
         except Exception as e:
             logger.error(f"Error cleaning up weather condition cache: {e}")
+
+    def store_storm_pattern(self, event: str, weather_data: List[WeatherData]):
+        """Store a sequence of weather data as a storm pattern."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                weather_data_json = json.dumps([wd.to_dict() for wd in weather_data])
+                
+                cursor.execute("""
+                    INSERT INTO storm_patterns (recorded_at, triggering_event, weather_data_json)
+                    VALUES (?, ?, ?)
+                """, (datetime.now().isoformat(), event, weather_data_json))
+                
+                conn.commit()
+                logger.info(f"Stored new storm pattern triggered by: {event}")
+
+        except Exception as e:
+            logger.error(f"Error storing storm pattern: {e}")
+
+    def get_storm_patterns(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get recent storm patterns from the database."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT weather_data_json FROM storm_patterns
+                    ORDER BY recorded_at DESC
+                    LIMIT ?
+                """, (limit,))
+                
+                rows = cursor.fetchall()
+                patterns = []
+                for row in rows:
+                    patterns.append(json.loads(row[0]))
+                
+                return patterns
+
+        except Exception as e:
+            logger.error(f"Error retrieving storm patterns: {e}")
+            return []

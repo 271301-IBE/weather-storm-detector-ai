@@ -237,8 +237,9 @@ def test_chmi_integration(config):
     print("\n🏛️ Testing ČHMÚ integration...")
     try:
         # Test ČHMÚ monitor initialization
-        monitor = ChmiWarningMonitor("6203")  # Brno code
+        monitor = ChmiWarningMonitor(config)  # Pass config object
         print("✅ ČHMÚ monitor initialized successfully")
+
         
         # Test XML fetching and parsing
         try:

@@ -17,6 +17,7 @@ class WeatherConfig:
     longitude: float
     city_name: str
     region: str
+    api_retry_attempts: int
 
 @dataclass
 class AIConfig:
@@ -38,6 +39,19 @@ class EmailConfig:
     email_delay_minutes: int
 
 @dataclass
+class ChmiConfig:
+    """CHMI warning configuration."""
+    region_code: str
+    xml_url: str
+
+@dataclass
+class WebAppConfig:
+    """Web application configuration."""
+    username: str
+    password: str
+    secret_key: str
+
+@dataclass
 class SystemConfig:
     """System operation configuration."""
     monitoring_interval_minutes: int
@@ -51,6 +65,8 @@ class Config:
     ai: AIConfig
     email: EmailConfig
     system: SystemConfig
+    chmi: ChmiConfig
+    webapp: WebAppConfig
 
 def load_config() -> Config:
     """Load configuration from environment variables."""
@@ -62,7 +78,8 @@ def load_config() -> Config:
             latitude=float(os.getenv("LATITUDE", "49.2384")),
             longitude=float(os.getenv("LONGITUDE", "16.6073")),
             city_name=os.getenv("CITY_NAME", "Brno"),
-            region=os.getenv("REGION", "South Moravia")
+            region=os.getenv("REGION", "South Moravia"),
+            api_retry_attempts=int(os.getenv("API_RETRY_ATTEMPTS", "3"))
         ),
         ai=AIConfig(
             deepseek_api_key=os.getenv("DEEPSEEK_API_KEY"),
@@ -83,5 +100,14 @@ def load_config() -> Config:
             monitoring_interval_minutes=int(os.getenv("MONITORING_INTERVAL_MINUTES", "10")),
             daily_summary_hour=int(os.getenv("DAILY_SUMMARY_HOUR", "9")),
             database_path=os.getenv("DATABASE_PATH", "./weather_data.db")
+        ),
+        chmi=ChmiConfig(
+            region_code=os.getenv("CHMI_REGION_CODE", "6203"),
+            xml_url=os.getenv("CHMI_XML_URL", "https://www.chmi.cz/files/portal/docs/meteo/om/bulletiny/XOCZ50_OKPR.xml")
+        ),
+        webapp=WebAppConfig(
+            username=os.getenv("WEBAPP_USERNAME", "pi"),
+            password=os.getenv("WEBAPP_PASSWORD", "pica1234"),
+            secret_key=os.getenv("WEBAPP_SECRET_KEY", "weather_storm_detector_secret_key_2025")
         )
     )

@@ -42,8 +42,29 @@ class WeatherDataFetcher:
         if self.session:
             await self.session.close()
     
+    async def _fetch_data(self, url: str, params: Dict[str, Any], source_name: str) -> Optional[Dict[str, Any]]:
+        """Generic data fetching method with retry logic."""
+        for attempt in range(self.config.weather.api_retry_attempts):
+            try:
+                async with self.session.get(url, params=params) as response:
+                    if response.status == 200:
+                        return await response.json()
+                    else:
+                        logger.error(f"{source_name} API error: {response.status}")
+                        return None
+            except (asyncio.TimeoutError, aiohttp.ClientConnectorError, aiohttp.ClientError) as e:
+                if attempt < self.config.weather.api_retry_attempts - 1:
+                    logger.warning(f"{source_name} API attempt {attempt + 1} failed: {e}, retrying...")
+                    await asyncio.sleep(2 ** attempt)
+                else:
+                    logger.error(f"{source_name} API failed after {self.config.weather.api_retry_attempts} attempts: {e}")
+                    return None
+            except Exception as e:
+                logger.error(f"{source_name} API error: {e}")
+                return None
+
     async def fetch_openweather_data(self) -> Optional[WeatherData]:
-        """Fetch data from OpenWeather API with retry logic."""
+        """Fetch data from OpenWeather API."""
         url = "https://api.openweathermap.org/data/2.5/weather"
         params = {
             "lat": self.config.weather.latitude,
@@ -51,31 +72,11 @@ class WeatherDataFetcher:
             "appid": self.config.weather.openweather_api_key,
             "units": "metric"
         }
-        
-        # Retry up to 3 times with exponential backoff
-        for attempt in range(3):
-            try:
-                async with self.session.get(url, params=params) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        return self._parse_openweather_data(data)
-                    else:
-                        logger.error(f"OpenWeather API error: {response.status}")
-                        return None
-                        
-            except (asyncio.TimeoutError, aiohttp.ClientConnectorError, aiohttp.ClientError) as e:
-                if attempt < 2:  # Don't log on last attempt
-                    logger.warning(f"OpenWeather API attempt {attempt + 1} failed: {e}, retrying...")
-                    await asyncio.sleep(2 ** attempt)  # Exponential backoff: 1s, 2s
-                else:
-                    logger.error(f"OpenWeather API failed after 3 attempts: {e}")
-                    return None
-            except Exception as e:
-                logger.error(f"OpenWeather API error: {e}")
-                return None
+        data = await self._fetch_data(url, params, "OpenWeather")
+        return self._parse_openweather_data(data) if data else None
     
     async def fetch_visual_crossing_data(self) -> Optional[WeatherData]:
-        """Fetch data from Visual Crossing API with retry logic."""
+        """Fetch data from Visual Crossing API."""
         location = f"{self.config.weather.latitude},{self.config.weather.longitude}"
         url = f"https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/{location}"
         
@@ -84,31 +85,11 @@ class WeatherDataFetcher:
             "include": "current",
             "unitGroup": "metric"
         }
-        
-        # Retry up to 3 times with exponential backoff
-        for attempt in range(3):
-            try:
-                async with self.session.get(url, params=params) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        return self._parse_visual_crossing_data(data)
-                    else:
-                        logger.error(f"Visual Crossing API error: {response.status}")
-                        return None
-                        
-            except (asyncio.TimeoutError, aiohttp.ClientConnectorError, aiohttp.ClientError) as e:
-                if attempt < 2:  # Don't log on last attempt
-                    logger.warning(f"Visual Crossing API attempt {attempt + 1} failed: {e}, retrying...")
-                    await asyncio.sleep(2 ** attempt)  # Exponential backoff: 1s, 2s
-                else:
-                    logger.error(f"Visual Crossing API failed after 3 attempts: {e}")
-                    return None
-            except Exception as e:
-                logger.error(f"Visual Crossing API error: {e}")
-                return None
+        data = await self._fetch_data(url, params, "Visual Crossing")
+        return self._parse_visual_crossing_data(data) if data else None
     
     async def fetch_tomorrow_io_data(self) -> Optional[WeatherData]:
-        """Fetch data from Tomorrow.io API with retry logic."""
+        """Fetch data from Tomorrow.io API."""
         url = "https://api.tomorrow.io/v4/weather/realtime"
         
         params = {
@@ -116,28 +97,8 @@ class WeatherDataFetcher:
             "apikey": self.config.weather.tomorrow_io_api_key,
             "units": "metric"
         }
-        
-        # Retry up to 3 times with exponential backoff
-        for attempt in range(3):
-            try:
-                async with self.session.get(url, params=params) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        return self._parse_tomorrow_io_data(data)
-                    else:
-                        logger.error(f"Tomorrow.io API error: {response.status}")
-                        return None
-                        
-            except (asyncio.TimeoutError, aiohttp.ClientConnectorError, aiohttp.ClientError) as e:
-                if attempt < 2:  # Don't log on last attempt
-                    logger.warning(f"Tomorrow.io API attempt {attempt + 1} failed: {e}, retrying...")
-                    await asyncio.sleep(2 ** attempt)  # Exponential backoff: 1s, 2s
-                else:
-                    logger.error(f"Tomorrow.io API failed after 3 attempts: {e}")
-                    return None
-            except Exception as e:
-                logger.error(f"Tomorrow.io API error: {e}")
-                return None
+        data = await self._fetch_data(url, params, "Tomorrow.io")
+        return self._parse_tomorrow_io_data(data) if data else None
     
     def _parse_openweather_data(self, data: Dict[str, Any]) -> WeatherData:
         """Parse OpenWeather API response."""

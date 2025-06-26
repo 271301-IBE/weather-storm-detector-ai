@@ -16,11 +16,13 @@ import requests
 import json
 import hashlib
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
 from pathlib import Path
 import time
+
+from config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -49,15 +51,16 @@ class ChmiWarning:
 class ChmiWarningParser:
     """Parser for ČHMÚ CAP XML warnings."""
     
-    def __init__(self, region_code: str = "6203"):
+    def __init__(self, config: Config):
         """
         Initialize parser.
         
         Args:
-            region_code: CISORP code for the region (6203 for Brno)
+            config: Configuration object
         """
-        self.region_code = region_code
-        self.xml_url = "https://www.chmi.cz/files/portal/docs/meteo/om/bulletiny/XOCZ50_OKPR.xml"
+        self.config = config
+        self.region_code = config.chmi.region_code
+        self.xml_url = config.chmi.xml_url
         self.state_file = Path("./chmi_warnings_state.json")
         
         # Czech day names for human-readable dates
@@ -112,6 +115,15 @@ class ChmiWarningParser:
             logger.debug(f"Successfully downloaded ČHMÚ XML: {len(response.content)} bytes")
             return response.content.decode('utf-8')
             
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"HTTP Error fetching ČHMÚ data: {e}")
+            raise
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"Connection Error fetching ČHMÚ data: {e}")
+            raise
+        except requests.exceptions.Timeout as e:
+            logger.error(f"Timeout fetching ČHMÚ data: {e}")
+            raise
         except requests.RequestException as e:
             logger.error(f"Failed to download ČHMÚ XML: {e}")
             raise
@@ -119,28 +131,31 @@ class ChmiWarningParser:
             logger.error(f"Error processing ČHMÚ XML: {e}")
             raise
     
+    def _get_day_name(self, weekday: int) -> str:
+        """Returns the Czech name for a given weekday."""
+        return self.day_names[weekday + 1]
+
     def format_czech_datetime(self, dt: datetime) -> str:
         """
-        Format datetime in Czech-friendly format.
-        
+        Format datetime in a user-friendly Czech format.
+
         Args:
-            dt: Datetime object
-            
+            dt: The datetime object to format.
+
         Returns:
-            Human-readable Czech datetime string
+            A human-readable Czech datetime string.
         """
-        today = datetime.now()
-        date_str = dt.strftime('%Y-%m-%d')
-        today_str = today.strftime('%Y-%m-%d')
-        tomorrow_str = (today.replace(day=today.day + 1)).strftime('%Y-%m-%d')
-        
-        if date_str == today_str:
-            return f"dnes {dt.strftime('%H:%M')}"
-        elif date_str == tomorrow_str:
-            return f"zítra {dt.strftime('%H:%M')}"
+        now = datetime.now(timezone.utc)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        tomorrow_start = today_start + timedelta(days=1)
+
+        if dt >= today_start and dt < tomorrow_start:
+            return f"dnes {dt.astimezone().strftime('%H:%M')}"
+        elif dt >= tomorrow_start and dt < tomorrow_start + timedelta(days=1):
+            return f"zítra {dt.astimezone().strftime('%H:%M')}"
         else:
-            day_name = self.day_names[dt.weekday() + 1]
-            return f"{day_name} {dt.strftime('%-d.%-m. %H:%M')}"
+            day_name = self._get_day_name(dt.weekday())
+            return f"{day_name} {dt.astimezone().strftime('%-d.%-m. %H:%M')}"
     
     def parse_warning_info(self, info_element: ET.Element) -> Optional[ChmiWarning]:
         """
@@ -196,7 +211,7 @@ class ChmiWarningParser:
                         time_end = datetime.fromisoformat(value.text.replace('Z', '+00:00'))
             
             # Skip warnings that ended more than 4 hours ago
-            if time_end and time_end.timestamp() < (time.time() - 4 * 3600):
+            if time_end and time_end < datetime.now(timezone.utc) - timedelta(hours=4):
                 logger.debug(f"Warning already ended, skipping: {event}")
                 return None
             
@@ -234,9 +249,9 @@ class ChmiWarningParser:
                         warning_type = self.warning_types[parts[0].strip()]
             
             # Determine if warning is currently in progress
-            now = time.time()
-            in_progress = (time_start.timestamp() <= now and 
-                          (time_end is None or time_end.timestamp() >= now))
+            now = datetime.now(timezone.utc)
+            in_progress = (time_start <= now and 
+                          (time_end is None or time_end >= now))
             
             # Get area description
             area_desc = "Jihomoravský kraj"
@@ -413,8 +428,8 @@ class ChmiWarningParser:
 class ChmiWarningMonitor:
     """High-level monitor for ČHMÚ warnings with change detection."""
     
-    def __init__(self, region_code: str = "6203"):
-        self.parser = ChmiWarningParser(region_code)
+    def __init__(self, config: Config):
+        self.parser = ChmiWarningParser(config)
     
     def check_for_new_warnings(self) -> List[ChmiWarning]:
         """

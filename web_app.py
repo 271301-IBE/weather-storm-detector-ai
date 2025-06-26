@@ -12,16 +12,21 @@ from functools import wraps
 import logging
 from pathlib import Path
 
+from config import load_config
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-app.secret_key = 'weather_storm_detector_secret_key_2025'
+
+# Load configuration
+config = load_config()
+app.secret_key = config.webapp.secret_key
 
 # Simple authentication
-USERNAME = 'pi'
-PASSWORD = 'pica1234'
+USERNAME = config.webapp.username
+PASSWORD = config.webapp.password
 
 def login_required(f):
     @wraps(f)

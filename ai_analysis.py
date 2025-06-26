@@ -7,7 +7,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 
-from models import WeatherData, StormAnalysis, AlertLevel
+from models import WeatherData, StormAnalysis, AlertLevel, WeatherCondition
 from config import Config
 from chmi_warnings import ChmiWarning
 
@@ -38,7 +38,7 @@ class DeepSeekAnalyzer:
         if self.session:
             await self.session.close()
     
-    def _prepare_weather_context(self, weather_data: List[WeatherData], historical_data: List = None, chmi_warnings: List[ChmiWarning] = None) -> str:
+    def _prepare_weather_context(self, weather_data: List[WeatherData], historical_patterns: List = None, chmi_warnings: List[ChmiWarning] = None) -> str:
         """Prepare weather data context for AI analysis."""
         context = {
             "location": {
@@ -50,7 +50,8 @@ class DeepSeekAnalyzer:
             "current_conditions": [],
             "analysis_timestamp": datetime.now().isoformat(),
             "data_sources": len(weather_data),
-            "chmi_warnings": []
+            "chmi_warnings": [],
+            "historical_storm_patterns": []
         }
         
         for data in weather_data:
@@ -90,6 +91,10 @@ class DeepSeekAnalyzer:
                     "area": warning.area_description
                 }
                 context["chmi_warnings"].append(warning_data)
+
+        # Add historical storm patterns if available
+        if historical_patterns:
+            context["historical_storm_patterns"] = historical_patterns
         
         return json.dumps(context, indent=2)
     
@@ -97,9 +102,9 @@ class DeepSeekAnalyzer:
         """Create detailed prompt for storm analysis."""
         return f"""You are an expert meteorologist analyzing weather data for thunderstorm detection in Czech Republic, specifically the Brno/Reckovice area in South Moravia.
 
-CRITICAL TASK: Analyze the provided weather data and ČHMÚ official warnings to determine with HIGH ACCURACY whether a thunderstorm is approaching or occurring. This system sends email alerts to citizens, so FALSE POSITIVES must be minimized.
+CRITICAL TASK: Analyze the provided weather data, ČHMÚ official warnings, and historical storm patterns to determine with HIGH ACCURACY whether a thunderstorm is approaching or occurring. This system sends email alerts to citizens, so FALSE POSITIVES must be minimized.
 
-WEATHER DATA AND OFFICIAL WARNINGS:
+WEATHER DATA, OFFICIAL WARNINGS, AND HISTORICAL PATTERNS:
 {weather_context}
 
 ANALYSIS REQUIREMENTS:
@@ -111,11 +116,12 @@ ANALYSIS REQUIREMENTS:
    - Cross-reference sensor data with official meteorological warnings
    - If ČHMÚ has issued thunderstorm/rain warnings, this significantly increases confidence
    - Evaluate data quality and cross-reference multiple sources
+   - IMPORTANT: If current conditions match historical storm patterns, this is a strong indicator of a potential storm.
 
 2. CONFIDENCE SCORING (0.0 to 1.0):
    - Only scores above 0.99 will trigger email alerts
-   - ČHMÚ warnings add significant weight to confidence scores
-   - Consider: data consistency, meteorological indicators, official warnings, regional patterns
+   - ČHMÚ warnings and matches with historical storm patterns add significant weight to confidence scores
+   - Consider: data consistency, meteorological indicators, official warnings, regional patterns, historical patterns
    - Account for data quality issues or missing information
    - If ČHMÚ has active warnings for thunderstorms/rain, confidence should be much higher
 
@@ -153,10 +159,10 @@ Your response must be exactly this JSON format (no markdown, no explanations, ju
 
 IMPORTANT: Do not include reasoning steps, explanations, or any text outside the JSON. The JSON fields can contain your analysis. Start your response with {{ and end with }}."""
 
-    async def analyze_weather_data(self, weather_data: List[WeatherData], historical_data: List = None, chmi_warnings: List[ChmiWarning] = None) -> Optional[StormAnalysis]:
+    async def analyze_weather_data(self, weather_data: List[WeatherData], historical_patterns: List = None, chmi_warnings: List[ChmiWarning] = None) -> Optional[StormAnalysis]:
         """Analyze weather data using DeepSeek AI."""
         try:
-            weather_context = self._prepare_weather_context(weather_data, historical_data, chmi_warnings)
+            weather_context = self._prepare_weather_context(weather_data, historical_patterns, chmi_warnings)
             prompt = self._create_analysis_prompt(weather_context)
             
             payload = {
@@ -331,22 +337,123 @@ class StormDetectionEngine:
     def __init__(self, config: Config):
         """Initialize detection engine."""
         self.config = config
+
+    def _is_ai_analysis_warranted(self, weather_data: List[WeatherData], historical_patterns: List[Dict[str, Any]], chmi_warnings: List[ChmiWarning] = None) -> bool:
+        """Check if conditions warrant a full AI analysis to save costs."""
+        # Rule 1: Always analyze if there's an active, high-severity ČHMÚ warning
+        if chmi_warnings:
+            for warning in chmi_warnings:
+                if warning.in_progress and warning.severity in ["Severe", "Extreme"]:
+                    logger.info("AI analysis warranted due to severe ČHMÚ warning.")
+                    return True
+
+        # Rule 2: Check for local weather patterns indicative of a storm
+        if weather_data:
+            latest_data = weather_data[0]
+            # Example thresholds (can be refined)
+            if (
+                latest_data.humidity > 75 and
+                latest_data.wind_speed > 10 and
+                latest_data.precipitation_probability > 50
+            ):
+                logger.info("AI analysis warranted due to local weather conditions.")
+                return True
+
+        # Rule 3: Check for matches with historical storm patterns
+        match_score = self._find_historical_pattern_match(weather_data, historical_patterns)
+        if match_score and match_score > 0.8:
+            logger.info(f"AI analysis warranted due to historical pattern match (score: {match_score:.2f}).")
+            return True
+
+        logger.info("Conditions do not warrant a full AI analysis at this time.")
+        return False
+
+    def _find_historical_pattern_match(self, weather_data: List[WeatherData], historical_patterns: List[Dict[str, Any]]) -> Optional[float]:
+        """Compare current weather data with historical storm patterns."""
+        if not historical_patterns or not weather_data:
+            return None
+
+        latest_data = weather_data[0]
+        best_match_score = 0.0
+
+        for pattern_data_list in historical_patterns:
+            # pattern_data_list is a list of dicts, convert to WeatherData objects
+            pattern_weather_data = []
+            for item in pattern_data_list:
+                # Reconstruct WeatherData object from dict
+                # This assumes all necessary keys are present and types match
+                try:
+                    wd = WeatherData(
+                        timestamp=datetime.fromisoformat(item['timestamp']),
+                        source=item['source'],
+                        temperature=item['temperature'],
+                        humidity=item['humidity'],
+                        pressure=item['pressure'],
+                        wind_speed=item['wind_speed'],
+                        wind_direction=item['wind_direction'],
+                        precipitation=item['precipitation'],
+                        precipitation_probability=item['precipitation_probability'],
+                        condition=WeatherCondition(item['condition']),
+                        visibility=item['visibility'],
+                        cloud_cover=item['cloud_cover'],
+                        uv_index=item['uv_index'],
+                        description=item['description'],
+                        raw_data=item['raw_data']
+                    )
+                    pattern_weather_data.append(wd)
+                except Exception as e:
+                    logger.warning(f"Failed to reconstruct WeatherData from historical pattern: {e}")
+                    continue
+
+            if not pattern_weather_data:
+                continue
+
+            # Take the first (most recent) data point from the historical pattern for comparison
+            pattern_latest = pattern_weather_data[0]
+
+            score = 0.0
+            # Simple comparison of key metrics
+            if abs(latest_data.temperature - pattern_latest.temperature) < 2: # within 2 degrees
+                score += 0.2
+            if abs(latest_data.humidity - pattern_latest.humidity) < 10: # within 10%
+                score += 0.2
+            if abs(latest_data.pressure - pattern_latest.pressure) < 5: # within 5 hPa
+                score += 0.2
+            if abs(latest_data.wind_speed - pattern_latest.wind_speed) < 5: # within 5 m/s
+                score += 0.2
+            if latest_data.precipitation > 0 and pattern_latest.precipitation > 0: # both have precipitation
+                score += 0.1
+            if latest_data.precipitation_probability > 50 and pattern_latest.precipitation_probability > 50: # both have high precip probability
+                score += 0.1
+
+            best_match_score = max(best_match_score, score)
+
+        return best_match_score
         
-    async def analyze_storm_potential(self, weather_data: List[WeatherData], historical_data: List = None, chmi_warnings: List[ChmiWarning] = None) -> Optional[StormAnalysis]:
+    async def analyze_storm_potential(self, weather_data: List[WeatherData], chmi_warnings: List[ChmiWarning] = None) -> Optional[StormAnalysis]:
         """Analyze storm potential using AI."""
+        from storage import WeatherDatabase
+
         if not weather_data:
             logger.warning("No weather data available for analysis")
             return None
+
+        db = WeatherDatabase(self.config)
+        historical_patterns = db.get_storm_patterns()
+
+        if not self._is_ai_analysis_warranted(weather_data, historical_patterns, chmi_warnings):
+            return None
             
         async with DeepSeekAnalyzer(self.config) as analyzer:
-            analysis = await analyzer.analyze_weather_data(weather_data, historical_data, chmi_warnings)
+            analysis = await analyzer.analyze_weather_data(weather_data, historical_patterns, chmi_warnings)
             
         if analysis:
             logger.info(f"Storm analysis completed: confidence={analysis.confidence_score:.3f}, detected={analysis.storm_detected}")
             
-            # Additional validation logic
+            # If a storm is detected with high confidence, store the current weather data as a new pattern
             if analysis.storm_detected and analysis.confidence_score >= self.config.ai.storm_confidence_threshold:
                 logger.warning(f"HIGH CONFIDENCE STORM DETECTED: {analysis.confidence_score:.3f}")
+                db.store_storm_pattern("ai_detection", weather_data)
             
         return analysis
     

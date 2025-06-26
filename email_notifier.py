@@ -14,6 +14,8 @@ import os
 from models import StormAnalysis, WeatherData, EmailNotification, ChmiWarningNotification
 from chmi_warnings import ChmiWarning
 from config import Config
+from ai_analysis import StormDetectionEngine
+from storage import WeatherDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -140,8 +142,8 @@ class EmailNotifier:
         msg.attach(MIMEText(html_content, 'html', 'utf-8'))
         return msg
     
-    def _create_chmi_warning_email(self, warnings: List[ChmiWarning]) -> MIMEMultipart:
-        """Výstižný ČHMÚ warning email."""
+    def _create_chmi_warning_email(self, warnings: List[ChmiWarning], ai_analysis: Optional[StormAnalysis] = None) -> MIMEMultipart:
+        """Výstižný ČHMÚ warning email s volitelnou AI analýzou."""
         msg = MIMEMultipart()
         msg['From'] = f"{self.config.email.sender_name} <{self.config.email.sender_email}>"
         msg['To'] = self.config.email.recipient_email
@@ -151,13 +153,13 @@ class EmailNotifier:
         most_severe = max(warnings, key=lambda w: severity_order.get(w.color, 0))
         
         if most_severe.color == 'red':
-            msg['Subject'] = f"🔴 EXTRÉMNÍ VÝSTRAHA - {most_severe.event} - Brno"
+            msg['Subject'] = f"🔴 EXTRÉMNÍ VÝSTRAHA ČHMÚ - {most_severe.event} - {self.config.weather.city_name}"
         elif most_severe.color == 'orange':
-            msg['Subject'] = f"🟠 VELKÁ VÝSTRAHA - {most_severe.event} - Brno"
+            msg['Subject'] = f"🟠 VELKÁ VÝSTRAHA ČHMÚ - {most_severe.event} - {self.config.weather.city_name}"
         elif most_severe.color == 'yellow':
-            msg['Subject'] = f"🟡 VÝSTRAHA - {most_severe.event} - Brno"
+            msg['Subject'] = f"🟡 VÝSTRAHA ČHMÚ - {most_severe.event} - {self.config.weather.city_name}"
         else:
-            msg['Subject'] = f"🏛️ ČHMÚ - {most_severe.event} - Brno"
+            msg['Subject'] = f"🏛️ ČHMÚ - {most_severe.event} - {self.config.weather.city_name}"
         
         # Jednoduché CSS a struktura
         html_content = f"""
@@ -176,7 +178,7 @@ class EmailNotifier:
             </style>
         </head>
         <body>
-            <h1>🏛️ ČHMÚ Výstraha pro Brno</h1>
+            <h1>🏛️ ČHMÚ Výstraha pro {self.config.weather.city_name}</h1>
             <p class="time">📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}</p>
         """
         
@@ -194,11 +196,23 @@ class EmailNotifier:
             </div>
             """
         
+        if ai_analysis:
+            html_content += f"""
+            <div class="info">
+                <h3>🧠 AI Analýza počasí</h3>
+                <p><strong>Spolehlivost AI:</strong> {ai_analysis.confidence_score:.0%}</p>
+                <p><strong>Detekce bouře:</strong> {'Ano' if ai_analysis.storm_detected else 'Ne'}</p>
+                <p><strong>Úroveň upozornění:</strong> {ai_analysis.alert_level.value}</p>
+                <p><strong>Shrnutí AI:</strong> {ai_analysis.analysis_summary}</p>
+                {f'<p><strong>Doporučení AI:</strong><ul>{"".join([f"<li>{rec}</li>" for rec in ai_analysis.recommendations])}</ul></p>' if ai_analysis.recommendations else ''}
+            </div>
+            """
+
         html_content += f"""
             <div class="info">
                 <p><strong>Sledujte:</strong> <a href="https://www.chmi.cz/aktualni-situace/aktualni-stav-pocasi/ceska-republika/radar">ČHMÚ radar</a> | 
                 <a href="https://www.chmi.cz/aktualni-situace/aktualni-stav-pocasi/ceska-republika/meteorologicka-upozorneni">Varování</a> | 
-                <a href="https://www.windy.com/?49.238,16.607,8">Windy Brno</a></p>
+                <a href="https://www.windy.com/?49.238,16.607,8">Windy {self.config.weather.city_name}</a></p>
             </div>
             
             <p class="time">⏰ {datetime.now().strftime('%d.%m.%Y %H:%M')} | Clipron AI Weather | ČHMÚ Data</p>
@@ -226,7 +240,7 @@ class EmailNotifier:
         notification = EmailNotification(
             timestamp=datetime.now(),
             recipient=self.config.email.recipient_email,
-            subject=f"Storm Alert - {analysis.alert_level.value}",
+            subject=f"🚨 BOUŘE NAD {self.config.weather.city_name.upper()} - {analysis.alert_level.value.upper()}",
             message_type="storm_alert",
             sent_successfully=False,
             error_message=None
@@ -309,7 +323,15 @@ class EmailNotifier:
         )
         
         try:
-            msg = self._create_chmi_warning_email(storm_warnings)
+            # Fetch current weather data for AI analysis
+            weather_db = WeatherDatabase(self.config)
+            current_weather_data = weather_db.get_recent_weather_data(hours=1) # Get last hour of data
+            
+            # Run AI analysis with ČHMÚ warnings as context
+            ai_engine = StormDetectionEngine(self.config)
+            ai_analysis_result = asyncio.run(ai_engine.analyze_storm_potential(current_weather_data, chmi_warnings=storm_warnings))
+
+            msg = self._create_chmi_warning_email(storm_warnings, ai_analysis=ai_analysis_result)
             
             with self._create_smtp_connection() as server:
                 server.send_message(msg)
