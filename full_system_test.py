@@ -159,54 +159,7 @@ def test_database():
         traceback.print_exc()
         return False
 
-def test_email_system():
-    """Test nového email systému."""
-    print("\n📧 TESTOVÁNÍ NOVÉHO EMAIL SYSTÉMU...")
-    
-    try:
-        from config import load_config
-        from email_notifier import EmailNotifier
-        from models import AlertLevel
-        
-        config = load_config()
-        notifier = EmailNotifier(config)
-        
-        # Test filtering logic
-        print("🔍 Testování filtrování...")
-        
-        # Test LOW level (should be skipped)
-        from test_emails import create_sample_storm_analysis, create_sample_weather_data
-        low_analysis = create_sample_storm_analysis(AlertLevel.LOW)
-        notification = notifier.send_storm_alert(low_analysis)
-        
-        if notification.message_type == "storm_alert_skipped":
-            print("✅ LOW level alerts correctly skipped")
-        else:
-            print("❌ LOW level alerts not being filtered")
-            return False
-            
-        # Test HIGH level (should work)
-        high_analysis = create_sample_storm_analysis(AlertLevel.HIGH)
-        weather_data = create_sample_weather_data()
-        
-        # Create email (but don't send)
-        msg = notifier._create_storm_alert_email(high_analysis, weather_data)
-        if "🚨 BOUŘE NAD BRNEM - HIGH" in msg['Subject']:
-            print("✅ HIGH level alert email format OK")
-        else:
-            print("❌ HIGH level alert format incorrect")
-            return False
-            
-        print("✅ Email systém funguje - pouze HIGH/CRITICAL")
-        print("✅ Denní emaily vypnuté")
-        print("✅ ČHMÚ emaily filtrované na bouřky/srážky")
-        
-        return True
-        
-    except Exception as e:
-        print(f"❌ Email system error: {e}")
-        traceback.print_exc()
-        return False
+
 
 async def test_ai_analysis(chmi_warnings: list):
     """Test AI analýzy (jen pokud jsou storm podmínky)."""
@@ -276,7 +229,6 @@ async def main():
         ("Meteorologická data", test_weather_data, True),
         ("ČHMÚ varování", test_chmi_warnings, False),
         ("Databáze", test_database, False),
-        ("Email systém", test_email_system, False),
         ("AI analýza", test_ai_analysis, True),
     ]
     

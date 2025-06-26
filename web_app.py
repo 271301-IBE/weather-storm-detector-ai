@@ -516,9 +516,15 @@ def api_chmi_warnings():
         
         # Get all current warnings and filter only for Brno/Jihomoravský kraj
         all_warnings = chmi_monitor.get_all_active_warnings()
-        # Filter out Praha and keep only Jihomoravský kraj warnings
-        warnings = [w for w in all_warnings if 'jihomoravský' in (getattr(w, 'area_description', '') or '').lower() or 
-                   'brno' in (getattr(w, 'area_description', '') or '').lower()] if all_warnings else []
+        
+        # Filter out warnings that have expired and keep only Jihomoravský kraj/Brno warnings
+        current_time = datetime.now()
+        warnings = [
+            w for w in all_warnings 
+            if (getattr(w, 'area_description', '') and 
+                ('jihomoravský' in w.area_description.lower() or 'brno' in w.area_description.lower()))
+            and (w.time_end is None or w.time_end > current_time)
+        ] if all_warnings else []
         
         warning_data = []
         for warning in warnings:
