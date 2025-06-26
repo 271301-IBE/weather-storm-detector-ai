@@ -54,6 +54,7 @@ Thumbs.db
 *.log
 logs/
 temp/
+error.bd.txtz
 
 # Data files
 *.db
