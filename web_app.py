@@ -494,6 +494,8 @@ def live_backend_logs():
                 while True:
                     line = f.readline()
                     if not line:
+                        # If no new line, seek to end to ensure we get new data if file grows
+                        f.seek(0, os.SEEK_END)
                         time.sleep(1)
                         continue
                     if not line.startswith('[FRONTEND]') :
@@ -524,6 +526,8 @@ def live_frontend_logs():
                 while True:
                     line = f.readline()
                     if not line:
+                        # If no new line, seek to end to ensure we get new data if file grows
+                        f.seek(0, os.SEEK_END)
                         time.sleep(1)
                         continue
                     if line.startswith('[FRONTEND]') :
