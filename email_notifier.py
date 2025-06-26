@@ -10,6 +10,7 @@ from email.mime.base import MIMEBase
 from email import encoders
 from typing import Optional, List
 import os
+import asyncio
 
 from models import StormAnalysis, WeatherData, EmailNotification, ChmiWarningNotification
 from chmi_warnings import ChmiWarning
