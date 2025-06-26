@@ -461,6 +461,18 @@ def api_chmi_warnings():
         logger.error(f"Error fetching ČHMÚ warnings: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/log_frontend_message', methods=['POST'])
+def log_frontend_message():
+    try:
+        message = request.json.get('message')
+        if message:
+            logger.info(f"[FRONTEND] {message}")
+            return jsonify({'status': 'success'}), 200
+        return jsonify({'status': 'error', 'message': 'No message provided'}), 400
+    except Exception as e:
+        logger.error(f"Error logging frontend message: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 @app.route('/api/live_logs')
 @login_required
 def live_logs():

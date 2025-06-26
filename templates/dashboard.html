@@ -661,6 +661,44 @@
                 logContainer.innerHTML += '\n<span style="color: red;">Error connecting to log stream. Please refresh the page.</span>';
             };
         }
+
+        // Intercept console logs and send to backend
+        const originalConsoleLog = console.log;
+        const originalConsoleWarn = console.warn;
+        const originalConsoleError = console.error;
+        const originalConsoleInfo = console.info;
+
+        function sendFrontendLog(level, message) {
+            fetch('/api/log_frontend_message', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ message: `[${level.toUpperCase()}] ${message}` }),
+            }).catch(error => {
+                originalConsoleError('Error sending frontend log to backend:', error);
+            });
+        }
+
+        console.log = function(...args) {
+            originalConsoleLog(...args);
+            sendFrontendLog('log', args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' '));
+        };
+
+        console.warn = function(...args) {
+            originalConsoleWarn(...args);
+            sendFrontendLog('warn', args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' '));
+        };
+
+        console.error = function(...args) {
+            originalConsoleError(...args);
+            sendFrontendLog('error', args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' '));
+        };
+
+        console.info = function(...args) {
+            originalConsoleInfo(...args);
+            sendFrontendLog('info', args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' '));
+        };
     </script>
 </body>
 </html>
