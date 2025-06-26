@@ -473,9 +473,9 @@ def log_frontend_message():
         logger.error(f"Error logging frontend message: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
-@app.route('/api/live_logs')
+@app.route('/api/live_backend_logs')
 @login_required
-def live_logs():
+def live_backend_logs():
     def generate():
         log_file_path = 'weather_monitor.log'
         if not os.path.exists(log_file_path):
@@ -484,23 +484,50 @@ def live_logs():
 
         try:
             with open(log_file_path, 'r') as f:
-                # Initial read of the last few lines
                 f.seek(0, os.SEEK_END)
-                buffer_size = 4096 # Read last 4KB to find recent lines
+                buffer_size = 4096
                 f.seek(max(0, f.tell() - buffer_size), os.SEEK_SET)
-                
-                # Read lines from the buffer, filter empty ones
-                lines = [line.strip() for line in f.readlines() if line.strip()]
-                for line in lines[-50:]: # Send last 50 non-empty lines
+                lines = [line.strip() for line in f.readlines() if line.strip() and not line.startswith('[FRONTEND]')]
+                for line in lines[-50:]:
                     yield f"data: {line}\n\n"
 
-                # Now, continuously stream new lines
                 while True:
                     line = f.readline()
                     if not line:
-                        time.sleep(1) # Wait for new lines
+                        time.sleep(1)
                         continue
-                    yield f"data: {line.strip()}\n\n"
+                    if not line.startswith('[FRONTEND]') :
+                        yield f"data: {line.strip()}\n\n"
+        except Exception as e:
+            yield f"data: Error reading log file: {e}\n\n"
+
+    return Response(generate(), mimetype='text/event-stream')
+
+@app.route('/api/live_frontend_logs')
+@login_required
+def live_frontend_logs():
+    def generate():
+        log_file_path = 'weather_monitor.log'
+        if not os.path.exists(log_file_path):
+            yield "data: Log file not found.\n\n"
+            return
+
+        try:
+            with open(log_file_path, 'r') as f:
+                f.seek(0, os.SEEK_END)
+                buffer_size = 4096
+                f.seek(max(0, f.tell() - buffer_size), os.SEEK_SET)
+                lines = [line.strip() for line in f.readlines() if line.strip() and line.startswith('[FRONTEND]')]
+                for line in lines[-50:]:
+                    yield f"data: {line}\n\n"
+
+                while True:
+                    line = f.readline()
+                    if not line:
+                        time.sleep(1)
+                        continue
+                    if line.startswith('[FRONTEND]') :
+                        yield f"data: {line.strip()}\n\n"
         except Exception as e:
             yield f"data: Error reading log file: {e}\n\n"
 
