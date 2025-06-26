@@ -422,7 +422,7 @@ async def main():
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler('weather_monitor.log'),
+            logging.FileHandler('weather_monitor.log', buffering=1),
             logging.StreamHandler(sys.stdout)
         ]
     )
