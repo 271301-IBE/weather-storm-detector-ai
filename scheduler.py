@@ -76,8 +76,7 @@ class WeatherMonitoringScheduler:
             analysis = None
             if should_run_ai:
                 logger.info("Running AI analysis - conditions indicate potential storm activity")
-                historical_data = self.database.get_recent_weather_data(hours=6)
-                analysis = await self.storm_engine.analyze_storm_potential(weather_data, historical_data, chmi_warnings)
+                analysis = await self.storm_engine.analyze_storm_potential(weather_data, chmi_warnings)
             else:
                 logger.debug("Skipping AI analysis - conditions normal")
             
@@ -92,7 +91,7 @@ class WeatherMonitoringScheduler:
                     if self.email_notifier.can_send_storm_alert(last_alert_time):
                         # Generate PDF report
                         pdf_path = self.pdf_generator.generate_storm_report(
-                            analysis, weather_data, historical_data
+                            analysis, weather_data
                         )
                         
                         # Send combined weather alert email (AI + ČHMÚ)

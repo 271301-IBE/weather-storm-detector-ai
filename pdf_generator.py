@@ -156,7 +156,7 @@ class WeatherReportGenerator:
             
         return table_data
     
-    def generate_storm_report(self, analysis: StormAnalysis, weather_data: List[WeatherData], historical_data: List = None) -> str:
+    def generate_storm_report(self, analysis: StormAnalysis, weather_data: List[WeatherData]) -> str:
         """Generate detailed PDF report for storm analysis."""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"storm_report_{timestamp}.pdf"
