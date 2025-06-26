@@ -13,6 +13,7 @@ import logging
 from pathlib import Path
 import os
 import time
+import psutil
 
 from config import load_config
 
@@ -84,6 +85,56 @@ def logout():
 def dashboard():
     """Main dashboard page."""
     return render_template('dashboard.html')
+
+@app.route('/system_info')
+@login_required
+def system_info():
+    """System information page."""
+    return render_template('system_info.html')
+
+@app.route('/api/system_metrics')
+@login_required
+def api_system_metrics():
+    """Get system metrics like CPU temperature, usage, and RAM usage."""
+    try:
+        cpu_percent = psutil.cpu_percent(interval=1)
+        ram_info = psutil.virtual_memory()
+        
+        # Attempt to get CPU temperature (Linux specific)
+        cpu_temp = 'N/A'
+        if hasattr(psutil, "sensors_temperatures"):
+            temps = psutil.sensors_temperatures()
+            if "cpu_thermal" in temps:
+                cpu_temp = temps["cpu_thermal"][0].current
+            elif "coretemp" in temps:
+                cpu_temp = temps["coretemp"][0].current
+        
+        return jsonify({
+            'cpu_percent': cpu_percent,
+            'ram_total': round(ram_info.total / (1024 ** 3), 2), # GB
+            'ram_used': round(ram_info.used / (1024 ** 3), 2),   # GB
+            'ram_percent': ram_info.percent,
+            'cpu_temp': cpu_temp
+        })
+    except Exception as e:
+        logger.error(f"Error fetching system metrics: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/database_size')
+@login_required
+def api_database_size():
+    """Get the size of the weather_data.db file."""
+    try:
+        db_path = config.system.database_path
+        if os.path.exists(db_path):
+            size_bytes = os.path.getsize(db_path)
+            size_mb = round(size_bytes / (1024 ** 2), 2)
+            return jsonify({'database_size_mb': size_mb})
+        else:
+            return jsonify({'database_size_mb': 0, 'error': 'Database file not found'}), 404
+    except Exception as e:
+        logger.error(f"Error fetching database size: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/sw.js')
 def service_worker():
