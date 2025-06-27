@@ -363,6 +363,18 @@ class StormDetectionEngine:
     def __init__(self, config: Config):
         """Initialize detection engine."""
         self.config = config
+        self.local_forecast_generator = LocalForecastGenerator(config)
+
+    async def _generate_and_store_local_forecast(self, weather_data: List[WeatherData]):
+        """Generates and stores a local forecast."""
+        from storage import WeatherDatabase
+        db = WeatherDatabase(self.config)
+        forecast = self.local_forecast_generator.generate_forecast(weather_data)
+        if forecast:
+            db.store_weather_forecast(forecast)
+            logger.info("Local forecast generated and stored.")
+        else:
+            logger.warning("Failed to generate local forecast.")
 
     def _is_ai_analysis_warranted(self, weather_data: List[WeatherData], historical_patterns: List[Dict[str, Any]], chmi_warnings: List[ChmiWarning] = None) -> bool:
         """Check if conditions warrant a full AI analysis to save costs."""
@@ -470,7 +482,7 @@ class StormDetectionEngine:
 
         if not self._is_ai_analysis_warranted(weather_data, historical_patterns, chmi_warnings):
             # Always generate local forecast
-            await self.generate_and_store_local_forecast(weather_data)
+            await self._generate_and_store_local_forecast(weather_data)
             return None
             
         async with DeepSeekAnalyzer(self.config) as analyzer:
@@ -485,7 +497,7 @@ class StormDetectionEngine:
                 db.store_storm_pattern("ai_detection", weather_data)
             
         # Always generate local forecast after analysis
-        await self.generate_and_store_local_forecast(weather_data)
+        await self._generate_and_store_local_forecast(weather_data)
         return analysis
     
     def should_send_alert(self, analysis: StormAnalysis) -> bool:
