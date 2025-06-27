@@ -12,7 +12,7 @@ from typing import Optional, List
 import os
 import asyncio
 
-from models import StormAnalysis, WeatherData, EmailNotification, ChmiWarningNotification
+from models import StormAnalysis, WeatherData, EmailNotification, ChmiWarningNotification, WeatherForecast
 from chmi_warnings import ChmiWarning
 from config import Config
 from ai_analysis import StormDetectionEngine
