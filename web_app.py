@@ -16,6 +16,7 @@ import time
 import psutil
 
 from config import load_config
+from models import WeatherForecast
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
