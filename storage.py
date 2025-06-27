@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from contextlib import contextmanager
 
-from models import WeatherData, StormAnalysis, EmailNotification, WeatherCondition
+from models import WeatherData, StormAnalysis, EmailNotification, WeatherCondition, WeatherForecast, PredictedWeatherData
 from config import Config
 
 logger = logging.getLogger(__name__)
