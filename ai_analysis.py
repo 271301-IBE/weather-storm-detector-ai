@@ -749,33 +749,84 @@ class LocalForecastGenerator:
         self.config = config
 
     def generate_forecast(self, weather_data: List[WeatherData]) -> WeatherForecast:
-        """Generates a 6-hour forecast by extrapolating from the most recent data."""
+        """Generates a 6-hour forecast by extrapolating from the most recent data and trends."""
         if not weather_data:
             logger.warning("No weather data available for local forecast generation.")
-            # Return a default forecast if no data is available
             return WeatherForecast(timestamp=datetime.now(), forecast_data=[])
 
-        # Sort data by timestamp to get the most recent entry
-        latest_data = sorted(weather_data, key=lambda x: x.timestamp, reverse=True)[0]
+        # Sort data by timestamp (oldest first for trend analysis)
+        sorted_weather_data = sorted(weather_data, key=lambda x: x.timestamp)
+        
+        # Take data from the last 24 hours for trend analysis
+        time_limit = datetime.now() - timedelta(hours=24)
+        recent_data = [d for d in sorted_weather_data if d.timestamp >= time_limit]
+
+        if not recent_data:
+            logger.warning("No recent weather data for trend analysis. Using latest data for forecast.")
+            recent_data = [sorted_weather_data[-1]] # Fallback to latest if no recent
+
+        latest_data = recent_data[-1] # Most recent data point
 
         forecast_data: List[PredictedWeatherData] = []
+        
+        # Simple linear trend calculation for temperature, humidity, pressure
+        # For more robust forecasting, a proper time series model would be used
+        def calculate_trend(data_points: List[float]) -> float:
+            if len(data_points) < 2:
+                return 0.0
+            # Simple average change between consecutive points
+            changes = [data_points[i] - data_points[i-1] for i in range(1, len(data_points))]
+            return sum(changes) / len(changes) if changes else 0.0
+
+        # Extract values for trend analysis
+        temperatures = [d.temperature for d in recent_data]
+        humidities = [d.humidity for d in recent_data]
+        pressures = [d.pressure for d in recent_data]
+
+        temp_trend = calculate_trend(temperatures)
+        humidity_trend = calculate_trend(humidities)
+        pressure_trend = calculate_trend(pressures)
+
+        # Average for other metrics
+        avg_wind_speed = sum([d.wind_speed for d in recent_data]) / len(recent_data) if recent_data else 0.0
+        avg_wind_direction = sum([d.wind_direction for d in recent_data]) / len(recent_data) if recent_data else 0.0
+        avg_precipitation = sum([d.precipitation for d in recent_data]) / len(recent_data) if recent_data else 0.0
+        avg_precipitation_probability = sum([d.precipitation_probability for d in recent_data if d.precipitation_probability is not None]) / len([d for d in recent_data if d.precipitation_probability is not None]) if [d for d in recent_data if d.precipitation_probability is not None] else 0.0
+        avg_cloud_cover = sum([d.cloud_cover for d in recent_data]) / len(recent_data) if recent_data else 0.0
+        avg_visibility = sum([d.visibility for d in recent_data if d.visibility is not None]) / len([d for d in recent_data if d.visibility is not None]) if [d for d in recent_data if d.visibility is not None] else 10.0
+        
+        # Determine most frequent condition
+        condition_counts = {}
+        for d in recent_data:
+            condition_counts[d.condition] = condition_counts.get(d.condition, 0) + 1
+        most_frequent_condition = max(condition_counts, key=condition_counts.get) if condition_counts else WeatherCondition.CLEAR
+
         for i in range(1, 7):  # For the next 6 hours
             predicted_timestamp = datetime.now() + timedelta(hours=i)
-            # Simple extrapolation: assume conditions remain similar to the latest data
-            # In a real scenario, you'd apply more sophisticated trend analysis
+            
+            # Apply trend for temperature, humidity, pressure
+            predicted_temperature = latest_data.temperature + (temp_trend * i)
+            predicted_humidity = latest_data.humidity + (humidity_trend * i)
+            predicted_pressure = latest_data.pressure + (pressure_trend * i)
+
+            # Clamp values to reasonable ranges
+            predicted_humidity = max(0.0, min(100.0, predicted_humidity))
+            predicted_pressure = max(900.0, min(1100.0, predicted_pressure)) # Typical pressure range
+
+            # For other metrics, use the average from recent data
             forecast_data.append(PredictedWeatherData(
                 timestamp=predicted_timestamp,
-                temperature=latest_data.temperature,
-                humidity=latest_data.humidity,
-                pressure=latest_data.pressure,
-                wind_speed=latest_data.wind_speed,
-                wind_direction=latest_data.wind_direction,
-                precipitation=latest_data.precipitation,
-                precipitation_probability=latest_data.precipitation_probability,
-                condition=latest_data.condition,
-                cloud_cover=latest_data.cloud_cover,
-                visibility=latest_data.visibility,
-                description=latest_data.description
+                temperature=predicted_temperature,
+                humidity=predicted_humidity,
+                pressure=predicted_pressure,
+                wind_speed=avg_wind_speed,
+                wind_direction=avg_wind_direction,
+                precipitation=avg_precipitation,
+                precipitation_probability=avg_precipitation_probability,
+                condition=most_frequent_condition,
+                cloud_cover=avg_cloud_cover,
+                visibility=avg_visibility,
+                description=f"Forecast for hour {i}" # Generic description
             ))
         return WeatherForecast(timestamp=datetime.now(), forecast_data=forecast_data)
 
