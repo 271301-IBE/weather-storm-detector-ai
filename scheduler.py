@@ -14,7 +14,7 @@ import os
 
 from config import Config, load_config
 from data_fetcher import WeatherDataCollector
-from ai_analysis import StormDetectionEngine, LocalForecastGenerator
+from ai_analysis import StormDetectionEngine, LocalForecastGenerator, DeepSeekPredictor, DeepSeekPredictor
 from email_notifier import EmailNotifier
 from web_notifier import WebNotifier
 from pdf_generator import WeatherReportGenerator
