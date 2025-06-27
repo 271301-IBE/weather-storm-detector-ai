@@ -14,12 +14,12 @@ import os
 
 from config import Config, load_config
 from data_fetcher import WeatherDataCollector
-from ai_analysis import StormDetectionEngine
+from ai_analysis import StormDetectionEngine, LocalForecastGenerator
 from email_notifier import EmailNotifier
 from web_notifier import WebNotifier
 from pdf_generator import WeatherReportGenerator
 from storage import WeatherDatabase
-from models import EmailNotification
+from models import EmailNotification, WeatherForecast
 from chmi_warnings import ChmiWarningMonitor
 
 logger = logging.getLogger(__name__)
@@ -36,6 +36,7 @@ class WeatherMonitoringScheduler:
         # Initialize components
         self.data_collector = WeatherDataCollector(config)
         self.storm_engine = StormDetectionEngine(config)
+        self.deepseek_predictor = DeepSeekPredictor(config)
         self.email_notifier = EmailNotifier(config)
         self.web_notifier = WebNotifier(config)
         self.pdf_generator = WeatherReportGenerator(config)
@@ -225,7 +226,7 @@ class WeatherMonitoringScheduler:
         try:
             weather_data = await self.data_collector.collect_weather_data()
             if weather_data:
-                await self.storm_engine.generate_and_store_local_forecast(weather_data)
+                await self.storm_engine._generate_and_store_local_forecast(weather_data)
             else:
                 logger.warning("No weather data to generate local forecast.")
         except Exception as e:
@@ -237,7 +238,12 @@ class WeatherMonitoringScheduler:
         try:
             weather_data = await self.data_collector.collect_weather_data()
             if weather_data:
-                await self.storm_engine.generate_and_store_deepseek_forecast(weather_data)
+                forecast = await self.deepseek_predictor.generate_forecast(weather_data)
+                if forecast:
+                    self.database.store_weather_forecast(forecast)
+                    logger.info("DeepSeek forecast generated and stored.")
+                else:
+                    logger.warning("Failed to generate DeepSeek forecast.")
             else:
                 logger.warning("No weather data to generate DeepSeek forecast.")
         except Exception as e:
