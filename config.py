@@ -61,6 +61,7 @@ class WebNotificationConfig:
 class SystemConfig:
     """System operation configuration."""
     monitoring_interval_minutes: int
+    deepseek_forecast_interval_hours: int
     daily_summary_hour: int
     database_path: str
 
@@ -105,6 +106,7 @@ def load_config() -> Config:
         ),
         system=SystemConfig(
             monitoring_interval_minutes=int(os.getenv("MONITORING_INTERVAL_MINUTES", "10")),
+            deepseek_forecast_interval_hours=int(os.getenv("DEEPSEEK_FORECAST_INTERVAL_HOURS", "5")),
             daily_summary_hour=int(os.getenv("DAILY_SUMMARY_HOUR", "9")),
             database_path=os.getenv("DATABASE_PATH", "./weather_data.db")
         ),

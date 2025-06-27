@@ -72,6 +72,40 @@ class StormAnalysis:
         return data
 
 @dataclass
+class PredictedWeatherData:
+    """Predicted weather data for a specific timestamp."""
+    timestamp: datetime
+    temperature: float
+    humidity: float
+    pressure: float
+    wind_speed: float
+    wind_direction: float
+    precipitation: float
+    precipitation_probability: float
+    condition: WeatherCondition
+    cloud_cover: float
+    visibility: Optional[float]
+    description: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        data = asdict(self)
+        data['timestamp'] = self.timestamp.isoformat()
+        data['condition'] = self.condition.value
+        return data
+
+@dataclass
+class WeatherForecast:
+    """Container for a 6-hour weather forecast."""
+    timestamp: datetime # When the forecast was generated
+    forecast_data: List[PredictedWeatherData] # List of predictions for each hour
+
+    def to_dict(self) -> Dict[str, Any]:
+        data = asdict(self)
+        data['timestamp'] = self.timestamp.isoformat()
+        data['forecast_data'] = [item.to_dict() for item in self.forecast_data]
+        return data
+
+@dataclass
 class EmailNotification:
     """Email notification record."""
     timestamp: datetime
