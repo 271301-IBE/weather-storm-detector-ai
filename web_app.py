@@ -84,7 +84,28 @@ def logout():
 @login_required
 def dashboard():
     """Main dashboard page."""
-    return render_template('dashboard.html')
+    from storage import WeatherDatabase
+    from models import WeatherForecast
+    db = WeatherDatabase(config)
+    latest_forecast: Optional[WeatherForecast] = db.get_latest_weather_forecast()
+    forecast_data_for_template = []
+    if latest_forecast:
+        for item in latest_forecast.forecast_data:
+            forecast_data_for_template.append({
+                'timestamp': item.timestamp.isoformat(),
+                'temperature': round(item.temperature, 1),
+                'humidity': round(item.humidity, 1),
+                'pressure': round(item.pressure, 1),
+                'wind_speed': round(item.wind_speed, 1),
+                'precipitation': round(item.precipitation, 1),
+                'precipitation_probability': round(item.precipitation_probability, 1) if item.precipitation_probability is not None else None,
+                'condition': item.condition.value,
+                'cloud_cover': round(item.cloud_cover, 1),
+                'visibility': round(item.visibility, 1) if item.visibility is not None else None,
+                'description': item.description
+            })
+
+    return render_template('dashboard.html', forecast=forecast_data_for_template)
 
 @app.route('/system_info')
 @login_required

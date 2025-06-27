@@ -112,6 +112,16 @@ class WeatherDatabase:
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+
+            # Weather forecasts table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS weather_forecasts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    forecast_data_json TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
             
             conn.commit()
             logger.info("Database initialized successfully")
@@ -466,3 +476,56 @@ class WeatherDatabase:
         except Exception as e:
             logger.error(f"Error retrieving storm patterns: {e}")
             return []
+
+    def store_weather_forecast(self, forecast: WeatherForecast) -> bool:
+        """Store a weather forecast in the database."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                forecast_json = json.dumps(forecast.to_dict())
+                cursor.execute("""
+                    INSERT INTO weather_forecasts (timestamp, forecast_data_json)
+                    VALUES (?, ?)
+                """, (forecast.timestamp.isoformat(), forecast_json))
+                conn.commit()
+                logger.info(f"Stored new weather forecast at {forecast.timestamp}")
+                return True
+        except Exception as e:
+            logger.error(f"Error storing weather forecast: {e}")
+            return False
+
+    def get_latest_weather_forecast(self) -> Optional[WeatherForecast]:
+        """Get the most recent weather forecast from the database."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT timestamp, forecast_data_json FROM weather_forecasts
+                    ORDER BY timestamp DESC
+                    LIMIT 1
+                """)
+                row = cursor.fetchone()
+                if row:
+                    timestamp = datetime.fromisoformat(row[0])
+                    forecast_data_json = json.loads(row[1])
+                    forecast_data = []
+                    for item in forecast_data_json['forecast_data']:
+                        forecast_data.append(PredictedWeatherData(
+                            timestamp=datetime.fromisoformat(item['timestamp']),
+                            temperature=item['temperature'],
+                            humidity=item['humidity'],
+                            pressure=item['pressure'],
+                            wind_speed=item['wind_speed'],
+                            wind_direction=item['wind_direction'],
+                            precipitation=item['precipitation'],
+                            precipitation_probability=item['precipitation_probability'],
+                            condition=WeatherCondition(item['condition']),
+                            cloud_cover=item['cloud_cover'],
+                            visibility=item['visibility'],
+                            description=item['description']
+                        ))
+                    return WeatherForecast(timestamp=timestamp, forecast_data=forecast_data)
+                return None
+        except Exception as e:
+            logger.error(f"Error retrieving latest weather forecast: {e}")
+            return None

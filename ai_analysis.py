@@ -469,6 +469,8 @@ class StormDetectionEngine:
         historical_patterns = db.get_storm_patterns()
 
         if not self._is_ai_analysis_warranted(weather_data, historical_patterns, chmi_warnings):
+            # Always generate local forecast
+            await self.generate_and_store_local_forecast(weather_data)
             return None
             
         async with DeepSeekAnalyzer(self.config) as analyzer:
@@ -482,6 +484,8 @@ class StormDetectionEngine:
                 logger.warning(f"HIGH CONFIDENCE STORM DETECTED: {analysis.confidence_score:.3f}")
                 db.store_storm_pattern("ai_detection", weather_data)
             
+        # Always generate local forecast after analysis
+        await self.generate_and_store_local_forecast(weather_data)
         return analysis
     
     def should_send_alert(self, analysis: StormAnalysis) -> bool:
@@ -497,6 +501,499 @@ class StormDetectionEngine:
             return True
             
         return False
+
+class DeepSeekPredictor:
+    """AI predictor using DeepSeek API for 6-hour weather forecasts."""
+
+    def __init__(self, config: Config):
+        """Initialize predictor with configuration."""
+        self.config = config
+        self.session: Optional[aiohttp.ClientSession] = None
+
+    async def __aenter__(self):
+        """Async context manager entry."""
+        headers = {
+            "Authorization": f"Bearer {self.config.ai.deepseek_api_key}",
+            "Content-Type": "application/json"
+        }
+        self.session = aiohttp.ClientSession(
+            headers=headers,
+            timeout=aiohttp.ClientTimeout(total=120, connect=30)
+        )
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit."""
+        if self.session:
+            await self.session.close()
+
+    def _prepare_forecast_context(self, weather_data: List[WeatherData]) -> str:
+        """Prepare weather data context for AI forecast, limiting size."""
+        context = {
+            "location": {
+                "city": self.config.weather.city_name,
+                "latitude": self.config.weather.latitude,
+                "longitude": self.config.weather.longitude
+            },
+            "current_and_recent_conditions": [],
+            "analysis_timestamp": datetime.now().isoformat()
+        }
+
+        # Include up to the last 24 hours of data, or a reasonable number of entries
+        limited_weather_data = sorted(weather_data, key=lambda x: x.timestamp, reverse=True)[:50]
+
+        for data in limited_weather_data:
+            condition = {
+                "source": data.source,
+                "timestamp": data.timestamp.isoformat(),
+                "temperature": data.temperature,
+                "humidity": data.humidity,
+                "pressure": data.pressure,
+                "wind_speed": data.wind_speed,
+                "wind_direction": data.wind_direction,
+                "precipitation": data.precipitation,
+                "precipitation_probability": data.precipitation_probability,
+                "condition": data.condition.value,
+                "cloud_cover": data.cloud_cover,
+                "visibility": data.visibility,
+                "description": data.description
+            }
+            context["current_and_recent_conditions"].append(condition)
+
+        return json.dumps(context, indent=2)
+
+    def _create_forecast_prompt(self, weather_context: str) -> str:
+        """Create detailed prompt for 6-hour weather forecast."""
+        return f"""You are an expert meteorologist specializing in short-term weather forecasting for the Czech Republic, specifically the Brno/Reckovice area in South Moravia.
+
+CRITICAL TASK: Analyze the provided current and recent weather data to predict the weather conditions for the next 6 hours, hour by hour. Focus on key meteorological parameters.
+
+WEATHER DATA:
+{weather_context}
+
+FORECAST REQUIREMENTS:
+
+1.  **Time Horizon**: Predict for the next 6 hours, starting from the current time.
+2.  **Granularity**: Provide a prediction for each hour.
+3.  **Key Parameters**: For each hour, predict:
+    -   `timestamp`: ISO format for the predicted hour (e.g., current_time + 1 hour, current_time + 2 hours, etc.)
+    -   `temperature`: (°C)
+    -   `humidity`: (%)
+    -   `pressure`: (hPa)
+    -   `wind_speed`: (m/s)
+    -   `wind_direction`: (degrees)
+    -   `precipitation`: (mm/h)
+    -   `precipitation_probability`: (%)
+    -   `condition`: (e.g., clear, clouds, rain, thunderstorm, snow, drizzle, mist, fog - use the most appropriate term)
+    -   `cloud_cover`: (%)
+    -   `visibility`: (km)
+    -   `description`: A brief textual description of the weather for that hour.
+4.  **Accuracy**: Base predictions on the provided data and general meteorological principles. If data suggests a trend, continue that trend. If data is stable, predict stability.
+5.  **Format**: You MUST respond with ONLY valid JSON. NO OTHER TEXT BEFORE OR AFTER. The JSON should contain a single key, "forecast", which is a list of 6 dictionaries, each representing an hourly prediction.
+
+CRITICAL: YOU MUST RESPOND WITH ONLY VALID JSON. NO OTHER TEXT BEFORE OR AFTER.
+
+Your response must be exactly this JSON format (no markdown, no explanations, just pure JSON):
+
+{{
+    "forecast": [
+        {{
+            "timestamp": "ISO timestamp for hour 1",
+            "temperature": float,
+            "humidity": float,
+            "pressure": float,
+            "wind_speed": float,
+            "wind_direction": float,
+            "precipitation": float,
+            "precipitation_probability": float,
+            "condition": "string (e.g., clear, rain)",
+            "cloud_cover": float,
+            "visibility": float,
+            "description": "string"
+        }},
+        {{ /* ... similar structure for hour 2 ... */ }},
+        {{ /* ... similar structure for hour 3 ... */ }},
+        {{ /* ... similar structure for hour 4 ... */ }},
+        {{ /* ... similar structure for hour 5 ... */ }},
+        {{ /* ... similar structure for hour 6 ... */ }}
+    ]
+}}
+
+IMPORTANT: Do not include reasoning steps, explanations, or any text outside the JSON. Start your response with {{ and end with }}."""
+
+    async def generate_forecast(self, weather_data: List[WeatherData]) -> Optional[WeatherForecast]:
+        """Generate 6-hour weather forecast using DeepSeek AI."""
+        try:
+            weather_context = self._prepare_forecast_context(weather_data)
+            prompt = self._create_forecast_prompt(weather_context)
+
+            payload = {
+                "model": "deepseek-chat",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You are an expert meteorologist specializing in short-term weather forecasting. You must respond with ONLY valid JSON format, no other text, markdown, or explanations."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                "temperature": 0.5,  # Moderate temperature for balanced creativity and accuracy
+                "max_tokens": 1500
+            }
+
+            async with self.session.post(
+                f"{self.config.ai.deepseek_api_url}/chat/completions",
+                json=payload
+            ) as response:
+
+                if response.status == 200:
+                    result = await response.json()
+                    logger.debug(f"Full API response for forecast: {result}")
+
+                    if "choices" in result and len(result["choices"]) > 0:
+                        content = result["choices"][0]["message"]["content"]
+                        logger.debug(f"AI Forecast content: {content[:500]}...")
+
+                        # Parse JSON response
+                        forecast_data = None
+                        try:
+                            # Attempt to find JSON block in markdown format
+                            json_block_start = content.find('```json')
+                            if json_block_start != -1:
+                                json_block_start += 7  # Skip ```json
+                                json_block_end = content.find('```', json_block_start)
+                                if json_block_end != -1:
+                                    json_content = content[json_block_start:json_block_end].strip()
+                                    forecast_data = json.loads(json_content)
+                                    logger.debug("Successfully parsed JSON from markdown block for forecast")
+                            
+                            if not forecast_data:
+                                # Fallback: try to extract JSON directly if not in markdown block
+                                json_start = content.find('{')
+                                json_end = content.rfind('}') + 1
+                                if json_start != -1 and json_end > json_start:
+                                    json_content = content[json_start:json_end]
+                                    forecast_data = json.loads(json_content)
+                                    logger.debug("Successfully parsed JSON from direct extraction for forecast")
+
+                        except json.JSONDecodeError as e:
+                            logger.error(f"JSON decoding error in forecast response: {e}")
+                            logger.error(f"Problematic content: {content}")
+                            return None
+
+                        if forecast_data and "forecast" in forecast_data:
+                            predicted_weather_list = []
+                            for item in forecast_data["forecast"]:
+                                try:
+                                    predicted_weather_list.append(PredictedWeatherData(
+                                        timestamp=datetime.fromisoformat(item["timestamp"]),
+                                        temperature=item["temperature"],
+                                        humidity=item["humidity"],
+                                        pressure=item["pressure"],
+                                        wind_speed=item["wind_speed"],
+                                        wind_direction=item["wind_direction"],
+                                        precipitation=item["precipitation"],
+                                        precipitation_probability=item["precipitation_probability"],
+                                        condition=WeatherCondition(item["condition"]),
+                                        cloud_cover=item["cloud_cover"],
+                                        visibility=item["visibility"],
+                                        description=item["description"]
+                                    ))
+                                except Exception as e:
+                                    logger.warning(f"Failed to parse predicted weather item: {item}. Error: {e}")
+                                    continue
+                            return WeatherForecast(timestamp=datetime.now(), forecast_data=predicted_weather_list)
+                        else:
+                            logger.error("Invalid forecast data structure in AI response")
+                            return None
+                    else:
+                        logger.error("Invalid API response structure for forecast")
+                        return None
+
+                else:
+                    logger.error(f"DeepSeek API error for forecast: {response.status}")
+                    error_text = await response.text()
+                    logger.error(f"Error details: {error_text}")
+                    return None
+
+        except asyncio.TimeoutError:
+            logger.error("DeepSeek API timeout for forecast")
+            return None
+        except asyncio.CancelledError:
+            logger.info("AI forecast generation cancelled during shutdown")
+            return None
+        except Exception as e:
+            logger.error(f"DeepSeek API error for forecast: {e}")
+            return None
+
+        return analysis
+
+    
+
+class DeepSeekPredictor:
+    """AI predictor using DeepSeek API for 6-hour weather forecasts."""
+
+    def __init__(self, config: Config):
+        """Initialize predictor with configuration."""
+        self.config = config
+        self.session: Optional[aiohttp.ClientSession] = None
+
+    async def __aenter__(self):
+        """Async context manager entry."""
+        headers = {
+            "Authorization": f"Bearer {self.config.ai.deepseek_api_key}",
+            "Content-Type": "application/json"
+        }
+        self.session = aiohttp.ClientSession(
+            headers=headers,
+            timeout=aiohttp.ClientTimeout(total=120, connect=30)
+        )
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit."""
+        if self.session:
+            await self.session.close()
+
+    def _prepare_forecast_context(self, weather_data: List[WeatherData]) -> str:
+        """Prepare weather data context for AI forecast, limiting size."""
+        context = {
+            "location": {
+                "city": self.config.weather.city_name,
+                "latitude": self.config.weather.latitude,
+                "longitude": self.config.weather.longitude
+            },
+            "current_and_recent_conditions": [],
+            "analysis_timestamp": datetime.now().isoformat()
+        }
+
+        # Include up to the last 24 hours of data, or a reasonable number of entries
+        limited_weather_data = sorted(weather_data, key=lambda x: x.timestamp, reverse=True)[:50]
+
+        for data in limited_weather_data:
+            condition = {
+                "source": data.source,
+                "timestamp": data.timestamp.isoformat(),
+                "temperature": data.temperature,
+                "humidity": data.humidity,
+                "pressure": data.pressure,
+                "wind_speed": data.wind_speed,
+                "wind_direction": data.wind_direction,
+                "precipitation": data.precipitation,
+                "precipitation_probability": data.precipitation_probability,
+                "condition": data.condition.value,
+                "cloud_cover": data.cloud_cover,
+                "visibility": data.visibility,
+                "description": data.description
+            }
+            context["current_and_recent_conditions"].append(condition)
+
+        return json.dumps(context, indent=2)
+
+    def _create_forecast_prompt(self, weather_context: str) -> str:
+        """Create detailed prompt for 6-hour weather forecast."""
+        return f"""You are an expert meteorologist specializing in short-term weather forecasting for the Czech Republic, specifically the Brno/Reckovice area in South Moravia.
+
+CRITICAL TASK: Analyze the provided current and recent weather data to predict the weather conditions for the next 6 hours, hour by hour. Focus on key meteorological parameters.
+
+WEATHER DATA:
+{weather_context}
+
+FORECAST REQUIREMENTS:
+
+1.  **Time Horizon**: Predict for the next 6 hours, starting from the current time.
+2.  **Granularity**: Provide a prediction for each hour.
+3.  **Key Parameters**: For each hour, predict:
+    -   `timestamp`: ISO format for the predicted hour (e.g., current_time + 1 hour, current_time + 2 hours, etc.)
+    -   `temperature`: (°C)
+    -   `humidity`: (%)
+    -   `pressure`: (hPa)
+    -   `wind_speed`: (m/s)
+    -   `wind_direction`: (degrees)
+    -   `precipitation`: (mm/h)
+    -   `precipitation_probability`: (%)
+    -   `condition`: (e.g., clear, clouds, rain, thunderstorm, snow, drizzle, mist, fog - use the most appropriate term)
+    -   `cloud_cover`: (%)
+    -   `visibility`: (km)
+    -   `description`: A brief textual description of the weather for that hour.
+4.  **Accuracy**: Base predictions on the provided data and general meteorological principles. If data suggests a trend, continue that trend. If data is stable, predict stability.
+5.  **Format**: You MUST respond with ONLY valid JSON. NO OTHER TEXT BEFORE OR AFTER. The JSON should contain a single key, "forecast", which is a list of 6 dictionaries, each representing an hourly prediction.
+
+CRITICAL: YOU MUST RESPOND WITH ONLY VALID JSON. NO OTHER TEXT BEFORE OR AFTER.
+
+Your response must be exactly this JSON format (no markdown, no explanations, just pure JSON):
+
+{{
+    "forecast": [
+        {{
+            "timestamp": "ISO timestamp for hour 1",
+            "temperature": float,
+            "humidity": float,
+            "pressure": float,
+            "wind_speed": float,
+            "wind_direction": float,
+            "precipitation": float,
+            "precipitation_probability": float,
+            "condition": "string (e.g., clear, rain)",
+            "cloud_cover": float,
+            "visibility": float,
+            "description": "string"
+        }},
+        {{ /* ... similar structure for hour 2 ... */ }},
+        {{ /* ... similar structure for hour 3 ... */ }},
+        {{ /* ... similar structure for hour 4 ... */ }},
+        {{ /* ... similar structure for hour 5 ... */ }},
+        {{ /* ... similar structure for hour 6 ... */ }}
+    ]
+}}
+
+IMPORTANT: Do not include reasoning steps, explanations, or any text outside the JSON. Start your response with {{ and end with }}."""
+
+    async def generate_forecast(self, weather_data: List[WeatherData]) -> Optional[WeatherForecast]:
+        """Generate 6-hour weather forecast using DeepSeek AI."""
+        try:
+            weather_context = self._prepare_forecast_context(weather_data)
+            prompt = self._create_forecast_prompt(weather_context)
+
+            payload = {
+                "model": "deepseek-chat",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You are an expert meteorologist specializing in short-term weather forecasting. You must respond with ONLY valid JSON format, no other text, markdown, or explanations."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                "temperature": 0.5,  # Moderate temperature for balanced creativity and accuracy
+                "max_tokens": 1500
+            }
+
+            async with self.session.post(
+                f"{self.config.ai.deepseek_api_url}/chat/completions",
+                json=payload
+            ) as response:
+
+                if response.status == 200:
+                    result = await response.json()
+                    logger.debug(f"Full API response for forecast: {result}")
+
+                    if "choices" in result and len(result["choices"]) > 0:
+                        content = result["choices"][0]["message"]["content"]
+                        logger.debug(f"AI Forecast content: {content[:500]}...")
+
+                        # Parse JSON response
+                        forecast_data = None
+                        try:
+                            # Attempt to find JSON block in markdown format
+                            json_block_start = content.find('```json')
+                            if json_block_start != -1:
+                                json_block_start += 7  # Skip ```json
+                                json_block_end = content.find('```', json_block_start)
+                                if json_block_end != -1:
+                                    json_content = content[json_block_start:json_block_end].strip()
+                                    forecast_data = json.loads(json_content)
+                                    logger.debug("Successfully parsed JSON from markdown block for forecast")
+                            
+                            if not forecast_data:
+                                # Fallback: try to extract JSON directly if not in markdown block
+                                json_start = content.find('{')
+                                json_end = content.rfind('}') + 1
+                                if json_start != -1 and json_end > json_start:
+                                    json_content = content[json_start:json_end]
+                                    forecast_data = json.loads(json_content)
+                                    logger.debug("Successfully parsed JSON from direct extraction for forecast")
+
+                        except json.JSONDecodeError as e:
+                            logger.error(f"JSON decoding error in forecast response: {e}")
+                            logger.error(f"Problematic content: {content}")
+                            return None
+
+                        if forecast_data and "forecast" in forecast_data:
+                            predicted_weather_list = []
+                            for item in forecast_data["forecast"]:
+                                try:
+                                    predicted_weather_list.append(PredictedWeatherData(
+                                        timestamp=datetime.fromisoformat(item["timestamp"]),
+                                        temperature=item["temperature"],
+                                        humidity=item["humidity"],
+                                        pressure=item["pressure"],
+                                        wind_speed=item["wind_speed"],
+                                        wind_direction=item["wind_direction"],
+                                        precipitation=item["precipitation"] if item["precipitation"] is not None else 0.0,
+                                        precipitation_probability=item["precipitation_probability"] if item["precipitation_probability"] is not None else 0.0,
+                                        condition=WeatherCondition(item["condition"]),
+                                        cloud_cover=item["cloud_cover"] if item["cloud_cover"] is not None else 0.0,
+                                        visibility=item["visibility"] if item["visibility"] is not None else 10.0,
+                                        description=item["description"]
+                                    ))
+                                except Exception as e:
+                                    logger.warning(f"Failed to parse predicted weather item: {item}. Error: {e}")
+                                    continue
+                            return WeatherForecast(timestamp=datetime.now(), forecast_data=predicted_weather_list)
+                        else:
+                            logger.error("Invalid forecast data structure in AI response")
+                            return None
+                    else:
+                        logger.error("Invalid API response structure for forecast")
+                        return None
+
+                else:
+                    logger.error(f"DeepSeek API error for forecast: {response.status}")
+                    error_text = await response.text()
+                    logger.error(f"Error details: {error_text}")
+                    return None
+
+        except asyncio.TimeoutError:
+            logger.error("DeepSeek API timeout for forecast")
+            return None
+        except asyncio.CancelledError:
+            logger.info("AI forecast generation cancelled during shutdown")
+            return None
+        except Exception as e:
+            logger.error(f"DeepSeek API error for forecast: {e}")
+            return None
+
+class LocalForecastGenerator:
+    """Generates a basic 6-hour weather forecast based on recent trends."""
+
+    def __init__(self, config: Config):
+        self.config = config
+
+    def generate_forecast(self, weather_data: List[WeatherData]) -> WeatherForecast:
+        """Generates a 6-hour forecast by extrapolating from the most recent data."""
+        if not weather_data:
+            logger.warning("No weather data available for local forecast generation.")
+            # Return a default forecast if no data is available
+            return WeatherForecast(timestamp=datetime.now(), forecast_data=[])
+
+        # Sort data by timestamp to get the most recent entry
+        latest_data = sorted(weather_data, key=lambda x: x.timestamp, reverse=True)[0]
+
+        forecast_data: List[PredictedWeatherData] = []
+        for i in range(1, 7):  # For the next 6 hours
+            predicted_timestamp = datetime.now() + timedelta(hours=i)
+            # Simple extrapolation: assume conditions remain similar to the latest data
+            # In a real scenario, you'd apply more sophisticated trend analysis
+            forecast_data.append(PredictedWeatherData(
+                timestamp=predicted_timestamp,
+                temperature=latest_data.temperature,
+                humidity=latest_data.humidity,
+                pressure=latest_data.pressure,
+                wind_speed=latest_data.wind_speed,
+                wind_direction=latest_data.wind_direction,
+                precipitation=latest_data.precipitation,
+                precipitation_probability=latest_data.precipitation_probability,
+                condition=latest_data.condition,
+                cloud_cover=latest_data.cloud_cover,
+                visibility=latest_data.visibility,
+                description=latest_data.description
+            ))
+        return WeatherForecast(timestamp=datetime.now(), forecast_data=forecast_data)
 
 class DeepSeekChatAnalyzer:
     """AI chat analyzer using DeepSeek for daily summaries and general analysis."""

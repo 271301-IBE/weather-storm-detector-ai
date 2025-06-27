@@ -71,10 +71,13 @@ class WeatherMonitoringScheduler:
             for data in weather_data:
                 self.database.store_weather_data(data)
             
-            # 3. Get ČHMÚ warnings for analysis (focus on storm-related warnings)
+            # 3. Generate and store 6-hour forecast
+            # This is now handled by separate scheduled jobs (local and DeepSeek)
+
+            # 4. Get ČHMÚ warnings for analysis (focus on storm-related warnings)
             chmi_warnings = self.chmi_monitor.get_storm_warnings()
             
-            # 4. Decide if AI analysis is needed (save costs)
+            # 5. Decide if AI analysis is needed (save costs)
             should_run_ai = self._should_run_ai_analysis(weather_data, chmi_warnings)
             
             analysis = None
@@ -85,10 +88,10 @@ class WeatherMonitoringScheduler:
                 logger.debug("Skipping AI analysis - conditions normal")
             
             if analysis:
-                # 5. Store analysis results
+                # 6. Store analysis results
                 self.database.store_storm_analysis(analysis)
                 
-                # 6. Check if combined storm alert should be sent
+                # 7. Check if combined storm alert should be sent
                 if self.storm_engine.should_send_alert(analysis):
                     last_alert_time = self.database.get_last_storm_alert()
                     
@@ -178,6 +181,68 @@ class WeatherMonitoringScheduler:
         except Exception as e:
             logger.error(f"Error checking ČHMÚ warnings: {e}", exc_info=True)
     
+    async def chmi_warning_check(self):
+        """Check for new standalone ČHMÚ warnings (separate from storm alerts)."""
+        logger.info("Checking for standalone ČHMÚ warnings")
+        
+        try:
+            # Check for new warnings that aren't part of storm analysis
+            new_warnings = self.chmi_monitor.check_for_new_warnings()
+            
+            if new_warnings:
+                logger.info(f"Found {len(new_warnings)} new ČHMÚ warning(s)")
+                
+                # Only send standalone ČHMÚ email if no recent storm alert was sent
+                last_alert_time = self.database.get_last_storm_alert()
+                recent_storm_alert = (
+                    last_alert_time and 
+                    (datetime.now() - last_alert_time).total_seconds() < 3600  # Within last hour
+                )
+                
+                if not recent_storm_alert:
+                    # Send standalone ČHMÚ notification email
+                    notification = self.email_notifier.send_chmi_warning(new_warnings)
+                    
+                    if notification.sent_successfully:
+                        logger.warning(f"STANDALONE ČHMÚ WARNING EMAIL SENT: {len(new_warnings)} warning(s) for {self.config.weather.city_name}")
+                        
+                        # Log each warning
+                        for warning in new_warnings:
+                            logger.info(f"  - {warning.event} ({warning.color}) - {warning.time_start_text}")
+                    else:
+                        logger.error(f"Failed to send ČHMÚ warning email: {notification.error_message}")
+                else:
+                    logger.info("New ČHMÚ warnings detected but recent storm alert already sent - skipping standalone email")
+            else:
+                logger.debug("No new ČHMÚ warnings detected")
+                
+        except Exception as e:
+            logger.error(f"Error checking ČHMÚ warnings: {e}", exc_info=True)
+
+    async def generate_local_forecast_task(self):
+        """Generates and stores a local 6-hour forecast."""
+        logger.info("Generating local 6-hour forecast...")
+        try:
+            weather_data = await self.data_collector.collect_weather_data()
+            if weather_data:
+                await self.storm_engine.generate_and_store_local_forecast(weather_data)
+            else:
+                logger.warning("No weather data to generate local forecast.")
+        except Exception as e:
+            logger.error(f"Error generating local forecast: {e}", exc_info=True)
+
+    async def generate_deepseek_forecast_task(self):
+        """Generates and stores a DeepSeek 6-hour forecast."""
+        logger.info("Generating DeepSeek 6-hour forecast...")
+        try:
+            weather_data = await self.data_collector.collect_weather_data()
+            if weather_data:
+                await self.storm_engine.generate_and_store_deepseek_forecast(weather_data)
+            else:
+                logger.warning("No weather data to generate DeepSeek forecast.")
+        except Exception as e:
+            logger.error(f"Error generating DeepSeek forecast: {e}", exc_info=True)
+
     def setup_jobs(self):
         """Set up scheduled jobs."""
         logger.info("Setting up scheduled jobs...")
@@ -189,6 +254,28 @@ class WeatherMonitoringScheduler:
             id='monitoring_cycle',
             name='Weather Monitoring Cycle',
             max_instances=1,  # Prevent overlapping executions
+            coalesce=True,
+            misfire_grace_time=60
+        )
+        
+        # Local forecast generation every 2 minutes
+        self.scheduler.add_job(
+            self.generate_local_forecast_task,
+            trigger=IntervalTrigger(minutes=2),
+            id='local_forecast_generation',
+            name='Local Forecast Generation',
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=60
+        )
+
+        # DeepSeek forecast generation every 5 hours (configurable)
+        self.scheduler.add_job(
+            self.generate_deepseek_forecast_task,
+            trigger=IntervalTrigger(hours=self.config.system.deepseek_forecast_interval_hours),
+            id='deepseek_forecast_generation',
+            name='DeepSeek Forecast Generation',
+            max_instances=1,
             coalesce=True,
             misfire_grace_time=60
         )
