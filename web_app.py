@@ -93,7 +93,7 @@ def dashboard():
     if latest_forecast:
         for item in latest_forecast.forecast_data:
             forecast_data_for_template.append({
-                'timestamp': item.timestamp.isoformat(),
+                'timestamp': item.timestamp.strftime('%H:%M'),
                 'temperature': round(item.temperature, 1),
                 'humidity': round(item.humidity, 1),
                 'pressure': round(item.pressure, 1),
