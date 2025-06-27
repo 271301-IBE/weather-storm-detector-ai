@@ -224,7 +224,7 @@ class WeatherMonitoringScheduler:
         """Generates and stores a local 6-hour forecast."""
         logger.info("Generating local 6-hour forecast...")
         try:
-            weather_data = await self.data_collector.collect_weather_data()
+            weather_data = self.database.get_recent_weather_data(hours=24)
             if weather_data:
                 await self.storm_engine._generate_and_store_local_forecast(weather_data)
             else:
