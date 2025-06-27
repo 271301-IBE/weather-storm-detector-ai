@@ -203,7 +203,7 @@
                                         {% if forecast %}
                                             {% for item in forecast %}
                                                 <tr>
-                                                    <td>{{ moment(item.timestamp).format('HH:mm') }}</td>
+                                                    <td>{{ item.timestamp }}</td>
                                                     <td>{{ item.temperature | round(1) }}</td>
                                                     <td>{{ item.humidity | round(0) }}</td>
                                                     <td>{{ item.pressure | round(0) }}</td>
