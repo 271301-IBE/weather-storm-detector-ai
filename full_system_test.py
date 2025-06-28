@@ -223,66 +223,29 @@ async def main():
     print("🚀 KOMPLETNÍ TEST SYSTÉMU")
     print("=" * 50)
     
-    tests = [
-        ("Importy", test_imports, False),
-        ("Konfigurace", test_config, False),
-        ("Meteorologická data", test_weather_data, True),
-        ("ČHMÚ varování", test_chmi_warnings, False),
-        ("Databáze", test_database, False),
-        ("AI analýza", test_ai_analysis, True),
-    ]
-    
     results = []
-    chmi_warnings_list = [] # To store the result of test_chmi_warnings
     
-    for test_name, test_func, is_async in tests:
-        print(f"\n{'='*20}")
-        print(f"🧪 {test_name.upper()}")
-        print(f"{ '='*20}")
+    # Run tests sequentially
+    if not test_imports():
+        sys.exit(1)
         
-        try:
-            if test_name == "ČHMÚ varování":
-                chmi_warnings_list = test_func()
-                result = True if chmi_warnings_list is not None else False
-            elif is_async:
-                result = await test_func(chmi_warnings=chmi_warnings_list) if test_name == "AI analýza" else await test_func()
-            else:
-                result = test_func()
-            results.append((test_name, result))
-        except Exception as e:
-            print(f"❌ Test {test_name} failed: {e}")
-            results.append((test_name, False))
+    if not test_config():
+        sys.exit(1)
+        
+    if not await test_weather_data():
+        sys.exit(1)
+        
+    chmi_warnings_list = test_chmi_warnings()
     
-    # Summary
+    if not test_database():
+        sys.exit(1)
+        
+    if not await test_ai_analysis(chmi_warnings=chmi_warnings_list):
+        sys.exit(1)
+
     print("\n" + "="*50)
-    print("📊 SHRNUTÍ TESTŮ")
-    print("="*50)
-    
-    passed = 0
-    total = len(results)
-    
-    for test_name, result in results:
-        status = "✅ PASSED" if result else "❌ FAILED"
-        print(f"{status} - {test_name}")
-        if result:
-            passed += 1
-    
-    print(f"\n🎯 VÝSLEDEK: {passed}/{total} testů prošlo")
-    
-    if passed == total:
-        print("\n🎉 VŠECHNY TESTY PROŠLY!")
-        print("✅ Systém je připraven ke spuštění")
-        print("\n📋 FINÁLNÍ KONFIGURACE:")
-        print("  • Pouze HIGH/CRITICAL storm alerts")
-        print("  • ČHMÚ emaily jen pro bouřky/srážky/extrémní")
-        print("  • Denní emaily vypnuty")
-        print("  • Vše v češtině")
-        print("  • AI optimalizace nákladů aktivní")
-        return True
-    else:
-        print(f"\n❌ {total-passed} testů selhalo")
-        print("🔧 Opravte chyby před spuštěním systému")
-        return False
+    print("🎉 VŠECHNY TESTY PROŠLY!")
+    print("✅ Systém je připraven ke spuštění")
 
 if __name__ == "__main__":
     try:

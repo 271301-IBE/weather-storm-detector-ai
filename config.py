@@ -58,6 +58,12 @@ class WebNotificationConfig:
     vapid_public_key: str
 
 @dataclass
+class PredictionConfig:
+    """Thunderstorm prediction configuration."""
+    wind_speed_threshold: float
+    precipitation_threshold: float
+
+@dataclass
 class SystemConfig:
     """System operation configuration."""
     monitoring_interval_minutes: int
@@ -75,6 +81,7 @@ class Config:
     chmi: ChmiConfig
     webapp: WebAppConfig
     web_notification: WebNotificationConfig
+    prediction: PredictionConfig
 
 def load_config() -> Config:
     """Load configuration from environment variables."""
@@ -122,5 +129,9 @@ def load_config() -> Config:
         web_notification=WebNotificationConfig(
             vapid_private_key=os.getenv("VAPID_PRIVATE_KEY"),
             vapid_public_key=os.getenv("VAPID_PUBLIC_KEY")
+        ),
+        prediction=PredictionConfig(
+            wind_speed_threshold=float(os.getenv("WIND_SPEED_THRESHOLD", "20.0")),
+            precipitation_threshold=float(os.getenv("PRECIPITATION_THRESHOLD", "1.0"))
         )
     )
