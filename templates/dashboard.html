@@ -163,6 +163,14 @@
                 </div>
                 <div class="col-lg-4">
                     <div class="card">
+                        <div class="card-header">Next Predicted Storm ⛈️</div>
+                        <div class="card-body" id="nextStormPrediction">
+                            <p class="text-center">Loading prediction...</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-4">
+                    <div class="card">
                         <div class="card-header">Recent AI Analysis 🤖</div>
                         <div class="card-body" id="recentAnalysis">
                             <p class="text-center">Loading analysis data...</p>
@@ -263,7 +271,7 @@
                                 <label for="historyTimeline" class="form-label">Select Timeline:</label>
                                 <select class="form-select" id="historyTimeline">
                                     <option value="24">Last 24 Hours</option>
-                                    <option value="48">Last 48 Hours</option>
+                                    <option value="72">Last 3 Days</option>
                                     <option value="168">Last 7 Days</option>
                                     <option value="720">Last 30 Days</option>
                                 </select>
@@ -396,6 +404,7 @@
             loadCurrentWeather();
             loadSystemStats();
             loadRecentAnalysis();
+            loadNextStormPrediction();
             loadWeatherChart();
             loadApiUsageStats();
             loadWeatherAverages();
@@ -520,6 +529,30 @@
                 .catch(error => {
                     document.getElementById('recentAnalysis').innerHTML = '<p class="text-center text-danger">Error loading analysis data</p>';
                     console.error('Error:', error);
+                });
+        }
+
+        function loadNextStormPrediction() {
+            fetch('/api/next_storm_prediction')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('No prediction available');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    const container = document.getElementById('nextStormPrediction');
+                    const predictionDate = new Date(data.prediction_timestamp);
+                    const confidence = (data.confidence * 100).toFixed(1);
+                    container.innerHTML = `
+                        <h4 class="text-center">${predictionDate.toLocaleDateString()} at ${predictionDate.toLocaleTimeString()}</h4>
+                        <p class="text-center">Confidence: ${confidence}%</p>
+                    `;
+                })
+                .catch(error => {
+                    const container = document.getElementById('nextStormPrediction');
+                    container.innerHTML = '<p class="text-center">No prediction available yet.</p>';
+                    console.error('Error loading next storm prediction:', error);
                 });
         }
         

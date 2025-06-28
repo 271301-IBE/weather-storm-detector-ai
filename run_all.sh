@@ -57,6 +57,8 @@ pip install flask==2.3.3 > /dev/null 2>&1
 print_info "Stopping any existing processes..."
 pkill -f "python.*main.py" > /dev/null 2>&1
 pkill -f "python.*web_app.py" > /dev/null 2>&1
+pkill -f "thunderstorm_predictor.py" > /dev/null 2>&1
+
 
 # Create logs directory if it doesn't exist
 mkdir -p logs
@@ -109,6 +111,21 @@ else
     exit 1
 fi
 
+# Start thunderstorm predictor loop
+print_info "Starting thunderstorm predictor..."
+nohup bash -c 'while true; do python3 thunderstorm_predictor.py; sleep 300; done' > logs/thunderstorm_predictor.log 2>&1 &
+PREDICTOR_PID=$!
+echo $PREDICTOR_PID > thunderstorm_predictor.pid
+
+# Wait a moment to check if it started successfully
+sleep 3
+if ps -p $PREDICTOR_PID > /dev/null; then
+    print_status "Thunderstorm predictor started (PID: $PREDICTOR_PID)"
+else
+    print_error "Failed to start thunderstorm predictor"
+    exit 1
+fi
+
 # Get network IP
 NETWORK_IP=$(hostname -I | awk '{print $1}')
 
@@ -118,6 +135,7 @@ echo "==============================="
 echo ""
 print_status "Weather monitoring system is running in background"
 print_status "Web interface is running in background"
+print_status "Thunderstorm predictor is running in background"
 echo ""
 echo "📊 Web Dashboard Access:"
 echo "   Local:    http://localhost:5000"
@@ -130,17 +148,20 @@ echo ""
 echo "📝 Log Files:"
 echo "   Weather System: logs/weather_monitor.log"
 echo "   Web Interface:  logs/web_interface.log"
+echo "   Predictor:      logs/thunderstorm_predictor.log"
 echo ""
 echo "🔧 Process Management:"
 echo "   Weather PID: $WEATHER_PID (saved to weather_monitor.pid)"
 echo "   Web PID:     $WEB_PID (saved to web_interface.pid)"
+echo "   Predictor PID: $PREDICTOR_PID (saved to thunderstorm_predictor.pid)"
 echo ""
 echo "⚡ Control Commands:"
 echo "   Stop all:     ./stop_all.sh"
 echo "   Check status: ./status.sh"
 echo "   View logs:    tail -f logs/weather_monitor.log"
 echo "                 tail -f logs/web_interface.log"
+echo "                 tail -f logs/thunderstorm_predictor.log"
 echo ""
-print_info "Both processes are running in background and will continue even if you close this terminal"
+print_info "All processes are running in background and will continue even if you close this terminal"
 print_info "The system will monitor weather conditions every 10 minutes and provide web dashboard access"
 echo ""

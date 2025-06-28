@@ -248,7 +248,7 @@ def api_recent_analysis():
 def api_weather_history():
     """Get weather history for charts."""
     try:
-        hours = request.args.get('hours', 24, type=int)
+        hours = request.args.get('hours', 72, type=int)
         
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -574,6 +574,40 @@ def api_chmi_warnings():
         
     except Exception as e:
         logger.error(f"Error fetching ČHMÚ warnings: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/next_storm_prediction')
+@login_required
+def api_next_storm_prediction():
+    """Get the latest thunderstorm prediction."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT prediction_timestamp, confidence 
+            FROM thunderstorm_predictions 
+            ORDER BY created_at DESC 
+            LIMIT 1
+        """)
+        
+        row = cursor.fetchone()
+        conn.close()
+        
+        if row:
+            prediction = {
+                'prediction_timestamp': row[0],
+                'confidence': row[1]
+            }
+            return jsonify(prediction)
+        else:
+            return jsonify({'error': 'No prediction available'}), 404
+            
+    except Exception as e:
+        # This can happen if the table doesn't exist yet
+        if "no such table" in str(e):
+            return jsonify({'error': 'No prediction available, table not found'}), 404
+        logger.error(f"Error fetching next storm prediction: {e}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':

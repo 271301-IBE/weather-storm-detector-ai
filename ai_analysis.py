@@ -578,7 +578,7 @@ class DeepSeekPredictor:
         """Create detailed prompt for 6-hour weather forecast."""
         return f"""You are an expert meteorologist specializing in short-term weather forecasting for the Czech Republic, specifically the Brno/Reckovice area in South Moravia.
 
-CRITICAL TASK: Analyze the provided current and recent weather data to predict the weather conditions for the next 6 hours, hour by hour. Focus on key meteorological parameters.
+CRITICAL TASK: Analyze the provided current and recent weather data to predict the weather conditions for the next 6 hours, hour by hour. Focus on key meteorological parameters and analyze the trends in the data provided.
 
 WEATHER DATA:
 {weather_context}
@@ -774,9 +774,18 @@ class LocalForecastGenerator:
         def calculate_trend(data_points: List[float]) -> float:
             if len(data_points) < 2:
                 return 0.0
-            # Simple average change between consecutive points
+            
             changes = [data_points[i] - data_points[i-1] for i in range(1, len(data_points))]
-            return sum(changes) / len(changes) if changes else 0.0
+            
+            if not changes:
+                return 0.0
+                
+            # Weighted average of changes, giving more weight to more recent changes.
+            weights = range(1, len(changes) + 1)
+            weighted_sum = sum(c * w for c, w in zip(changes, weights))
+            total_weight = sum(weights)
+            
+            return weighted_sum / total_weight
 
         # Extract values for trend analysis
         temperatures = [d.temperature for d in recent_data]
