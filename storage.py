@@ -282,7 +282,7 @@ class WeatherDatabase:
             logger.error(f"Error storing email notification: {e}")
             return False
     
-    def get_recent_weather_data(self, hours: int = 24) -> List[WeatherData]:
+    def get_recent_weather_data(self, hours: int = 72) -> List[WeatherData]:
         """Get recent weather data from database."""
         try:
             cutoff_time = datetime.now() - timedelta(hours=hours)
