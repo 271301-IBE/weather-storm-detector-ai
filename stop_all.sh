@@ -72,6 +72,9 @@ stop_process_by_pid "Weather monitoring system" "weather_monitor.pid"
 # Stop web interface
 stop_process_by_pid "Web interface" "web_interface.pid"
 
+# Stop thunderstorm predictor
+stop_process_by_pid "Thunderstorm predictor" "thunderstorm_predictor.pid"
+
 # Kill any remaining processes by name
 print_info "Cleaning up any remaining processes..."
 pkill -f "python.*main.py" > /dev/null 2>&1
