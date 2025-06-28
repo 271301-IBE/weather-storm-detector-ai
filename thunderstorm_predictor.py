@@ -3,7 +3,6 @@ import sqlite3
 from datetime import datetime, timedelta
 import logging
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
 from config import load_config
 
 # Configure logging
