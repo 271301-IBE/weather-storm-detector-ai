@@ -378,7 +378,7 @@ def api_lightning_strikes():
                 'longitude': row[2],
                 'distance_from_brno': row[3],
                 'is_in_czech_region': row[4],
-                'age_minutes': (datetime.now() - datetime.fromisoformat(row[0])).total_seconds() / 60
+                'age_minutes': max(0, (datetime.now() - datetime.fromisoformat(row[0])).total_seconds() / 60)
             })
         
         conn.close()
