@@ -37,6 +37,14 @@
                 </div>
             </div>
         </div>
+        <div class="col-lg-4">
+            <div class="card">
+                <div class="card-header">Lightning Stats ⚡</div>
+                <div class="card-body" id="lightningStats">
+                    <p class="text-center">Loading lightning stats...</p>
+                </div>
+            </div>
+        </div>
     </div>
     <div class="row">
         <div class="col-lg-12">
@@ -269,6 +277,7 @@
         loadApiUsageStats();
         loadWeatherAverages();
         loadChmiWarnings();
+        loadLightningStats();
         updateLastUpdateTime();
     }
     
@@ -348,15 +357,39 @@
                             Avg Confidence (7d)
                             <span class="badge bg-primary rounded-pill">${data.avg_confidence_7d || 0}%</span>
                         </li>
-                        <li class="list-group-item d-flex justify-content-between align-items-center">
-                            Total Lightning Strikes
-                            <span class="badge bg-primary rounded-pill">${data.total_lightning_strikes || 0}</span>
-                        </li>
                     </ul>
                 `;
             })
             .catch(error => {
                 document.getElementById('systemStats').innerHTML = '<p class="text-center text-danger">Error loading statistics</p>';
+                console.error('Error:', error);
+            });
+    }
+
+    function loadLightningStats() {
+        fetch('/api/lightning_dashboard_stats')
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('lightningStats');
+                container.innerHTML = `
+                    <ul class="list-group list-group-flush">
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            Total Strikes
+                            <span class="badge bg-primary rounded-pill">${data.total_strikes || 0}</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            In Czech Republic
+                            <span class="badge bg-primary rounded-pill">${data.czech_strikes || 0}</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            Nearby Strikes
+                            <span class="badge bg-primary rounded-pill">${data.nearby_strikes || 0}</span>
+                        </li>
+                    </ul>
+                `;
+            })
+            .catch(error => {
+                document.getElementById('lightningStats').innerHTML = '<p class="text-center text-danger">Error loading lightning stats</p>';
                 console.error('Error:', error);
             });
     }
