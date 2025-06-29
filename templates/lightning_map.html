@@ -177,10 +177,13 @@
                         <h6 class="card-title">Legend</h6>
                         <div class="row">
                             <div class="col-md-3">
-                                <span class="badge me-2" style="background-color: #ff0040; animation: lightningPulse 2s infinite;">●</span> Very Recent (0-30 sec)
+                                <span class="badge me-2" style="background-color: #ff0040; animation: lightningPulse 1.5s infinite;">●</span> Very Recent (0-30 sec)
                             </div>
                             <div class="col-md-3">
-                                <span class="badge bg-secondary me-2">●</span> Old (30+ sec)
+                                <span class="badge me-2" style="background-color: #ff8000;">●</span> Recent (30 sec - 5 min)
+                            </div>
+                            <div class="col-md-3">
+                                <span class="badge bg-secondary me-2">●</span> Old (5+ min)
                             </div>
                             <div class="col-md-2">
                                 <span class="badge bg-primary me-2">📍</span> Brno Location
@@ -225,77 +228,63 @@
             lightningLayer = L.layerGroup().addTo(map);
         }
         
-        // Get strike color based on age
-        function getStrikeColor(ageMinutes) {
-            if (ageMinutes <= 0.5) return '#ff0040'; // Very recent - bright red (30 seconds)
-            return '#333333'; // Black dot after 30 seconds
+        // Get strike color and size based on age
+        function getStrikeProperties(ageMinutes) {
+            if (ageMinutes <= 0.5) {
+                return { color: '#ff0040', radius: 12, size: 8000 }; // Red big circle (0-30 seconds)
+            } else if (ageMinutes <= 5) {
+                return { color: '#ff8000', radius: 8, size: 5000 }; // Orange medium circle (30 seconds - 5 minutes)
+            } else {
+                return { color: '#333333', radius: 4, size: 2000 }; // Black small dot (5+ minutes)
+            }
         }
         
-        // Create animated lightning strike - POSITION LOCKED
-        function createAnimatedStrike(lat, lon, ageMinutes, strikeData) {
-            const isRecent = ageMinutes <= 0.5; // Recent = within 30 seconds
-            const color = getStrikeColor(ageMinutes);
+        // Create lightning strike with fixed position - NO MOVEMENT
+        function createStrike(lat, lon, ageMinutes, strikeData) {
+            // Absolutely lock coordinates - round to prevent micro-movements
+            const fixedLat = Math.round(lat * 100000) / 100000;
+            const fixedLon = Math.round(lon * 100000) / 100000;
+            const properties = getStrikeProperties(ageMinutes);
             
-            // Lock coordinates to prevent any movement
-            const fixedLat = parseFloat(lat.toFixed(6));
-            const fixedLon = parseFloat(lon.toFixed(6));
+            // Create circle marker (stays same size regardless of zoom)
+            const marker = L.circleMarker([fixedLat, fixedLon], {
+                radius: properties.radius,
+                fillColor: properties.color,
+                color: properties.color,
+                weight: 2,
+                opacity: 0.9,
+                fillOpacity: 0.6,
+                interactive: true
+            });
             
-            if (isRecent) {
-                // Create expanding circle for recent strikes - FIXED POSITION
-                const circle = L.circle([fixedLat, fixedLon], {
-                    radius: 8000, // Fixed radius in meters - smaller to reduce visual movement
-                    fillColor: color,
-                    color: color,
-                    weight: 2,
-                    opacity: 0.9,
-                    fillOpacity: 0.4,
-                    interactive: true
-                });
-                
-                // Add pulsing animation after element is created
-                circle.on('add', function() {
+            // Add pulsing only for very recent strikes (red)
+            if (ageMinutes <= 0.5) {
+                marker.on('add', function() {
                     setTimeout(() => {
-                        const element = circle.getElement();
+                        const element = marker.getElement();
                         if (element) {
                             element.style.animation = 'lightningPulse 1.5s ease-in-out infinite';
-                            element.style.transformOrigin = 'center';
                         }
                     }, 10);
                 });
-                
-                circle.bindPopup(`
-                    <strong>⚡ Lightning Strike</strong><br>
-                    <span style="color: ${color};">●</span> VERY RECENT<br>
-                    Time: ${new Date(strikeData.timestamp).toLocaleString()}<br>
-                    Distance: ${strikeData.distance_from_brno ? strikeData.distance_from_brno.toFixed(1) : 'N/A'} km from ${CITY_NAME}<br>
-                    Age: ${Math.round(ageMinutes * 60)} seconds<br>
-                    Location: ${fixedLat.toFixed(4)}°N, ${fixedLon.toFixed(4)}°E
-                `);
-                
-                return circle;
-            } else {
-                // Create small black dot for older strikes - FIXED POSITION
-                const marker = L.circleMarker([fixedLat, fixedLon], {
-                    radius: 3,
-                    fillColor: color,
-                    color: color,
-                    weight: 1,
-                    opacity: 0.8,
-                    fillOpacity: 0.8,
-                    interactive: true
-                });
-                
-                marker.bindPopup(`
-                    <strong>⚡ Lightning Strike</strong><br>
-                    <span style="color: ${color};">●</span> OLD<br>
-                    Time: ${new Date(strikeData.timestamp).toLocaleString()}<br>
-                    Distance: ${strikeData.distance_from_brno ? strikeData.distance_from_brno.toFixed(1) : 'N/A'} km from ${CITY_NAME}<br>
-                    Age: ${Math.round(ageMinutes)} minutes<br>
-                    Location: ${fixedLat.toFixed(4)}°N, ${fixedLon.toFixed(4)}°E
-                `);
-                
-                return marker;
             }
+            
+            // Status text based on age
+            let status = 'VERY OLD';
+            if (ageMinutes <= 0.5) status = 'VERY RECENT (RED)';
+            else if (ageMinutes <= 5) status = 'RECENT (ORANGE)';
+            else status = 'OLD (BLACK)';
+            
+            marker.bindPopup(`
+                <strong>⚡ Lightning Strike</strong><br>
+                <span style="color: ${properties.color};">●</span> ${status}<br>
+                Time: ${new Date(strikeData.timestamp).toLocaleString()}<br>
+                Distance: ${strikeData.distance_from_brno ? strikeData.distance_from_brno.toFixed(1) : 'N/A'} km from ${CITY_NAME}<br>
+                Age: ${ageMinutes <= 1 ? Math.round(ageMinutes * 60) + ' seconds' : Math.round(ageMinutes) + ' minutes'}<br>
+                Location: ${fixedLat.toFixed(4)}°N, ${fixedLon.toFixed(4)}°E
+            `);
+            
+            return marker;
         }
         
         // Update lightning data
@@ -324,71 +313,30 @@
                 // Don't clear layers - we want to maintain animations
                 // Only remove very old strikes at the end
                 
-                // Process strikes and manage transitions
+                // Clear all strikes and recreate to prevent drift
+                lightningLayer.clearLayers();
+                animatedStrikes.clear();
+                
+                // Add all strikes fresh - this prevents any drift
                 strikesData.strikes.forEach(strike => {
-                    // Use timestamp as primary ID to avoid floating point precision issues
                     const strikeId = strike.timestamp;
-                    const existing = animatedStrikes.get(strikeId);
                     
-                    if (!existing) {
-                        // New strike - create it only once and lock position
-                        const strikeElement = createAnimatedStrike(
-                            strike.latitude, 
-                            strike.longitude, 
-                            strike.age_minutes, 
-                            strike
-                        );
-                        
-                        lightningLayer.addLayer(strikeElement);
-                        animatedStrikes.set(strikeId, {
-                            element: strikeElement,
-                            addedAt: Date.now(),
-                            originalStrike: { // Lock original coordinates
-                                latitude: strike.latitude,
-                                longitude: strike.longitude,
-                                timestamp: strike.timestamp
-                            },
-                            isRecent: strike.age_minutes <= 0.5,
-                            hasTransitioned: false
-                        });
-                    } else {
-                        // Check if we need to transition from recent to old
-                        const wasRecent = existing.isRecent;
-                        const isNowRecent = strike.age_minutes <= 0.5;
-                        
-                        if (wasRecent && !isNowRecent && !existing.hasTransitioned) {
-                            // Transition from animated circle to black dot
-                            // Use ORIGINAL coordinates to prevent position drift
-                            lightningLayer.removeLayer(existing.element);
-                            
-                            const newElement = createAnimatedStrike(
-                                existing.originalStrike.latitude,
-                                existing.originalStrike.longitude,
-                                strike.age_minutes,
-                                existing.originalStrike
-                            );
-                            
-                            lightningLayer.addLayer(newElement);
-                            existing.element = newElement;
-                            existing.isRecent = false;
-                            existing.hasTransitioned = true;
-                        }
-                        
-                        // Don't update coordinates - they should stay locked!
-                    }
+                    // Create strike with current age
+                    const strikeElement = createStrike(
+                        strike.latitude, 
+                        strike.longitude, 
+                        strike.age_minutes, 
+                        strike
+                    );
+                    
+                    lightningLayer.addLayer(strikeElement);
+                    animatedStrikes.set(strikeId, {
+                        element: strikeElement,
+                        age: strike.age_minutes
+                    });
                 });
                 
-                // Remove very old strikes (older than 60 minutes)
-                // Use current strike ages from the API response
-                const currentStrikeIds = new Set(strikesData.strikes.map(s => s.timestamp));
-                
-                animatedStrikes.forEach((data, strikeId) => {
-                    // Remove if strike is no longer in API response (means it's too old)
-                    if (!currentStrikeIds.has(strikeId)) {
-                        lightningLayer.removeLayer(data.element);
-                        animatedStrikes.delete(strikeId);
-                    }
-                });
+                // Strikes are automatically cleaned by clearing and recreating
                 
                 // Update last update time
                 document.getElementById('last-update').textContent = 
