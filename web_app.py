@@ -108,6 +108,15 @@ def dashboard():
 
     return render_template('dashboard.html', forecast=forecast_data_for_template)
 
+@app.route('/map')
+@login_required
+def lightning_map():
+    """Lightning map page."""
+    return render_template('lightning_map.html', 
+                         brno_lat=config.weather.latitude, 
+                         brno_lon=config.weather.longitude,
+                         city_name=config.weather.city_name)
+
 @app.route('/system_info')
 @login_required
 def system_info():
@@ -274,6 +283,164 @@ def api_weather_history():
         
     except Exception as e:
         logger.error(f"Error fetching weather history: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# Lightning Data APIs
+@app.route('/api/lightning_current')
+@login_required
+def api_lightning_current():
+    """Get current lightning activity data."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Get lightning activity summary for the last hour
+        one_hour_ago = (datetime.now() - timedelta(hours=1)).isoformat()
+        
+        cursor.execute("""
+            SELECT COUNT(*) as total_strikes,
+                   COUNT(CASE WHEN is_in_czech_region = 1 THEN 1 END) as czech_strikes,
+                   COUNT(CASE WHEN distance_from_brno <= 50 THEN 1 END) as nearby_strikes,
+                   MIN(distance_from_brno) as closest_distance,
+                   AVG(distance_from_brno) as average_distance
+            FROM lightning_strikes 
+            WHERE timestamp > ?
+        """, (one_hour_ago,))
+        
+        row = cursor.fetchone()
+        conn.close()
+        
+        activity = {
+            'period_hours': 1,
+            'total_strikes': row[0] or 0,
+            'czech_strikes': row[1] or 0,
+            'nearby_strikes': row[2] or 0,
+            'closest_distance_km': row[3],
+            'average_distance_km': row[4],
+            'last_updated': datetime.now().isoformat(),
+            'threat_level': 'NONE'
+        }
+        
+        # Assess threat level
+        if activity['closest_distance_km']:
+            if activity['closest_distance_km'] <= 20:
+                activity['threat_level'] = 'HIGH'
+            elif activity['closest_distance_km'] <= 50 or activity['czech_strikes'] >= 3:
+                activity['threat_level'] = 'MEDIUM'
+            elif activity['czech_strikes'] > 0:
+                activity['threat_level'] = 'LOW'
+        
+        return jsonify(activity)
+        
+    except Exception as e:
+        logger.error(f"Error fetching current lightning activity: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/lightning_strikes')
+@login_required
+def api_lightning_strikes():
+    """Get recent lightning strikes for map visualization."""
+    try:
+        hours = int(request.args.get('hours', 3))  # Default to last 3 hours
+        limit = int(request.args.get('limit', 500))  # Limit for performance
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cutoff_time = (datetime.now() - timedelta(hours=hours)).isoformat()
+        
+        cursor.execute("""
+            SELECT timestamp, latitude, longitude, distance_from_brno, is_in_czech_region
+            FROM lightning_strikes 
+            WHERE timestamp > ?
+            ORDER BY timestamp DESC
+            LIMIT ?
+        """, (cutoff_time, limit))
+        
+        strikes = []
+        for row in cursor.fetchall():
+            strikes.append({
+                'timestamp': row[0],
+                'latitude': row[1],
+                'longitude': row[2],
+                'distance_from_brno': row[3],
+                'is_in_czech_region': row[4],
+                'age_minutes': (datetime.now() - datetime.fromisoformat(row[0])).total_seconds() / 60
+            })
+        
+        conn.close()
+        return jsonify({
+            'strikes': strikes,
+            'total_count': len(strikes),
+            'hours_requested': hours,
+            'brno_coordinates': {
+                'latitude': config.weather.latitude,
+                'longitude': config.weather.longitude
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error fetching lightning strikes: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/lightning_stats')
+@login_required
+def api_lightning_stats():
+    """Get lightning detection statistics."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Get statistics for different time periods
+        stats = {}
+        
+        for period, hours in [('1h', 1), ('6h', 6), ('24h', 24), ('7d', 168)]:
+            cutoff_time = (datetime.now() - timedelta(hours=hours)).isoformat()
+            
+            cursor.execute("""
+                SELECT COUNT(*) as total,
+                       COUNT(CASE WHEN is_in_czech_region = 1 THEN 1 END) as czech,
+                       COUNT(CASE WHEN distance_from_brno <= 50 THEN 1 END) as nearby,
+                       MIN(distance_from_brno) as closest
+                FROM lightning_strikes 
+                WHERE timestamp > ?
+            """, (cutoff_time,))
+            
+            row = cursor.fetchone()
+            stats[period] = {
+                'total_strikes': row[0] or 0,
+                'czech_strikes': row[1] or 0,
+                'nearby_strikes': row[2] or 0,
+                'closest_distance_km': row[3]
+            }
+        
+        # Get hourly distribution for the last 24 hours
+        cursor.execute("""
+            SELECT hour_timestamp, total_strikes, czech_region_strikes, nearby_strikes
+            FROM lightning_activity_summary 
+            WHERE hour_timestamp > ?
+            ORDER BY hour_timestamp DESC
+        """, ((datetime.now() - timedelta(hours=24)).isoformat(),))
+        
+        hourly_data = []
+        for row in cursor.fetchall():
+            hourly_data.append({
+                'hour': row[0],
+                'total': row[1],
+                'czech': row[2],
+                'nearby': row[3]
+            })
+        
+        conn.close()
+        return jsonify({
+            'periods': stats,
+            'hourly_distribution': hourly_data,
+            'system_status': 'active',
+            'last_updated': datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error fetching lightning statistics: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/system_stats')

@@ -21,6 +21,7 @@ from pdf_generator import WeatherReportGenerator
 from storage import WeatherDatabase
 from models import EmailNotification, WeatherForecast
 from chmi_warnings import ChmiWarningMonitor
+from lightning_monitor import LightningMonitor, LightningStrike
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ class WeatherMonitoringScheduler:
         self.pdf_generator = WeatherReportGenerator(config)
         self.database = WeatherDatabase(config)
         self.chmi_monitor = ChmiWarningMonitor(config)
+        self.lightning_monitor = LightningMonitor(config, self.database, self._on_lightning_strike)
         
         # Warning analysis cache to prevent duplicate AI analysis
         self._warning_analysis_cache = {}  # {warning_key: analysis_timestamp}
@@ -54,6 +56,102 @@ class WeatherMonitoringScheduler:
         """Handle shutdown signals."""
         logger.info(f"Received signal {signum}, initiating graceful shutdown...")
         asyncio.create_task(self.stop())
+    
+    def _on_lightning_strike(self, strike: LightningStrike):
+        """Callback for lightning strikes - triggers immediate analysis if nearby."""
+        try:
+            if strike.distance_from_brno <= 30:  # Within 30km
+                logger.warning(f"Lightning strike detected {strike.distance_from_brno:.1f}km from Brno - triggering immediate analysis")
+                # Create async task for immediate analysis
+                asyncio.create_task(self._handle_nearby_lightning(strike))
+            elif strike.is_in_czech_region:
+                logger.info(f"Lightning strike in Czech region: {strike.distance_from_brno:.1f}km from Brno")
+        except Exception as e:
+            logger.error(f"Error in lightning strike callback: {e}")
+    
+    async def _handle_nearby_lightning(self, strike: LightningStrike):
+        """Handle nearby lightning strike with immediate storm analysis."""
+        try:
+            logger.info(f"Processing immediate analysis for lightning at {strike.distance_from_brno:.1f}km")
+            
+            # Get recent weather data
+            weather_data = self.database.get_recent_weather_data(hours=2)
+            if not weather_data:
+                logger.warning("No recent weather data for lightning analysis")
+                return
+            
+            # Get lightning activity for the analysis
+            lightning_activity = self.lightning_monitor.get_recent_lightning_activity(hours=1)
+            
+            # Get ČHMÚ warnings
+            chmi_warnings = self.chmi_monitor.get_storm_warnings()
+            
+            # Run immediate AI analysis with lightning data
+            analysis = await self.storm_engine.analyze_storm_potential(
+                weather_data, chmi_warnings, lightning_activity
+            )
+            
+            if analysis:
+                # Store analysis
+                self.database.store_storm_analysis(analysis)
+                
+                # Send immediate alert if confidence is high
+                if analysis.confidence_score >= self.config.ai.storm_confidence_threshold:
+                    logger.warning(f"HIGH CONFIDENCE storm detected due to lightning activity: {analysis.confidence_score:.3f}")
+                    
+                    # Check if we should send alert (rate limiting)
+                    last_alert_time = self.database.get_last_storm_alert()
+                    if not last_alert_time or (datetime.now() - last_alert_time).total_seconds() > 1800:  # 30 min
+                        await self._send_lightning_alert(analysis, strike)
+                    else:
+                        logger.info("Skipping lightning alert due to rate limiting")
+                        
+        except Exception as e:
+            logger.error(f"Error handling nearby lightning: {e}")
+    
+    async def _send_lightning_alert(self, analysis, strike: LightningStrike):
+        """Send specialized lightning-based storm alert."""
+        try:
+            subject = f"⚡ IMMEDIATE STORM ALERT - Lightning {strike.distance_from_brno:.1f}km from Brno"
+            
+            message = f"""
+            🚨 IMMEDIATE THUNDERSTORM ALERT 🚨
+            
+            Lightning strike detected at {strike.distance_from_brno:.1f} kilometers from Brno!
+            
+            ⚡ Lightning Location: {strike.latitude:.4f}°N, {strike.longitude:.4f}°E
+            ⏰ Strike Time: {strike.timestamp.strftime('%H:%M:%S')}
+            🎯 Confidence: {analysis.confidence_score:.1%}
+            📊 Alert Level: {analysis.alert_level.value.upper()}
+            
+            {analysis.analysis_summary}
+            
+            IMMEDIATE RECOMMENDATIONS:
+            """
+            
+            for rec in analysis.recommendations:
+                message += f"• {rec}\n"
+            
+            message += f"""
+            
+            This alert was triggered by REAL-TIME lightning detection.
+            Take shelter immediately if outdoors.
+            
+            Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+            """
+            
+            # Send email alert
+            await self.email_notifier.send_storm_alert(
+                self.config.email.recipient_email,
+                subject,
+                message,
+                "lightning_storm_alert"
+            )
+            
+            logger.info("Lightning-triggered storm alert sent successfully")
+            
+        except Exception as e:
+            logger.error(f"Error sending lightning alert: {e}")
     
     async def monitoring_cycle(self):
         """Execute one complete monitoring cycle."""
@@ -84,7 +182,9 @@ class WeatherMonitoringScheduler:
             analysis = None
             if should_run_ai:
                 logger.info("Running AI analysis - conditions indicate potential storm activity")
-                analysis = await self.storm_engine.analyze_storm_potential(weather_data, chmi_warnings)
+                # Get recent lightning activity for analysis
+                lightning_activity = self.lightning_monitor.get_recent_lightning_activity(hours=2)
+                analysis = await self.storm_engine.analyze_storm_potential(weather_data, chmi_warnings, lightning_activity)
             else:
                 logger.debug("Skipping AI analysis - conditions normal")
             
@@ -330,6 +430,10 @@ class WeatherMonitoringScheduler:
         self.scheduler.start()
         self.is_running = True
         
+        # Start lightning monitor
+        logger.info("Starting lightning monitor...")
+        asyncio.create_task(self.lightning_monitor.monitor_lightning())
+        
         # Run initial monitoring cycle
         logger.info("Running initial monitoring cycle...")
         await self.monitoring_cycle()
@@ -343,6 +447,9 @@ class WeatherMonitoringScheduler:
             return
             
         logger.info("Stopping Weather Storm Detection System...")
+        
+        # Stop lightning monitor
+        self.lightning_monitor.stop()
         
         # Shutdown scheduler
         if self.scheduler.running:
@@ -367,8 +474,13 @@ class WeatherMonitoringScheduler:
     def _should_run_ai_analysis(self, weather_data, chmi_warnings) -> bool:
         """
         Determine if AI analysis should run to save API costs.
-        Only run AI when there are storm indicators.
+        Only run AI when there are storm indicators, including lightning activity.
         """
+        # Check for recent lightning activity first (highest priority)
+        lightning_activity = self.lightning_monitor.get_recent_lightning_activity(hours=1)
+        if lightning_activity.get('czech_strikes', 0) > 0 or lightning_activity.get('nearby_strikes', 0) > 0:
+            logger.info(f"AI analysis triggered by lightning activity: {lightning_activity.get('czech_strikes', 0)} Czech strikes, {lightning_activity.get('nearby_strikes', 0)} nearby strikes")
+            return True
         # Check ČHMÚ warnings with smart filtering (based on CAP documentation)
         if chmi_warnings:
             current_time = datetime.now()

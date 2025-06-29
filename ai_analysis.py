@@ -38,7 +38,7 @@ class DeepSeekAnalyzer:
         if self.session:
             await self.session.close()
     
-    def _prepare_weather_context(self, weather_data: List[WeatherData], historical_patterns: List = None, chmi_warnings: List[ChmiWarning] = None) -> str:
+    def _prepare_weather_context(self, weather_data: List[WeatherData], historical_patterns: List = None, chmi_warnings: List[ChmiWarning] = None, lightning_activity: Dict[str, Any] = None) -> str:
         """Prepare weather data context for AI analysis, limiting size."""
         
         # Limit weather_data to the most recent 24 hours or a reasonable number of entries
@@ -64,7 +64,8 @@ class DeepSeekAnalyzer:
             "analysis_timestamp": datetime.now().isoformat(),
             "data_sources_count": len(limited_weather_data), # Use count of limited data
             "chmi_warnings": [],
-            "historical_storm_patterns_summary": []
+            "historical_storm_patterns_summary": [],
+            "lightning_activity": {}
         }
         
         for data in limited_weather_data:
@@ -122,15 +123,46 @@ class DeepSeekAnalyzer:
                     }
                     context["historical_storm_patterns_summary"].append(summary)
         
+        # Add lightning activity data if available
+        if lightning_activity:
+            context["lightning_activity"] = {
+                "recent_activity": lightning_activity,
+                "summary": f"Lightning activity detected: {lightning_activity.get('total_strikes', 0)} total strikes, "
+                          f"{lightning_activity.get('czech_strikes', 0)} in Czech region, "
+                          f"{lightning_activity.get('nearby_strikes', 0)} within alert radius",
+                "closest_distance_km": lightning_activity.get('closest_distance_km'),
+                "threat_level": self._assess_lightning_threat_level(lightning_activity)
+            }
+        
         return json.dumps(context, indent=2)
+    
+    def _assess_lightning_threat_level(self, lightning_activity: Dict[str, Any]) -> str:
+        """Assess lightning threat level based on activity data."""
+        nearby_strikes = lightning_activity.get('nearby_strikes', 0)
+        czech_strikes = lightning_activity.get('czech_strikes', 0)
+        closest_distance = lightning_activity.get('closest_distance_km')
+        
+        # High threat: Lightning within 20km
+        if closest_distance and closest_distance <= 20:
+            return "HIGH"
+        
+        # Medium threat: Lightning within 50km or multiple Czech strikes
+        if (closest_distance and closest_distance <= 50) or czech_strikes >= 3:
+            return "MEDIUM"
+        
+        # Low threat: Some lightning activity in region
+        if czech_strikes > 0 or nearby_strikes > 0:
+            return "LOW"
+        
+        return "NONE"
     
     def _create_analysis_prompt(self, weather_context: str) -> str:
         """Create detailed prompt for storm analysis."""
         return f"""You are an expert meteorologist analyzing weather data for thunderstorm detection in Czech Republic, specifically the Brno/Reckovice area in South Moravia.
 
-CRITICAL TASK: Analyze the provided weather data, ČHMÚ official warnings, and historical storm patterns to determine with HIGH ACCURACY whether a thunderstorm is approaching or occurring. This system sends email alerts to citizens, so FALSE POSITIVES must be minimized.
+CRITICAL TASK: Analyze the provided weather data, ČHMÚ official warnings, historical storm patterns, and REAL-TIME LIGHTNING ACTIVITY to determine with HIGH ACCURACY whether a thunderstorm is approaching or occurring. This system sends email alerts to citizens, so FALSE POSITIVES must be minimized.
 
-WEATHER DATA, OFFICIAL WARNINGS, AND HISTORICAL PATTERNS:
+WEATHER DATA, OFFICIAL WARNINGS, HISTORICAL PATTERNS, AND LIGHTNING ACTIVITY:
 {weather_context}
 
 ANALYSIS REQUIREMENTS:
@@ -139,17 +171,24 @@ ANALYSIS REQUIREMENTS:
    - Analyze weather sensor data: pressure trends, wind patterns, humidity, precipitation probability
    - Look for classic thunderstorm indicators: rapid pressure drops, wind shifts, high humidity
    - CRITICALLY IMPORTANT: Consider official ČHMÚ warnings in the data
-   - Cross-reference sensor data with official meteorological warnings
+   - EXTREMELY IMPORTANT: Consider real-time lightning strike data from Blitzortung.org network
+   - Lightning activity within 50km of Brno indicates IMMEDIATE thunderstorm threat
+   - Lightning within 20km indicates SEVERE IMMEDIATE threat
+   - Cross-reference sensor data with official meteorological warnings and lightning activity
    - If ČHMÚ has issued thunderstorm/rain warnings, this significantly increases confidence
+   - If real-time lightning strikes are detected nearby, this is DIRECT evidence of thunderstorm activity
    - Evaluate data quality and cross-reference multiple sources
    - IMPORTANT: If current conditions match historical storm patterns, this is a strong indicator of a potential storm.
 
 2. CONFIDENCE SCORING (0.0 to 1.0):
    - Only scores above 0.99 will trigger email alerts
    - ČHMÚ warnings and matches with historical storm patterns add significant weight to confidence scores
-   - Consider: data consistency, meteorological indicators, official warnings, regional patterns, historical patterns
+   - LIGHTNING ACTIVITY is CRITICAL: Real-time lightning within 50km should dramatically increase confidence (0.95+)
+   - Lightning within 20km of Brno should result in MAXIMUM confidence (0.99+) as it indicates active thunderstorm
+   - Consider: data consistency, meteorological indicators, official warnings, regional patterns, historical patterns, lightning activity
    - Account for data quality issues or missing information
    - If ČHMÚ has active warnings for thunderstorms/rain, confidence should be much higher
+   - Lightning strikes are DIRECT evidence of thunderstorm activity - weight this heavily in analysis
 
 3. ALERT LEVEL ASSESSMENT:
    - LOW: Minimal storm activity, light rain possible
@@ -185,10 +224,10 @@ Your response must be exactly this JSON format (no markdown, no explanations, ju
 
 IMPORTANT: Do not include reasoning steps, explanations, or any text outside the JSON. The JSON fields can contain your analysis. Start your response with {{ and end with }}."""
 
-    async def analyze_weather_data(self, weather_data: List[WeatherData], historical_patterns: List = None, chmi_warnings: List[ChmiWarning] = None) -> Optional[StormAnalysis]:
+    async def analyze_weather_data(self, weather_data: List[WeatherData], historical_patterns: List = None, chmi_warnings: List[ChmiWarning] = None, lightning_activity: Dict[str, Any] = None) -> Optional[StormAnalysis]:
         """Analyze weather data using DeepSeek AI."""
         try:
-            weather_context = self._prepare_weather_context(weather_data, historical_patterns, chmi_warnings)
+            weather_context = self._prepare_weather_context(weather_data, historical_patterns, chmi_warnings, lightning_activity)
             prompt = self._create_analysis_prompt(weather_context)
             
             payload = {
@@ -469,7 +508,7 @@ class StormDetectionEngine:
 
         return best_match_score
         
-    async def analyze_storm_potential(self, weather_data: List[WeatherData], chmi_warnings: List[ChmiWarning] = None) -> Optional[StormAnalysis]:
+    async def analyze_storm_potential(self, weather_data: List[WeatherData], chmi_warnings: List[ChmiWarning] = None, lightning_activity: Dict[str, Any] = None) -> Optional[StormAnalysis]:
         """Analyze storm potential using AI."""
         from storage import WeatherDatabase
 
@@ -486,7 +525,7 @@ class StormDetectionEngine:
             return None
             
         async with DeepSeekAnalyzer(self.config) as analyzer:
-            analysis = await analyzer.analyze_weather_data(weather_data, historical_patterns, chmi_warnings)
+            analysis = await analyzer.analyze_weather_data(weather_data, historical_patterns, chmi_warnings, lightning_activity)
             
         if analysis:
             logger.info(f"Storm analysis completed: confidence={analysis.confidence_score:.3f}, detected={analysis.storm_detected}")
