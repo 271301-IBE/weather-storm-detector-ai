@@ -130,7 +130,7 @@
                     <div class="form-check form-switch">
                         <input class="form-check-input" type="checkbox" id="auto-refresh" checked>
                         <label class="form-check-label" for="auto-refresh">
-                            Auto-refresh (30s)
+                            Auto-refresh (2s)
                         </label>
                     </div>
                 </div>
@@ -292,7 +292,7 @@
                 }
                 
                 if (autoRefreshCheckbox.checked) {
-                    autoRefreshInterval = setInterval(updateLightningData, 30000); // 30 seconds
+                    autoRefreshInterval = setInterval(updateLightningData, 2000); // 2 seconds
                 }
             }
             
