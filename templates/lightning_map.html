@@ -55,6 +55,41 @@
             background: linear-gradient(45deg, #764ba2, #667eea);
             color: white;
         }
+        
+        /* Lightning strike animations */
+        @keyframes lightningPulse {
+            0% {
+                transform: scale(1);
+                opacity: 1;
+            }
+            50% {
+                transform: scale(1.3);
+                opacity: 0.7;
+            }
+            100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+        
+        @keyframes lightningExpand {
+            0% {
+                transform: scale(0.1);
+                opacity: 1;
+            }
+            100% {
+                transform: scale(1);
+                opacity: 0.3;
+            }
+        }
+        
+        .lightning-strike-animated {
+            animation: lightningExpand 3s ease-out;
+        }
+        
+        .lightning-recent {
+            animation: lightningPulse 2s ease-in-out infinite;
+        }
     </style>
 </head>
 <body>
@@ -151,16 +186,22 @@
                     <div class="card-body">
                         <h6 class="card-title">Legend</h6>
                         <div class="row">
-                            <div class="col-md-3">
-                                <span class="badge bg-danger me-2">●</span> Recent (0-30 min)
+                            <div class="col-md-2">
+                                <span class="badge me-2" style="background-color: #ff0040; animation: lightningPulse 2s infinite;">●</span> Very Recent (0-5 min)
                             </div>
-                            <div class="col-md-3">
-                                <span class="badge bg-warning me-2">●</span> Moderate (30-120 min)
+                            <div class="col-md-2">
+                                <span class="badge me-2" style="background-color: #ff4000;">●</span> Recent (5-15 min)
                             </div>
-                            <div class="col-md-3">
-                                <span class="badge bg-secondary me-2">●</span> Old (2+ hours)
+                            <div class="col-md-2">
+                                <span class="badge me-2" style="background-color: #ff8000;">●</span> Moderate (15-30 min)
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-md-2">
+                                <span class="badge me-2" style="background-color: #ffcc00;">●</span> Old (30-60 min)
+                            </div>
+                            <div class="col-md-2">
+                                <span class="badge bg-secondary me-2">●</span> Very Old (60+ min)
+                            </div>
+                            <div class="col-md-2">
                                 <span class="badge bg-primary me-2">📍</span> Brno Location
                             </div>
                         </div>
@@ -182,6 +223,7 @@
         let map;
         let lightningLayer;
         let autoRefreshInterval;
+        let animatedStrikes = new Map(); // Store animated strike circles
         
         // Initialize map
         function initMap() {
@@ -204,9 +246,52 @@
         
         // Get strike color based on age
         function getStrikeColor(ageMinutes) {
-            if (ageMinutes <= 30) return '#dc3545'; // Recent - red
-            if (ageMinutes <= 120) return '#ffc107'; // Moderate - yellow
-            return '#6c757d'; // Old - gray
+            if (ageMinutes <= 5) return '#ff0040'; // Very recent - bright red
+            if (ageMinutes <= 15) return '#ff4000'; // Recent - red-orange
+            if (ageMinutes <= 30) return '#ff8000'; // Moderate - orange
+            if (ageMinutes <= 60) return '#ffcc00'; // Old - yellow
+            return '#cccccc'; // Very old - light gray
+        }
+        
+        // Create animated lightning strike
+        function createAnimatedStrike(lat, lon, ageMinutes, strikeData) {
+            const color = getStrikeColor(ageMinutes);
+            const opacity = Math.max(0.1, 1 - (ageMinutes / 60)); // Fade over 60 minutes
+            
+            // Create expanding circle animation
+            const maxRadius = ageMinutes <= 5 ? 50 : 30; // Bigger for very recent strikes
+            const currentRadius = Math.min(maxRadius, ageMinutes * 2); // Expand over time
+            
+            const circle = L.circle([lat, lon], {
+                radius: currentRadius * 1000, // Convert to meters
+                fillColor: color,
+                color: color,
+                weight: 2,
+                opacity: opacity,
+                fillOpacity: opacity * 0.3,
+                className: 'lightning-strike-animated'
+            });
+            
+            // Add pulsing effect for very recent strikes
+            if (ageMinutes <= 5) {
+                circle.on('add', function() {
+                    const element = circle.getElement();
+                    if (element) {
+                        element.style.animation = 'lightningPulse 2s ease-in-out infinite';
+                    }
+                });
+            }
+            
+            circle.bindPopup(`
+                <strong>⚡ Lightning Strike</strong><br>
+                <span style="color: ${color};">●</span> ${ageMinutes <= 5 ? 'VERY RECENT' : ageMinutes <= 15 ? 'RECENT' : ageMinutes <= 30 ? 'MODERATE' : 'OLD'}<br>
+                Time: ${new Date(strikeData.timestamp).toLocaleString()}<br>
+                Distance: ${strikeData.distance_from_brno.toFixed(1)} km from ${CITY_NAME}<br>
+                Age: ${Math.round(ageMinutes)} minutes<br>
+                Location: ${lat.toFixed(4)}°N, ${lon.toFixed(4)}°E
+            `);
+            
+            return circle;
         }
         
         // Update lightning data
@@ -232,32 +317,51 @@
                 const strikesResponse = await fetch(`/api/lightning_strikes?hours=${hours}&limit=1000`);
                 const strikesData = await strikesResponse.json();
                 
-                // Clear existing lightning markers
-                lightningLayer.clearLayers();
+                // Don't clear layers - we want to maintain animations
+                // Only remove very old strikes at the end
                 
-                // Add lightning strikes to map
+                // Add lightning strikes to map with animation
                 strikesData.strikes.forEach(strike => {
-                    const color = getStrikeColor(strike.age_minutes);
-                    const radius = strike.distance_from_brno <= 50 ? 8 : 5;
+                    const strikeId = `${strike.latitude}_${strike.longitude}_${strike.timestamp}`;
                     
-                    const circle = L.circleMarker([strike.latitude, strike.longitude], {
-                        radius: radius,
-                        fillColor: color,
-                        color: color,
-                        weight: 2,
-                        opacity: 0.8,
-                        fillOpacity: 0.6
-                    });
-                    
-                    circle.bindPopup(`
-                        <strong>Lightning Strike</strong><br>
-                        Time: ${new Date(strike.timestamp).toLocaleString()}<br>
-                        Distance: ${strike.distance_from_brno.toFixed(1)} km from ${CITY_NAME}<br>
-                        Age: ${Math.round(strike.age_minutes)} minutes<br>
-                        Location: ${strike.latitude.toFixed(4)}°N, ${strike.longitude.toFixed(4)}°E
-                    `);
-                    
-                    lightningLayer.addLayer(circle);
+                    // Only add if not already animated
+                    if (!animatedStrikes.has(strikeId)) {
+                        const animatedCircle = createAnimatedStrike(
+                            strike.latitude, 
+                            strike.longitude, 
+                            strike.age_minutes, 
+                            strike
+                        );
+                        
+                        lightningLayer.addLayer(animatedCircle);
+                        animatedStrikes.set(strikeId, {
+                            circle: animatedCircle,
+                            addedAt: Date.now(),
+                            strike: strike
+                        });
+                    } else {
+                        // Update existing strike if needed
+                        const existing = animatedStrikes.get(strikeId);
+                        if (existing && existing.circle) {
+                            // Update opacity and radius based on new age
+                            const newOpacity = Math.max(0.1, 1 - (strike.age_minutes / 60));
+                            const newRadius = Math.min(50, strike.age_minutes * 2) * 1000;
+                            
+                            existing.circle.setStyle({
+                                opacity: newOpacity,
+                                fillOpacity: newOpacity * 0.3
+                            });
+                            existing.circle.setRadius(newRadius);
+                        }
+                    }
+                });
+                
+                // Remove very old strikes (older than 2 hours)
+                animatedStrikes.forEach((data, strikeId) => {
+                    if (data.strike.age_minutes > 120) {
+                        lightningLayer.removeLayer(data.circle);
+                        animatedStrikes.delete(strikeId);
+                    }
                 });
                 
                 // Update last update time
