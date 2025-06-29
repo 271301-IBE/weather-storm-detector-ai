@@ -100,6 +100,29 @@
             </div>
         </div>
     </div>
+
+    <div class="row mt-4">
+        <div class="col-md-6">
+            <div class="card history-card">
+                <div class="card-header">Weather Trends</div>
+                <div class="card-body">
+                    <div class="history-chart-container">
+                        <canvas id="weatherChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card history-card">
+                <div class="card-header">Lightning Activity Over Time</div>
+                <div class="card-body">
+                    <div class="history-chart-container">
+                        <canvas id="lightningChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
@@ -109,6 +132,9 @@
         const weatherHistoryRange = document.getElementById('weather-history-range');
         const lightningHistoryRange = document.getElementById('lightning-history-range');
 
+        let weatherChartInstance = null;
+        let lightningChartInstance = null;
+
         async function fetchWeatherHistory() {
             const hours = weatherHistoryRange.value;
             try {
@@ -117,6 +143,7 @@
                 const tbody = document.getElementById('weather-history-body');
                 tbody.innerHTML = ''; // Clear previous data
 
+                // Populate table
                 data.forEach(item => {
                     const row = tbody.insertRow();
                     row.insertCell().textContent = new Date(item.timestamp).toLocaleString();
@@ -127,6 +154,87 @@
                     row.insertCell().textContent = item.precipitation !== null ? item.precipitation.toFixed(1) : 'N/A';
                     row.insertCell().textContent = item.source || 'N/A';
                 });
+
+                // Prepare data for chart
+                const timestamps = data.map(item => new Date(item.timestamp));
+                const temperatures = data.map(item => item.temperature);
+                const humidities = data.map(item => item.humidity);
+                const pressures = data.map(item => item.pressure);
+
+                if (weatherChartInstance) {
+                    weatherChartInstance.destroy();
+                }
+                const ctx = document.getElementById('weatherChart').getContext('2d');
+                weatherChartInstance = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: timestamps,
+                        datasets: [
+                            {
+                                label: 'Temperature (°C)',
+                                data: temperatures,
+                                borderColor: '#ff6384',
+                                fill: false,
+                                tension: 0.1
+                            },
+                            {
+                                label: 'Humidity (%)',
+                                data: humidities,
+                                borderColor: '#36a2eb',
+                                fill: false,
+                                tension: 0.1
+                            },
+                            {
+                                label: 'Pressure (hPa)',
+                                data: pressures,
+                                borderColor: '#cc65fe',
+                                fill: false,
+                                tension: 0.1
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: {
+                                type: 'time',
+                                time: {
+                                    unit: 'hour',
+                                    tooltipFormat: 'MMM d, HH:mm'
+                                },
+                                title: {
+                                    display: true,
+                                    text: 'Time'
+                                }
+                            },
+                            y: {
+                                title: {
+                                    display: true,
+                                    text: 'Value'
+                                }
+                            }
+                        },
+                        plugins: {
+                            tooltip: {
+                                mode: 'index',
+                                intersect: false
+                            },
+                            zoom: {
+                                zoom: {
+                                    wheel: {
+                                        enabled: true,
+                                    },
+                                    pinch: {
+                                        enabled: true
+                                    },
+                                    mode: 'x',
+                                }
+                            }
+                        }
+                    }
+                });
+
             } catch (error) {
                 console.error('Error fetching weather history:', error);
                 document.getElementById('weather-history-body').innerHTML = '<tr><td colspan="7">Error loading weather history.</td></tr>';
@@ -142,6 +250,7 @@
                 const tbody = document.getElementById('lightning-history-body');
                 tbody.innerHTML = ''; // Clear previous data
 
+                // Populate table
                 data.strikes.forEach(strike => {
                     const row = tbody.insertRow();
                     row.insertCell().textContent = new Date(strike.timestamp).toLocaleString();
@@ -150,6 +259,79 @@
                     row.insertCell().textContent = strike.distance_from_brno !== null ? strike.distance_from_brno.toFixed(1) : 'N/A';
                     row.insertCell().textContent = strike.is_in_czech_region ? 'Yes' : 'No';
                 });
+
+                // Prepare data for chart (hourly strike count)
+                const strikeCounts = {};
+                data.strikes.forEach(strike => {
+                    const date = new Date(strike.timestamp);
+                    // Round down to the nearest hour
+                    date.setMinutes(0, 0, 0);
+                    const hourKey = date.toISOString(); // Use ISO string for consistent keys
+                    strikeCounts[hourKey] = (strikeCounts[hourKey] || 0) + 1;
+                });
+
+                const chartLabels = Object.keys(strikeCounts).sort();
+                const chartData = chartLabels.map(key => strikeCounts[key]);
+
+                if (lightningChartInstance) {
+                    lightningChartInstance.destroy();
+                }
+                const ctx = document.getElementById('lightningChart').getContext('2d');
+                lightningChartInstance = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: chartLabels,
+                        datasets: [{
+                            label: 'Lightning Strikes per Hour',
+                            data: chartData,
+                            backgroundColor: 'rgba(255, 206, 86, 0.6)',
+                            borderColor: 'rgba(255, 206, 86, 1)',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: {
+                                type: 'time',
+                                time: {
+                                    unit: 'hour',
+                                    tooltipFormat: 'MMM d, HH:mm'
+                                },
+                                title: {
+                                    display: true,
+                                    text: 'Time'
+                                }
+                            },
+                            y: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Number of Strikes'
+                                }
+                            }
+                        },
+                        plugins: {
+                            tooltip: {
+                                mode: 'index',
+                                intersect: false
+                            },
+                            zoom: {
+                                zoom: {
+                                    wheel: {
+                                        enabled: true,
+                                    },
+                                    pinch: {
+                                        enabled: true
+                                    },
+                                    mode: 'x',
+                                }
+                            }
+                        }
+                    }
+                });
+
             } catch (error) {
                 console.error('Error fetching lightning history:', error);
                 document.getElementById('lightning-history-body').innerHTML = '<tr><td colspan="5">Error loading lightning history.</td></tr>';
