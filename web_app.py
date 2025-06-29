@@ -123,6 +123,11 @@ def system_info():
     """System information page."""
     return render_template('system_info.html')
 
+@app.route('/favicon.ico')
+def favicon():
+    return send_from_directory(os.path.join(app.root_path, 'static'),
+                               'favicon.ico', mimetype='image/vnd.microsoft.icon')
+
 @app.route('/api/system_metrics')
 @login_required
 def api_system_metrics():
@@ -518,9 +523,6 @@ def api_system_stats():
         
         cursor.execute("SELECT COUNT(*) FROM storm_analysis")
         stats['total_analysis_records'] = cursor.fetchone()[0]
-
-        cursor.execute("SELECT COUNT(*) FROM lightning_strikes")
-        stats['total_lightning_strikes'] = cursor.fetchone()[0]
         
         conn.close()
         
@@ -754,6 +756,15 @@ def api_next_storm_prediction():
         conn = get_db_connection()
         cursor = conn.cursor()
         
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS thunderstorm_predictions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                prediction_timestamp TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+
         cursor.execute("""
             SELECT prediction_timestamp, confidence 
             FROM thunderstorm_predictions 
