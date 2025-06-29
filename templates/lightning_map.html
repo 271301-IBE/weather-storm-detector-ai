@@ -225,7 +225,7 @@
         // Create custom SVG icon for lightning strike
         const lightningSvg = `
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="${properties.color}" stroke="none">
-                <path d="M11 15.5V22h2v-6.5h3.5L12 2 8.5 8.5H12V15.5z"/>
+                <path d="M10.5 2H1v11h5v9l12-12h-7.5L23 2H10.5z"/>
             </svg>
         `;
 
@@ -233,7 +233,7 @@
             className: 'lightning-icon',
             html: lightningSvg,
             iconSize: properties.iconSize,
-            iconAnchor: [properties.iconSize[0] / 2, properties.iconSize[1] / 2] // Center the icon
+            iconAnchor: [properties.iconSize[0] / 2, properties.iconSize[1]] // Anchor at the bottom center of the icon
         });
 
         // Create marker with custom icon
