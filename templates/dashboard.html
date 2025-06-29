@@ -644,8 +644,8 @@
                 container.innerHTML = html;
             })
             .catch(error => {
-                console.error('Error loading API usage stats:', error);
                 document.getElementById('apiUsageStats').innerHTML = '<p class="text-center text-danger">Error loading API usage data</p>';
+                console.error('Error:', error);
             });
     }
     
@@ -689,8 +689,8 @@
                 }
             })
             .catch(error => {
-                console.error('Error loading weather averages:', error);
                 document.getElementById('weatherAverages').innerHTML = '<p class="text-center text-danger">Error loading average data</p>';
+                console.error('Error:', error);
             });
     }
     
@@ -735,8 +735,8 @@
                 }
             })
             .catch(error => {
-                console.error('Error loading ČHMÚ warnings:', error);
                 document.getElementById('chmiWarnings').innerHTML = '<p class="text-center text-danger">Error loading ČHMÚ warnings</p>';
+                console.error('Error:', error);
             });
     }
 
