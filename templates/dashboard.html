@@ -252,10 +252,10 @@
 
         if (tabId === 'dashboard') {
             document.getElementById('dashboard-content').style.display = 'block';
-            document.querySelector('a[href="#dashboard"]').classList.add('active');
+            document.querySelector('a[href="/"]').classList.add('active');
         } else if (tabId === 'history') {
             document.getElementById('history-content').style.display = 'block';
-            document.querySelector('a[href="#history"]').classList.add('active');
+            document.querySelector('a[href="/history"]').classList.add('active');
             loadAllHistoryCharts(); // Load all charts when history tab is shown
         }
     }
@@ -396,18 +396,22 @@
         fetch('/api/next_storm_prediction')
             .then(response => {
                 if (!response.ok) {
-                    throw new Error('No prediction available');
+                    return response.text().then(text => { throw new Error(text) });
                 }
                 return response.json();
             })
             .then(data => {
                 const container = document.getElementById('nextStormPrediction');
-                const predictionDate = new Date(data.prediction_timestamp);
-                const confidence = (data.confidence * 100).toFixed(1);
-                container.innerHTML = `
-                    <h4 class="text-center">${predictionDate.toLocaleDateString()} at ${predictionDate.toLocaleTimeString()}</h4>
-                    <p class="text-center">Confidence: ${confidence}%</p>
-                `;
+                if (data && data.prediction_timestamp) {
+                    const predictionDate = new Date(data.prediction_timestamp);
+                    const confidence = (data.confidence * 100).toFixed(1);
+                    container.innerHTML = `
+                        <h4 class="text-center">${predictionDate.toLocaleDateString()} at ${predictionDate.toLocaleTimeString()}</h4>
+                        <p class="text-center">Confidence: ${confidence}%</p>
+                    `;
+                } else {
+                    container.innerHTML = '<p class="text-center">No prediction available yet.</p>';
+                }
             })
             .catch(error => {
                 const container = document.getElementById('nextStormPrediction');
