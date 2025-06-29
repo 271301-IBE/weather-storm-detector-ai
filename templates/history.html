@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+
+{% block title %}History - Weather Storm Detection{% endblock %}
+
+{% block head %}
+<style>
+    .history-card {
+        margin-bottom: 1.5rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        border-radius: 0.75rem;
+    }
+    .history-card .card-header {
+        background-color: #f8f9fa;
+        border-bottom: 1px solid #e9ecef;
+        font-weight: bold;
+        border-top-left-radius: 0.75rem;
+        border-top-right-radius: 0.75rem;
+    }
+    .history-table-container {
+        max-height: 600px; /* Adjust as needed */
+        overflow-y: auto;
+        border: 1px solid #e9ecef;
+        border-radius: 0.5rem;
+    }
+    .history-table th, .history-table td {
+        white-space: nowrap;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <h1 class="mb-4">Historical Data</h1>
+
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card history-card">
+                <div class="card-header">Weather History</div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label for="weather-history-range" class="form-label">Time Range:</label>
+                        <select id="weather-history-range" class="form-select">
+                            <option value="24">Last 24 hours</option>
+                            <option value="72" selected>Last 3 days</option>
+                            <option value="168">Last 7 days</option>
+                            <option value="720">Last 30 days</option>
+                        </select>
+                    </div>
+                    <div class="history-table-container">
+                        <table class="table table-striped table-hover table-sm history-table">
+                            <thead>
+                                <tr>
+                                    <th>Timestamp</th>
+                                    <th>Temp (°C)</th>
+                                    <th>Humidity (%)</th>
+                                    <th>Pressure (hPa)</th>
+                                    <th>Wind (m/s)</th>
+                                    <th>Precip (mm)</th>
+                                    <th>Source</th>
+                                </tr>
+                            </thead>
+                            <tbody id="weather-history-body">
+                                <!-- Weather data will be loaded here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card history-card">
+                <div class="card-header">Lightning History</div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label for="lightning-history-range" class="form-label">Time Range:</label>
+                        <select id="lightning-history-range" class="form-select">
+                            <option value="24">Last 24 hours</option>
+                            <option value="72" selected>Last 3 days</option>
+                            <option value="168">Last 7 days</option>
+                            <option value="720">Last 30 days</option>
+                        </select>
+                    </div>
+                    <div class="history-table-container">
+                        <table class="table table-striped table-hover table-sm history-table">
+                            <thead>
+                                <tr>
+                                    <th>Timestamp</th>
+                                    <th>Latitude</th>
+                                    <th>Longitude</th>
+                                    <th>Distance (km)</th>
+                                    <th>Czech Region</th>
+                                </tr>
+                            </thead>
+                            <tbody id="lightning-history-body">
+                                <!-- Lightning data will be loaded here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const weatherHistoryRange = document.getElementById('weather-history-range');
+        const lightningHistoryRange = document.getElementById('lightning-history-range');
+
+        async function fetchWeatherHistory() {
+            const hours = weatherHistoryRange.value;
+            try {
+                const response = await fetch(`/api/weather_history?hours=${hours}`);
+                const data = await response.json();
+                const tbody = document.getElementById('weather-history-body');
+                tbody.innerHTML = ''; // Clear previous data
+
+                data.forEach(item => {
+                    const row = tbody.insertRow();
+                    row.insertCell().textContent = new Date(item.timestamp).toLocaleString();
+                    row.insertCell().textContent = item.temperature !== null ? item.temperature.toFixed(1) : 'N/A';
+                    row.insertCell().textContent = item.humidity !== null ? item.humidity.toFixed(1) : 'N/A';
+                    row.insertCell().textContent = item.pressure !== null ? item.pressure.toFixed(1) : 'N/A';
+                    row.insertCell().textContent = item.wind_speed !== null ? item.wind_speed.toFixed(1) : 'N/A';
+                    row.insertCell().textContent = item.precipitation !== null ? item.precipitation.toFixed(1) : 'N/A';
+                    row.insertCell().textContent = item.source || 'N/A';
+                });
+            } catch (error) {
+                console.error('Error fetching weather history:', error);
+                document.getElementById('weather-history-body').innerHTML = '<tr><td colspan="7">Error loading weather history.</td></tr>';
+            }
+        }
+
+        async function fetchLightningHistory() {
+            const hours = lightningHistoryRange.value;
+            try {
+                // Use the existing /api/lightning_strikes endpoint, but request a higher limit
+                const response = await fetch(`/api/lightning_strikes?hours=${hours}&limit=5000`); // Increased limit
+                const data = await response.json();
+                const tbody = document.getElementById('lightning-history-body');
+                tbody.innerHTML = ''; // Clear previous data
+
+                data.strikes.forEach(strike => {
+                    const row = tbody.insertRow();
+                    row.insertCell().textContent = new Date(strike.timestamp).toLocaleString();
+                    row.insertCell().textContent = strike.latitude.toFixed(4);
+                    row.insertCell().textContent = strike.longitude.toFixed(4);
+                    row.insertCell().textContent = strike.distance_from_brno !== null ? strike.distance_from_brno.toFixed(1) : 'N/A';
+                    row.insertCell().textContent = strike.is_in_czech_region ? 'Yes' : 'No';
+                });
+            } catch (error) {
+                console.error('Error fetching lightning history:', error);
+                document.getElementById('lightning-history-body').innerHTML = '<tr><td colspan="5">Error loading lightning history.</td></tr>';
+            }
+        }
+
+        // Initial load
+        fetchWeatherHistory();
+        fetchLightningHistory();
+
+        // Event listeners for time range changes
+        weatherHistoryRange.addEventListener('change', fetchWeatherHistory);
+        lightningHistoryRange.addEventListener('change', fetchLightningHistory);
+    });
+</script>
+{% endblock %}
