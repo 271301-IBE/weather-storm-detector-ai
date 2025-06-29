@@ -292,9 +292,16 @@ class LightningMonitor:
             return None
 
     def store_lightning_strike(self, strike: LightningStrike) -> bool:
-        """Store lightning strike in database."""
-        try:
-            with self.database.get_connection() as conn:
+        """Store lightning strike in database with retry logic."""
+        max_retries = 3
+        base_delay = 0.1  # Start with 100ms delay
+        
+        for attempt in range(max_retries):
+            try:
+                # Use a separate connection with timeout
+                import sqlite3
+                conn = sqlite3.connect(self.database.db_path, timeout=5.0)
+                conn.execute("PRAGMA journal_mode=WAL")  # Use WAL mode for better concurrency
                 cursor = conn.cursor()
                 
                 data = strike.to_dict()
@@ -311,18 +318,38 @@ class LightningMonitor:
                 ))
                 
                 conn.commit()
+                conn.close()
                 return True
                 
-        except Exception as e:
-            logger.error(f"Error storing lightning strike: {e}")
-            return False
+            except sqlite3.OperationalError as e:
+                if "database is locked" in str(e) and attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)  # Exponential backoff
+                    logger.debug(f"Database locked, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})")
+                    import time
+                    time.sleep(delay)
+                    continue
+                else:
+                    logger.error(f"Error storing lightning strike after {attempt + 1} attempts: {e}")
+                    return False
+            except Exception as e:
+                logger.error(f"Error storing lightning strike: {e}")
+                return False
+                
+        return False
 
     def update_hourly_summary(self, strike: LightningStrike):
-        """Update hourly lightning activity summary."""
-        try:
-            hour_timestamp = strike.timestamp.replace(minute=0, second=0, microsecond=0)
-            
-            with self.database.get_connection() as conn:
+        """Update hourly lightning activity summary with retry logic."""
+        max_retries = 3
+        base_delay = 0.1
+        
+        for attempt in range(max_retries):
+            try:
+                hour_timestamp = strike.timestamp.replace(minute=0, second=0, microsecond=0)
+                
+                # Use a separate connection with timeout
+                import sqlite3
+                conn = sqlite3.connect(self.database.db_path, timeout=5.0)
+                conn.execute("PRAGMA journal_mode=WAL")
                 cursor = conn.cursor()
                 
                 # Update or insert hourly summary
@@ -358,9 +385,22 @@ class LightningMonitor:
                 ))
                 
                 conn.commit()
+                conn.close()
+                return  # Success, exit retry loop
                 
-        except Exception as e:
-            logger.error(f"Error updating hourly summary: {e}")
+            except sqlite3.OperationalError as e:
+                if "database is locked" in str(e) and attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    logger.debug(f"Database locked during summary update, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})")
+                    import time
+                    time.sleep(delay)
+                    continue
+                else:
+                    logger.error(f"Error updating hourly summary after {attempt + 1} attempts: {e}")
+                    return
+            except Exception as e:
+                logger.error(f"Error updating hourly summary: {e}")
+                return
 
     async def monitor_lightning(self):
         """Monitor lightning strikes from Blitzortung WebSocket with database integration."""
@@ -444,37 +484,41 @@ class LightningMonitor:
         logger.info("Lightning monitor stop requested")
 
     def get_recent_lightning_activity(self, hours: int = 24) -> Dict[str, Any]:
-        """Get recent lightning activity summary."""
+        """Get recent lightning activity summary with database timeout handling."""
         try:
             cutoff_time = datetime.now() - timedelta(hours=hours)
             
-            with self.database.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Get strike counts
-                cursor.execute("""
-                    SELECT 
-                        COUNT(*) as total_strikes,
-                        COUNT(CASE WHEN is_in_czech_region = 1 THEN 1 END) as czech_strikes,
-                        COUNT(CASE WHEN distance_from_brno <= ? THEN 1 END) as nearby_strikes,
-                        MIN(distance_from_brno) as closest_distance,
-                        AVG(distance_from_brno) as average_distance
-                    FROM lightning_strikes 
-                    WHERE timestamp > ?
-                """, (self.alert_radius_km, cutoff_time.isoformat()))
-                
-                row = cursor.fetchone()
-                
-                return {
-                    'period_hours': hours,
-                    'total_strikes': row[0] or 0,
-                    'czech_strikes': row[1] or 0,
-                    'nearby_strikes': row[2] or 0,
-                    'closest_distance_km': row[3],
-                    'average_distance_km': row[4],
-                    'last_updated': datetime.now().isoformat()
-                }
-                
+            # Use a separate connection with timeout
+            import sqlite3
+            conn = sqlite3.connect(self.database.db_path, timeout=5.0)
+            conn.execute("PRAGMA journal_mode=WAL")
+            cursor = conn.cursor()
+            
+            # Get strike counts
+            cursor.execute("""
+                SELECT 
+                    COUNT(*) as total_strikes,
+                    COUNT(CASE WHEN is_in_czech_region = 1 THEN 1 END) as czech_strikes,
+                    COUNT(CASE WHEN distance_from_brno <= ? THEN 1 END) as nearby_strikes,
+                    MIN(distance_from_brno) as closest_distance,
+                    AVG(distance_from_brno) as average_distance
+                FROM lightning_strikes 
+                WHERE timestamp > ?
+            """, (self.alert_radius_km, cutoff_time.isoformat()))
+            
+            row = cursor.fetchone()
+            conn.close()
+            
+            return {
+                'period_hours': hours,
+                'total_strikes': row[0] or 0,
+                'czech_strikes': row[1] or 0,
+                'nearby_strikes': row[2] or 0,
+                'closest_distance_km': row[3],
+                'average_distance_km': row[4],
+                'last_updated': datetime.now().isoformat()
+            }
+            
         except Exception as e:
             logger.error(f"Error getting lightning activity: {e}")
             return {
