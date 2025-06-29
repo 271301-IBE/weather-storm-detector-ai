@@ -518,6 +518,9 @@ def api_system_stats():
         
         cursor.execute("SELECT COUNT(*) FROM storm_analysis")
         stats['total_analysis_records'] = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM lightning_strikes")
+        stats['total_lightning_strikes'] = cursor.fetchone()[0]
         
         conn.close()
         
