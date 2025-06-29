@@ -56,29 +56,9 @@
             color: white;
         }
         
-        /* Lightning strike animations - position locked */
-        @keyframes lightningPulse {
-            0% {
-                transform: scale(1);
-                opacity: 0.8;
-            }
-            50% {
-                transform: scale(1.1);
-                opacity: 0.5;
-            }
-            100% {
-                transform: scale(1);
-                opacity: 0.8;
-            }
-        }
-        
-        .lightning-strike-animated {
-            transform-origin: center;
-            position: absolute !important;
-        }
-        
-        .lightning-recent {
-            animation: lightningPulse 1.5s ease-in-out infinite;
+        /* Static lightning strikes - no animations */
+        .lightning-strike {
+            /* No animations - completely static */
         }
     </style>
 </head>
@@ -177,7 +157,7 @@
                         <h6 class="card-title">Legend</h6>
                         <div class="row">
                             <div class="col-md-3">
-                                <span class="badge me-2" style="background-color: #ff0040; animation: lightningPulse 1.5s infinite;">●</span> Very Recent (0-30 sec)
+                                <span class="badge me-2" style="background-color: #ff0040;">●</span> Very Recent (0-30 sec)
                             </div>
                             <div class="col-md-3">
                                 <span class="badge me-2" style="background-color: #ff8000;">●</span> Recent (30 sec - 5 min)
@@ -239,14 +219,14 @@
             }
         }
         
-        // Create lightning strike with fixed position - NO MOVEMENT
+        // Create static lightning strike - NO ANIMATIONS OR MOVEMENT
         function createStrike(lat, lon, ageMinutes, strikeData) {
             // Absolutely lock coordinates - round to prevent micro-movements
             const fixedLat = Math.round(lat * 100000) / 100000;
             const fixedLon = Math.round(lon * 100000) / 100000;
             const properties = getStrikeProperties(ageMinutes);
             
-            // Create circle marker (stays same size regardless of zoom)
+            // Create completely static circle marker
             const marker = L.circleMarker([fixedLat, fixedLon], {
                 radius: properties.radius,
                 fillColor: properties.color,
@@ -254,20 +234,11 @@
                 weight: 2,
                 opacity: 0.9,
                 fillOpacity: 0.6,
-                interactive: true
+                interactive: true,
+                className: 'lightning-strike'
             });
             
-            // Add pulsing only for very recent strikes (red)
-            if (ageMinutes <= 0.5) {
-                marker.on('add', function() {
-                    setTimeout(() => {
-                        const element = marker.getElement();
-                        if (element) {
-                            element.style.animation = 'lightningPulse 1.5s ease-in-out infinite';
-                        }
-                    }, 10);
-                });
-            }
+            // NO ANIMATIONS - completely static
             
             // Status text based on age
             let status = 'VERY OLD';
