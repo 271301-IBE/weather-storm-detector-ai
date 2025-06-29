@@ -1,364 +1,340 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lightning Map - Weather Storm Detection</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <style>
-        body {
-            background-color: #f0f2f5;
-            font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-        }
-        .navbar {
-            background-color: #2c3e50 !important;
-        }
-        .navbar-brand {
-            font-weight: bold;
-        }
-        #map {
-            height: 70vh;
-            width: 100%;
-            border-radius: 0.75rem;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        }
-        .stats-card {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            border-radius: 0.75rem;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        }
-        .threat-badge {
-            font-size: 1.1em;
-            padding: 0.5em 1em;
-        }
-        .strike-marker {
-            border-radius: 50%;
-            border: 2px solid #fff;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-        }
-        .controls-panel {
-            background: white;
-            border-radius: 0.75rem;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-            padding: 1rem;
-            margin-bottom: 1rem;
-        }
-        .btn-lightning {
-            background: linear-gradient(45deg, #667eea, #764ba2);
-            border: none;
-            color: white;
-        }
-        .btn-lightning:hover {
-            background: linear-gradient(45deg, #764ba2, #667eea);
-            color: white;
-        }
-        
-        /* Static lightning strikes - no animations */
-        .lightning-strike {
-            /* No animations - completely static */
-        }
-    </style>
-</head>
-<body>
-    <!-- Navigation -->
-    <nav class="navbar navbar-expand-lg navbar-dark">
-        <div class="container">
-            <a class="navbar-brand" href="/">⚡ Lightning Map</a>
-            <div class="navbar-nav ms-auto">
-                <a class="nav-link" href="/">Dashboard</a>
-                <a class="nav-link" href="/system_info">System Info</a>
-                <a class="nav-link" href="/logout">Logout</a>
-            </div>
-        </div>
-    </nav>
+{% extends "base.html" %}
 
-    <div class="container-fluid mt-4">
-        <!-- Lightning Activity Stats -->
-        <div class="row mb-4">
-            <div class="col-md-3">
-                <div class="card stats-card">
-                    <div class="card-body text-center">
-                        <h5 class="card-title">Current Threat</h5>
-                        <h2 id="threat-level" class="mb-0">NONE</h2>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted">Total Strikes (1h)</h6>
-                        <h3 id="total-strikes" class="text-primary mb-0">-</h3>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted">Czech Region</h6>
-                        <h3 id="czech-strikes" class="text-success mb-0">-</h3>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted">Nearby (&lt;50km)</h6>
-                        <h3 id="nearby-strikes" class="text-warning mb-0">-</h3>
-                    </div>
+{% block title %}Lightning Map - Weather Storm Detection{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+    #map {
+        height: 70vh;
+        width: 100%;
+        border-radius: 0.75rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+    .stats-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 0.75rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+    .threat-badge {
+        font-size: 1.1em;
+        padding: 0.5em 1em;
+    }
+    .strike-marker {
+        border-radius: 50%;
+        border: 2px solid #fff;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+    .controls-panel {
+        background: white;
+        border-radius: 0.75rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        padding: 1rem;
+        margin-bottom: 1rem;
+    }
+    .btn-lightning {
+        background: linear-gradient(45deg, #667eea, #764ba2);
+        border: none;
+        color: white;
+    }
+    .btn-lightning:hover {
+        background: linear-gradient(45deg, #764ba2, #667eea);
+        color: white;
+    }
+    
+    /* Static lightning strikes - no animations */
+    .lightning-strike {
+        /* No animations - completely static */
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <!-- Lightning Activity Stats -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card stats-card">
+                <div class="card-body text-center">
+                    <h5 class="card-title">Current Threat</h5>
+                    <h2 id="threat-level" class="mb-0">NONE</h2>
                 </div>
             </div>
         </div>
-
-        <!-- Map Controls -->
-        <div class="controls-panel">
-            <div class="row align-items-center">
-                <div class="col-md-4">
-                    <label for="time-range" class="form-label">Time Range:</label>
-                    <select id="time-range" class="form-select">
-                        <option value="1">Last 1 hour</option>
-                        <option value="3" selected>Last 3 hours</option>
-                        <option value="6">Last 6 hours</option>
-                        <option value="12">Last 12 hours</option>
-                        <option value="24">Last 24 hours</option>
-                    </select>
-                </div>
-                <div class="col-md-4">
-                    <button id="refresh-btn" class="btn btn-lightning">
-                        🔄 Refresh Data
-                    </button>
-                    <span id="last-update" class="text-muted ms-2">-</span>
-                </div>
-                <div class="col-md-4">
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" id="auto-refresh" checked>
-                        <label class="form-check-label" for="auto-refresh">
-                            Auto-refresh (2s)
-                        </label>
-                    </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h6 class="text-muted">Total Strikes (1h)</h6>
+                    <h3 id="total-strikes" class="text-primary mb-0">-</h3>
                 </div>
             </div>
         </div>
-
-        <!-- Lightning Map -->
-        <div class="row">
-            <div class="col-12">
-                <div id="map"></div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h6 class="text-muted">Czech Region</h6>
+                    <h3 id="czech-strikes" class="text-success mb-0">-</h3>
+                </div>
             </div>
         </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h6 class="text-muted">Nearby (&lt;50km)</h6>
+                    <h3 id="nearby-strikes" class="text-warning mb-0">-</h3>
+                </div>
+            </div>
+        </div>
+    </div>
 
-        <!-- Legend -->
-        <div class="row mt-3">
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-body">
-                        <h6 class="card-title">Legend</h6>
-                        <div class="row">
-                            <div class="col-md-3">
-                                <span class="badge me-2" style="background-color: #ff0040;">●</span> Very Recent (0-30 sec)
-                            </div>
-                            <div class="col-md-3">
-                                <span class="badge me-2" style="background-color: #ff8000;">●</span> Recent (30 sec - 5 min)
-                            </div>
-                            <div class="col-md-3">
-                                <span class="badge bg-secondary me-2">●</span> Old (5+ min)
-                            </div>
-                            <div class="col-md-2">
-                                <span class="badge bg-primary me-2">📍</span> Brno Location
-                            </div>
+    <!-- Map Controls -->
+    <div class="controls-panel">
+        <div class="row align-items-center">
+            <div class="col-md-4">
+                <label for="time-range" class="form-label">Time Range:</label>
+                <select id="time-range" class="form-select">
+                    <option value="1">Last 1 hour</option>
+                    <option value="3" selected>Last 3 hours</option>
+                    <option value="6">Last 6 hours</option>
+                    <option value="12">Last 12 hours</option>
+                    <option value="24">Last 24 hours</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <button id="refresh-btn" class="btn btn-lightning">
+                    🔄 Refresh Data
+                </button>
+                <span id="last-update" class="text-muted ms-2">-</span>
+            </div>
+            <div class="col-md-4">
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="auto-refresh" checked>
+                    <label class="form-check-label" for="auto-refresh">
+                        Auto-refresh (2s)
+                    </label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Lightning Map -->
+    <div class="row">
+        <div class="col-12">
+            <div id="map"></div>
+        </div>
+    </div>
+
+    <!-- Legend -->
+    <div class="row mt-3">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body">
+                    <h6 class="card-title">Legend</h6>
+                    <div class="row">
+                        <div class="col-md-3">
+                            <span class="badge me-2" style="background-color: #ff0040;">●</span> Very Recent (0-30 sec)
+                        </div>
+                        <div class="col-md-3">
+                            <span class="badge me-2" style="background-color: #ff8000;">●</span> Recent (30 sec - 5 min)
+                        </div>
+                        <div class="col-md-3">
+                            <span class="badge bg-secondary me-2">●</span> Old (5+ min)
+                        </div>
+                        <div class="col-md-2">
+                            <span class="badge bg-primary me-2">📍</span> Brno Location
                         </div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
+</div>
+{% endblock %}
 
-    <!-- Scripts -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script>
-        // Map configuration
-        const BRNO_LAT = {{ brno_lat }};
-        const BRNO_LON = {{ brno_lon }};
-        const CITY_NAME = "{{ city_name }}";
+{% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+    // Map configuration
+    const BRNO_LAT = {{ brno_lat }};
+    const BRNO_LON = {{ brno_lon }};
+    const CITY_NAME = "{{ city_name }}";
+    
+    let map;
+    let lightningLayer;
+    let autoRefreshInterval;
+    let animatedStrikes = new Map(); // Store animated strike circles
+    
+    // Initialize map
+    function initMap() {
+        map = L.map('map').setView([BRNO_LAT, BRNO_LON], 8);
         
-        let map;
-        let lightningLayer;
-        let autoRefreshInterval;
-        let animatedStrikes = new Map(); // Store animated strike circles
+        // Add tile layer
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
         
-        // Initialize map
-        function initMap() {
-            map = L.map('map').setView([BRNO_LAT, BRNO_LON], 8);
-            
-            // Add tile layer
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© OpenStreetMap contributors'
-            }).addTo(map);
-            
-            // Add Brno marker
-            L.marker([BRNO_LAT, BRNO_LON])
-                .addTo(map)
-                .bindPopup(`${CITY_NAME}<br>Weather Station Location`)
-                .openPopup();
-            
-            // Initialize lightning layer
-            lightningLayer = L.layerGroup().addTo(map);
+        // Add Brno marker
+        L.marker([BRNO_LAT, BRNO_LON])
+            .addTo(map)
+            .bindPopup(`${CITY_NAME}<br>Weather Station Location`)
+            .openPopup();
+        
+        // Initialize lightning layer
+        lightningLayer = L.layerGroup().addTo(map);
+    }
+    
+    // Get strike color and size based on age
+    function getStrikeProperties(ageMinutes) {
+        if (ageMinutes <= 0.5) {
+            return { color: '#ff0040', radius: 12, size: 8000 }; // Red big circle (0-30 seconds)
+        } else if (ageMinutes <= 5) {
+            return { color: '#ff8000', radius: 8, size: 5000 }; // Orange medium circle (30 seconds - 5 minutes)
+        } else {
+            return { color: '#333333', radius: 4, size: 2000 }; // Black small dot (5+ minutes)
         }
+    }
+    
+    // Create static lightning strike - NO ANIMATIONS OR MOVEMENT
+    function createStrike(lat, lon, ageMinutes, strikeData) {
+        // Absolutely lock coordinates - round to prevent micro-movements
+        const fixedLat = Math.round(lat * 100000) / 100000;
+        const fixedLon = Math.round(lon * 100000) / 100000;
+        const properties = getStrikeProperties(ageMinutes);
         
-        // Get strike color and size based on age
-        function getStrikeProperties(ageMinutes) {
-            if (ageMinutes <= 0.5) {
-                return { color: '#ff0040', radius: 12, size: 8000 }; // Red big circle (0-30 seconds)
-            } else if (ageMinutes <= 5) {
-                return { color: '#ff8000', radius: 8, size: 5000 }; // Orange medium circle (30 seconds - 5 minutes)
-            } else {
-                return { color: '#333333', radius: 4, size: 2000 }; // Black small dot (5+ minutes)
-            }
-        }
+        // Create completely static circle marker
+        const marker = L.circleMarker([fixedLat, fixedLon], {
+            radius: properties.radius,
+            fillColor: properties.color,
+            color: properties.color,
+            weight: 2,
+            opacity: 0.9,
+            fillOpacity: 0.6,
+            interactive: true,
+            className: 'lightning-strike'
+        });
         
-        // Create static lightning strike - NO ANIMATIONS OR MOVEMENT
-        function createStrike(lat, lon, ageMinutes, strikeData) {
-            // Absolutely lock coordinates - round to prevent micro-movements
-            const fixedLat = Math.round(lat * 100000) / 100000;
-            const fixedLon = Math.round(lon * 100000) / 100000;
-            const properties = getStrikeProperties(ageMinutes);
+        // NO ANIMATIONS - completely static
+        
+        // Status text based on age
+        let status = 'VERY OLD';
+        if (ageMinutes <= 0.5) status = 'VERY RECENT (RED)';
+        else if (ageMinutes <= 5) status = 'RECENT (ORANGE)';
+        else status = 'OLD (BLACK)';
+        
+        marker.bindPopup(`
+            <strong>⚡ Lightning Strike</strong><br>
+            <span style="color: ${properties.color};">●</span> ${status}<br>
+            Time: ${new Date(strikeData.timestamp).toLocaleString()}<br>
+            Distance: ${strikeData.distance_from_brno ? strikeData.distance_from_brno.toFixed(1) : 'N/A'} km from ${CITY_NAME}<br>
+            Age: ${ageMinutes <= 1 ? Math.round(ageMinutes * 60) + ' seconds' : Math.round(ageMinutes) + ' minutes'}<br>
+            Location: ${fixedLat.toFixed(4)}°N, ${fixedLon.toFixed(4)}°E
+        `);
+        
+        return marker;
+    }
+    
+    // Update lightning data
+    async function updateLightningData() {
+        try {
+            const hours = document.getElementById('time-range').value;
             
-            // Create completely static circle marker
-            const marker = L.circleMarker([fixedLat, fixedLon], {
-                radius: properties.radius,
-                fillColor: properties.color,
-                color: properties.color,
-                weight: 2,
-                opacity: 0.9,
-                fillOpacity: 0.6,
-                interactive: true,
-                className: 'lightning-strike'
+            // Fetch current activity stats
+            const statsResponse = await fetch('/api/lightning_current');
+            const stats = await statsResponse.json();
+            
+            // Update stats display
+            document.getElementById('total-strikes').textContent = stats.total_strikes;
+            document.getElementById('czech-strikes').textContent = stats.czech_strikes;
+            document.getElementById('nearby-strikes').textContent = stats.nearby_strikes;
+            
+            // Update threat level
+            const threatElement = document.getElementById('threat-level');
+            threatElement.textContent = stats.threat_level;
+            threatElement.className = `mb-0 ${getThreatClass(stats.threat_level)}`;
+            
+            // Fetch lightning strikes for map
+            const strikesResponse = await fetch(`/api/lightning_strikes?hours=${hours}&limit=1000`);
+            const strikesData = await strikesResponse.json();
+            
+            // Don't clear layers - we want to maintain animations
+            // Only remove very old strikes at the end
+            
+            // Clear all strikes and recreate to prevent drift
+            lightningLayer.clearLayers();
+            animatedStrikes.clear();
+            
+            // Add all strikes fresh - this prevents any drift
+            strikesData.strikes.forEach(strike => {
+                const strikeId = strike.timestamp;
+                
+                // Create strike with current age
+                const strikeElement = createStrike(
+                    strike.latitude, 
+                    strike.longitude, 
+                    strike.age_minutes, 
+                    strike
+                );
+                
+                lightningLayer.addLayer(strikeElement);
+                animatedStrikes.set(strikeId, {
+                    element: strikeElement,
+                    age: strike.age_minutes
+                });
             });
             
-            // NO ANIMATIONS - completely static
+            // Strikes are automatically cleaned by clearing and recreating
             
-            // Status text based on age
-            let status = 'VERY OLD';
-            if (ageMinutes <= 0.5) status = 'VERY RECENT (RED)';
-            else if (ageMinutes <= 5) status = 'RECENT (ORANGE)';
-            else status = 'OLD (BLACK)';
+            // Update last update time
+            document.getElementById('last-update').textContent = 
+                `Updated: ${new Date().toLocaleTimeString()}`;
             
-            marker.bindPopup(`
-                <strong>⚡ Lightning Strike</strong><br>
-                <span style="color: ${properties.color};">●</span> ${status}<br>
-                Time: ${new Date(strikeData.timestamp).toLocaleString()}<br>
-                Distance: ${strikeData.distance_from_brno ? strikeData.distance_from_brno.toFixed(1) : 'N/A'} km from ${CITY_NAME}<br>
-                Age: ${ageMinutes <= 1 ? Math.round(ageMinutes * 60) + ' seconds' : Math.round(ageMinutes) + ' minutes'}<br>
-                Location: ${fixedLat.toFixed(4)}°N, ${fixedLon.toFixed(4)}°E
-            `);
+            console.log(`Updated map with ${strikesData.strikes.length} lightning strikes`);
             
-            return marker;
+        } catch (error) {
+            console.error('Error updating lightning data:', error);
         }
+    }
+    
+    // Get CSS class for threat level
+    function getThreatClass(threatLevel) {
+        switch (threatLevel) {
+            case 'HIGH': return 'text-danger';
+            case 'MEDIUM': return 'text-warning';
+            case 'LOW': return 'text-info';
+            default: return 'text-success';
+        }
+    }
+    
+    // Set up auto-refresh
+    function setupAutoRefresh() {
+        const autoRefreshCheckbox = document.getElementById('auto-refresh');
         
-        // Update lightning data
-        async function updateLightningData() {
-            try {
-                const hours = document.getElementById('time-range').value;
-                
-                // Fetch current activity stats
-                const statsResponse = await fetch('/api/lightning_current');
-                const stats = await statsResponse.json();
-                
-                // Update stats display
-                document.getElementById('total-strikes').textContent = stats.total_strikes;
-                document.getElementById('czech-strikes').textContent = stats.czech_strikes;
-                document.getElementById('nearby-strikes').textContent = stats.nearby_strikes;
-                
-                // Update threat level
-                const threatElement = document.getElementById('threat-level');
-                threatElement.textContent = stats.threat_level;
-                threatElement.className = `mb-0 ${getThreatClass(stats.threat_level)}`;
-                
-                // Fetch lightning strikes for map
-                const strikesResponse = await fetch(`/api/lightning_strikes?hours=${hours}&limit=1000`);
-                const strikesData = await strikesResponse.json();
-                
-                // Don't clear layers - we want to maintain animations
-                // Only remove very old strikes at the end
-                
-                // Clear all strikes and recreate to prevent drift
-                lightningLayer.clearLayers();
-                animatedStrikes.clear();
-                
-                // Add all strikes fresh - this prevents any drift
-                strikesData.strikes.forEach(strike => {
-                    const strikeId = strike.timestamp;
-                    
-                    // Create strike with current age
-                    const strikeElement = createStrike(
-                        strike.latitude, 
-                        strike.longitude, 
-                        strike.age_minutes, 
-                        strike
-                    );
-                    
-                    lightningLayer.addLayer(strikeElement);
-                    animatedStrikes.set(strikeId, {
-                        element: strikeElement,
-                        age: strike.age_minutes
-                    });
-                });
-                
-                // Strikes are automatically cleaned by clearing and recreating
-                
-                // Update last update time
-                document.getElementById('last-update').textContent = 
-                    `Updated: ${new Date().toLocaleTimeString()}`;
-                
-                console.log(`Updated map with ${strikesData.strikes.length} lightning strikes`);
-                
-            } catch (error) {
-                console.error('Error updating lightning data:', error);
+        function toggleAutoRefresh() {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+            }
+            
+            if (autoRefreshCheckbox.checked) {
+                autoRefreshInterval = setInterval(updateLightningData, 2000); // 2 seconds
             }
         }
         
-        // Get CSS class for threat level
-        function getThreatClass(threatLevel) {
-            switch (threatLevel) {
-                case 'HIGH': return 'text-danger';
-                case 'MEDIUM': return 'text-warning';
-                case 'LOW': return 'text-info';
-                default: return 'text-success';
-            }
-        }
+        autoRefreshCheckbox.addEventListener('change', toggleAutoRefresh);
+        toggleAutoRefresh(); // Initialize
+    }
+    
+    // Initialize everything when page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        initMap();
+        updateLightningData();
+        setupAutoRefresh();
         
-        // Set up auto-refresh
-        function setupAutoRefresh() {
-            const autoRefreshCheckbox = document.getElementById('auto-refresh');
-            
-            function toggleAutoRefresh() {
-                if (autoRefreshInterval) {
-                    clearInterval(autoRefreshInterval);
-                    autoRefreshInterval = null;
-                }
-                
-                if (autoRefreshCheckbox.checked) {
-                    autoRefreshInterval = setInterval(updateLightningData, 2000); // 2 seconds
-                }
-            }
-            
-            autoRefreshCheckbox.addEventListener('change', toggleAutoRefresh);
-            toggleAutoRefresh(); // Initialize
-        }
-        
-        // Initialize everything when page loads
-        document.addEventListener('DOMContentLoaded', function() {
-            initMap();
-            updateLightningData();
-            setupAutoRefresh();
-            
-            // Event listeners
-            document.getElementById('refresh-btn').addEventListener('click', updateLightningData);
-            document.getElementById('time-range').addEventListener('change', updateLightningData);
-        });
-    </script>
-</body>
-</html>
+        // Event listeners
+        document.getElementById('refresh-btn').addEventListener('click', updateLightningData);
+        document.getElementById('time-range').addEventListener('change', updateLightningData);
+    });
+</script>
+{% endblock %}
