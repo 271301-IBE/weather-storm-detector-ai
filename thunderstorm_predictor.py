@@ -15,22 +15,38 @@ class ThunderstormPredictor:
         self.db_path = self.config.system.database_path
 
     def get_db_connection(self):
-        """Get database connection."""
-        return sqlite3.connect(self.db_path)
+        """Get database connection with timeout and WAL mode."""
+        conn = sqlite3.connect(self.db_path, timeout=10.0)
+        conn.execute("PRAGMA journal_mode=WAL")
+        return conn
 
     def fetch_weather_data(self):
-        """Fetch all weather data from the database."""
-        try:
-            conn = self.get_db_connection()
-            # Fetching all data to find patterns
-            query = "SELECT * FROM weather_data ORDER BY timestamp ASC"
-            df = pd.read_sql_query(query, conn)
-            conn.close()
-            logger.info(f"Fetched {len(df)} records from the database.")
-            return df
-        except Exception as e:
-            logger.error(f"Error fetching weather data: {e}")
-            return pd.DataFrame()
+        """Fetch all weather data from the database with retry logic."""
+        max_retries = 3
+        base_delay = 0.2
+        
+        for attempt in range(max_retries):
+            try:
+                conn = self.get_db_connection()
+                # Fetching all data to find patterns
+                query = "SELECT * FROM weather_data ORDER BY timestamp ASC"
+                df = pd.read_sql_query(query, conn)
+                conn.close()
+                logger.info(f"Fetched {len(df)} records from the database.")
+                return df
+            except sqlite3.OperationalError as e:
+                if "database is locked" in str(e) and attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    logger.debug(f"Database locked, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})")
+                    import time
+                    time.sleep(delay)
+                    continue
+                else:
+                    logger.error(f"Error fetching weather data after {attempt + 1} attempts: {e}")
+                    return pd.DataFrame()
+            except Exception as e:
+                logger.error(f"Error fetching weather data: {e}")
+                return pd.DataFrame()
 
     def identify_storm_events(self, df):
         """Identify historical storm events from data."""
@@ -83,35 +99,52 @@ class ThunderstormPredictor:
         return predicted_time, confidence
 
     def store_prediction(self, predicted_time, confidence):
-        """Stores the prediction in the database."""
+        """Stores the prediction in the database with retry logic."""
         if predicted_time is None:
             return
             
-        try:
-            conn = self.get_db_connection()
-            cursor = conn.cursor()
-            
-            # Create table if it doesn't exist
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS thunderstorm_predictions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    prediction_timestamp TEXT NOT NULL,
-                    confidence REAL NOT NULL,
-                    created_at TEXT NOT NULL
-                )
-            """)
-            
-            # Insert new prediction
-            cursor.execute("""
-                INSERT INTO thunderstorm_predictions (prediction_timestamp, confidence, created_at)
-                VALUES (?, ?, ?)
-            """, (predicted_time.isoformat(), confidence, datetime.now().isoformat()))
-            
-            conn.commit()
-            conn.close()
-            logger.info(f"Stored prediction: {predicted_time} with confidence {confidence:.2f}")
-        except Exception as e:
-            logger.error(f"Error storing prediction: {e}")
+        max_retries = 3
+        base_delay = 0.2
+        
+        for attempt in range(max_retries):
+            try:
+                conn = self.get_db_connection()
+                cursor = conn.cursor()
+                
+                # Create table if it doesn't exist
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS thunderstorm_predictions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        prediction_timestamp TEXT NOT NULL,
+                        confidence REAL NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                """)
+                
+                # Insert new prediction
+                cursor.execute("""
+                    INSERT INTO thunderstorm_predictions (prediction_timestamp, confidence, created_at)
+                    VALUES (?, ?, ?)
+                """, (predicted_time.isoformat(), confidence, datetime.now().isoformat()))
+                
+                conn.commit()
+                conn.close()
+                logger.info(f"Stored prediction: {predicted_time} with confidence {confidence:.2f}")
+                return  # Success, exit retry loop
+                
+            except sqlite3.OperationalError as e:
+                if "database is locked" in str(e) and attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    logger.debug(f"Database locked during prediction storage, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})")
+                    import time
+                    time.sleep(delay)
+                    continue
+                else:
+                    logger.error(f"Error storing prediction after {attempt + 1} attempts: {e}")
+                    return
+            except Exception as e:
+                logger.error(f"Error storing prediction: {e}")
+                return
 
 def main():
     config = load_config()
