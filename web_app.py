@@ -388,6 +388,33 @@ def api_lightning_strikes():
         logger.error(f"Error fetching lightning strikes: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/lightning_dashboard_stats')
+@login_required
+def api_lightning_dashboard_stats():
+    """Get lightning detection statistics for the dashboard."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Get statistics for different time periods
+        stats = {}
+        
+        cursor.execute("SELECT COUNT(*) as total FROM lightning_strikes")
+        stats['total_strikes'] = cursor.fetchone()[0] or 0
+
+        cursor.execute("SELECT COUNT(*) as czech FROM lightning_strikes WHERE is_in_czech_region = 1")
+        stats['czech_strikes'] = cursor.fetchone()[0] or 0
+
+        cursor.execute("SELECT COUNT(*) as nearby FROM lightning_strikes WHERE distance_from_brno <= 50")
+        stats['nearby_strikes'] = cursor.fetchone()[0] or 0
+        
+        conn.close()
+        return jsonify(stats)
+        
+    except Exception as e:
+        logger.error(f"Error fetching lightning statistics: {e}")
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/lightning_stats')
 @login_required
 def api_lightning_stats():
