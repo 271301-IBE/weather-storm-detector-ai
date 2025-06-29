@@ -117,6 +117,12 @@ def lightning_map():
                          brno_lon=config.weather.longitude,
                          city_name=config.weather.city_name)
 
+@app.route('/history')
+@login_required
+def history():
+    """History page."""
+    return render_template('history.html')
+
 @app.route('/system_info')
 @login_required
 def system_info():
