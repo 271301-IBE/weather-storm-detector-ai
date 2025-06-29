@@ -354,13 +354,21 @@ def api_lightning_strikes():
         
         cutoff_time = (datetime.now() - timedelta(hours=hours)).isoformat()
         
+        # Approximate bounding box for Europe
+        # Latitude: 35°N to 72°N
+        # Longitude: -10°W to 35°E
+        min_lat, max_lat = 35.0, 72.0
+        min_lon, max_lon = -10.0, 35.0
+
         cursor.execute("""
             SELECT timestamp, latitude, longitude, distance_from_brno, is_in_czech_region
             FROM lightning_strikes 
             WHERE timestamp > ?
+            AND latitude BETWEEN ? AND ?
+            AND longitude BETWEEN ? AND ?
             ORDER BY timestamp DESC
             LIMIT ?
-        """, (cutoff_time, limit))
+        """, (cutoff_time, min_lat, max_lat, min_lon, max_lon, limit))
         
         strikes = []
         for row in cursor.fetchall():
