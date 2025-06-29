@@ -255,7 +255,7 @@
             <span style="color: ${properties.color};">⚡</span> ${status}<br>
             Time: ${new Date(strikeData.timestamp).toLocaleString()}<br>
             Distance: ${strikeData.distance_from_brno ? strikeData.distance_from_brno.toFixed(1) : 'N/A'} km from ${CITY_NAME}<br>
-            Age: ${ageMinutes <= 1 ? Math.round(ageMinutes * 60) + ' seconds' : Math.round(ageMinutes) + ' minutes'}<br>
+            Age: ${ageMinutes < 0.1 ? 'just now' : (ageMinutes <= 1 ? Math.round(ageMinutes * 60) + ' seconds' : Math.round(ageMinutes) + ' minutes')}<br>
             Location: ${fixedLat.toFixed(4)}°N, ${fixedLon.toFixed(4)}°E
         `);
         
