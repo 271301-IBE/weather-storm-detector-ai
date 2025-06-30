@@ -62,6 +62,47 @@
         height: 20px; /* Adjust size as needed */
         filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5)); /* Add a subtle shadow */
     }
+    
+    /* Live Log Styles */
+    .live-log {
+        background: white;
+        border-radius: 0.75rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        max-height: 400px;
+        overflow-y: auto;
+    }
+    .log-entry {
+        border-bottom: 1px solid #f0f0f0;
+        padding: 0.75rem;
+        transition: background-color 0.3s ease;
+    }
+    .log-entry:last-child {
+        border-bottom: none;
+    }
+    .log-entry.new-entry {
+        background-color: #fff3cd;
+        animation: fadeIn 0.5s ease-in;
+    }
+    .log-timestamp {
+        font-size: 0.85em;
+        color: #6c757d;
+    }
+    .log-distance {
+        font-weight: bold;
+    }
+    .log-distance.nearby {
+        color: #dc3545;
+    }
+    .log-distance.czech {
+        color: #28a745;
+    }
+    .log-distance.far {
+        color: #6c757d;
+    }
+    @keyframes fadeIn {
+        from { opacity: 0; background-color: #d4edda; }
+        to { opacity: 1; background-color: #fff3cd; }
+    }
 </style>
 {% endblock %}
 
@@ -135,8 +176,25 @@
 
     <!-- Lightning Map -->
     <div class="row">
-        <div class="col-12">
+        <div class="col-lg-8">
             <div id="map"></div>
+        </div>
+        <div class="col-lg-4">
+            <!-- Live Lightning Log -->
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0">⚡ Live Lightning Log</h6>
+                    <small class="text-muted">Last 5 strikes</small>
+                </div>
+                <div class="card-body p-0">
+                    <div id="lightning-log" class="live-log">
+                        <div class="log-entry text-center text-muted p-4">
+                            <div>Waiting for lightning data...</div>
+                            <small>Live updates every 2 seconds</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -179,6 +237,7 @@
     let lightningLayer;
     let autoRefreshInterval;
     let animatedStrikes = new Map(); // Store animated strike circles
+    let lastLoggedStrikes = new Set(); // Track previously logged strikes
     
     // Initialize map
     function initMap() {
@@ -313,6 +372,9 @@
             
             // Strikes are automatically cleaned by clearing and recreating
             
+            // Update live lightning log
+            updateLightningLog(strikesData.strikes);
+            
             // Update last update time
             document.getElementById('last-update').textContent = 
                 `Updated: ${new Date().toLocaleTimeString()}`;
@@ -332,6 +394,97 @@
             case 'LOW': return 'text-info';
             default: return 'text-success';
         }
+    }
+    
+    // Update live lightning log with latest 5 strikes
+    function updateLightningLog(strikes) {
+        const logContainer = document.getElementById('lightning-log');
+        
+        // Get the 5 most recent strikes, sorted by timestamp (newest first)
+        const recentStrikes = strikes
+            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+            .slice(0, 5);
+        
+        // If no strikes, show waiting message
+        if (recentStrikes.length === 0) {
+            logContainer.innerHTML = `
+                <div class="log-entry text-center text-muted p-4">
+                    <div>No recent lightning strikes</div>
+                    <small>Live updates every 2 seconds</small>
+                </div>
+            `;
+            return;
+        }
+        
+        // Create log entries HTML
+        let logHTML = '';
+        recentStrikes.forEach((strike, index) => {
+            const strikeTime = new Date(strike.timestamp);
+            const timeStr = strikeTime.toLocaleTimeString();
+            const ageMinutes = strike.age_minutes;
+            
+            // Determine distance category and styling
+            let distanceClass = 'far';
+            let locationText = 'Far from Brno';
+            let alertLevel = '';
+            
+            if (strike.distance_from_brno <= 50) {
+                distanceClass = 'nearby';
+                locationText = '🚨 NEARBY STRIKE';
+                alertLevel = 'ALERT: ';
+            } else if (strike.is_in_czech_region) {
+                distanceClass = 'czech';
+                locationText = 'Czech Region';
+            }
+            
+            // Age-based color coding
+            let ageColor = '#6c757d';
+            let ageText = '';
+            if (ageMinutes <= 0.5) {
+                ageColor = '#dc3545';
+                ageText = 'JUST NOW';
+            } else if (ageMinutes <= 5) {
+                ageColor = '#fd7e14';
+                ageText = `${Math.round(ageMinutes)}m ago`;
+            } else {
+                ageText = `${Math.round(ageMinutes)}m ago`;
+            }
+            
+            // Check if this is a new entry
+            const isNew = !lastLoggedStrikes.has(strike.timestamp);
+            const newClass = isNew ? 'new-entry' : '';
+            
+            logHTML += `
+                <div class="log-entry ${newClass}">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div class="flex-grow-1">
+                            <div class="d-flex align-items-center mb-1">
+                                <span style="color: ${ageColor};">⚡</span>
+                                <strong class="ms-1">${alertLevel}Lightning Strike</strong>
+                            </div>
+                            <div class="log-distance ${distanceClass}">
+                                ${locationText} (${strike.distance_from_brno.toFixed(1)} km)
+                            </div>
+                            <div class="log-timestamp">
+                                ${timeStr} • ${ageText}
+                            </div>
+                        </div>
+                        <div class="text-end">
+                            <small class="text-muted">#${index + 1}</small>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Add to tracked strikes
+            lastLoggedStrikes.add(strike.timestamp);
+        });
+        
+        logContainer.innerHTML = logHTML;
+        
+        // Clean up old tracked strikes (keep only current ones)
+        const currentTimestamps = new Set(recentStrikes.map(s => s.timestamp));
+        lastLoggedStrikes = new Set([...lastLoggedStrikes].filter(ts => currentTimestamps.has(ts)));
     }
     
     // Set up auto-refresh

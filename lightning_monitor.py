@@ -247,21 +247,33 @@ class LightningMonitor:
             if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
                 return None
             
-            # Convert timestamp to readable format
-            dt_object = None
+            # Use system time instead of web timestamp due to unreliable web timestamps
+            # Keep original timestamp for debugging but use current system time for all operations
+            dt_object = datetime.now()
+            
+            # Validate that we have basic timestamp data (even if we don't use it)
+            original_timestamp = None
+            current_time = datetime.now()
+            
             for divisor in [1000000000, 1000000, 1000]:  # ns, μs, ms
                 try:
-                    dt_object = datetime.fromtimestamp(timestamp_ns / divisor)
-                    if 2020 <= dt_object.year <= 2030:
+                    original_timestamp = datetime.fromtimestamp(timestamp_ns / divisor)
+                    # Check if timestamp is reasonable (just for validation, not for use)
+                    if (2020 <= original_timestamp.year <= current_time.year + 1):
                         break
                     else:
-                        dt_object = None  # Reset if year is invalid
+                        original_timestamp = None
                 except (ValueError, OSError):
                     continue
             
-            if not dt_object:
-                # If no valid timestamp found, skip this strike
-                return None
+            # Always use system time - don't reject strikes based on bad web timestamps
+            # The strike detection itself is valid even if timestamp is wrong
+            if original_timestamp:
+                time_diff = abs((dt_object - original_timestamp).total_seconds())
+                if time_diff > 300:  # More than 5 minutes difference
+                    logger.debug(f"Using system time due to unreliable web timestamp. Web: {original_timestamp}, System: {dt_object}")
+            else:
+                logger.debug(f"Using system time due to invalid web timestamp data")
             
             # Calculate distance from Brno
             distance_from_brno = self.calculate_distance(
@@ -276,13 +288,17 @@ class LightningMonitor:
             
             # Create lightning strike object
             lightning_strike = LightningStrike(
-                timestamp=dt_object,
-                timestamp_ns=timestamp_ns,
+                timestamp=dt_object,  # System time (current time)
+                timestamp_ns=timestamp_ns,  # Original timestamp data for reference
                 latitude=latitude,
                 longitude=longitude,
                 distance_from_brno=distance_from_brno,
                 is_in_czech_region=is_in_czech_region,
-                raw_data={'original_data': data[:200]}  # Store first 200 chars for debugging
+                raw_data={
+                    'original_data': data[:200],  # Store first 200 chars for debugging
+                    'original_timestamp': original_timestamp.isoformat() if original_timestamp else None,
+                    'system_time_used': True  # Flag to indicate we used system time
+                }
             )
             
             return lightning_strike
