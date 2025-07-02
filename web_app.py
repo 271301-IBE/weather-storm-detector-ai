@@ -845,6 +845,198 @@ def api_next_storm_prediction():
         logger.error(f"Error fetching next storm prediction: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/enhanced_forecast')
+@login_required
+def api_enhanced_forecast():
+    """Get enhanced forecast with multiple prediction methods."""
+    try:
+        from storage import WeatherDatabase
+        from advanced_forecast import AdvancedForecastGenerator
+        
+        db = WeatherDatabase(config)
+        
+        # Get recent weather data for forecasting
+        weather_data = db.get_recent_weather_data(hours=48)
+        
+        if not weather_data:
+            return jsonify({'error': 'No weather data available for forecasting'}), 404
+        
+        # Initialize advanced forecast generator
+        async def generate_forecasts():
+            async with AdvancedForecastGenerator(config) as forecast_generator:
+                # Generate all forecast types
+                physics_forecast = await forecast_generator.generate_physics_forecast(weather_data)
+                ai_forecast = await forecast_generator.generate_ai_forecast(weather_data)
+                ensemble_forecast = await forecast_generator.generate_ensemble_forecast(weather_data)
+                
+                return {
+                    'physics': physics_forecast.to_dict() if physics_forecast else None,
+                    'ai': ai_forecast.to_dict() if ai_forecast else None,
+                    'ensemble': ensemble_forecast.to_dict() if ensemble_forecast else None,
+                    'generated_at': datetime.now().isoformat(),
+                    'data_points_used': len(weather_data)
+                }
+        
+        # Run async forecast generation
+        import asyncio
+        forecasts = asyncio.run(generate_forecasts())
+        
+        return jsonify(forecasts)
+        
+    except Exception as e:
+        logger.error(f"Error generating enhanced forecast: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/forecast_accuracy')
+@login_required
+def api_forecast_accuracy():
+    """Get forecast accuracy statistics."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Create accuracy tracking table if it doesn't exist
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS forecast_accuracy (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                forecast_method TEXT NOT NULL,
+                prediction_time TEXT NOT NULL,
+                actual_time TEXT NOT NULL,
+                parameter TEXT NOT NULL,
+                predicted_value REAL NOT NULL,
+                actual_value REAL NOT NULL,
+                error_abs REAL NOT NULL,
+                error_relative REAL NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+        
+        # Get accuracy stats for the last 30 days
+        thirty_days_ago = (datetime.now() - timedelta(days=30)).isoformat()
+        
+        cursor.execute("""
+            SELECT 
+                forecast_method,
+                parameter,
+                COUNT(*) as prediction_count,
+                AVG(error_abs) as mean_absolute_error,
+                AVG(error_relative) as mean_relative_error,
+                STDDEV(error_abs) as std_absolute_error
+            FROM forecast_accuracy 
+            WHERE created_at > ?
+            GROUP BY forecast_method, parameter
+        """, (thirty_days_ago,))
+        
+        accuracy_stats = {}
+        for row in cursor.fetchall():
+            method, param, count, mae, mre, std = row
+            if method not in accuracy_stats:
+                accuracy_stats[method] = {}
+            
+            accuracy_stats[method][param] = {
+                'prediction_count': count,
+                'mean_absolute_error': round(mae, 2) if mae else 0,
+                'mean_relative_error': round(mre * 100, 1) if mre else 0,  # Convert to percentage
+                'std_absolute_error': round(std, 2) if std else 0,
+                'accuracy_score': max(0, 100 - (mre * 100)) if mre else 50  # Simple accuracy score
+            }
+        
+        conn.close()
+        
+        return jsonify({
+            'accuracy_stats': accuracy_stats,
+            'period_days': 30,
+            'last_updated': datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error fetching forecast accuracy: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/forecast_comparison')
+@login_required
+def api_forecast_comparison():
+    """Get side-by-side comparison of all forecast methods."""
+    try:
+        from storage import WeatherDatabase
+        
+        db = WeatherDatabase(config)
+        
+        # Get latest forecasts from different methods
+        latest_physics = db.get_latest_forecast_by_method('physics')
+        latest_ai = db.get_latest_forecast_by_method('ai')
+        latest_ensemble = db.get_latest_forecast_by_method('ensemble')
+        
+        comparison = {
+            'methods': {
+                'physics': {
+                    'name': 'Local Physics',
+                    'description': 'Atmospheric physics and mathematical trends',
+                    'icon': '🧮',
+                    'color': 'warning',
+                    'data': latest_physics.to_dict() if latest_physics else None
+                },
+                'ai': {
+                    'name': 'AI Prediction',
+                    'description': 'DeepSeek AI meteorological analysis',
+                    'icon': '🤖',
+                    'color': 'info',
+                    'data': latest_ai.to_dict() if latest_ai else None
+                },
+                'ensemble': {
+                    'name': 'Ensemble Forecast',
+                    'description': 'Combined best predictions from all methods',
+                    'icon': '🎯',
+                    'color': 'success',
+                    'data': latest_ensemble.to_dict() if latest_ensemble else None
+                }
+            },
+            'comparison_matrix': [],
+            'last_updated': datetime.now().isoformat()
+        }
+        
+        # Create comparison matrix for each hour
+        if latest_ensemble and latest_ensemble.forecast_data:
+            for hour_idx, ensemble_item in enumerate(latest_ensemble.forecast_data):
+                hour_data = {
+                    'hour': hour_idx + 1,
+                    'time': ensemble_item.timestamp.strftime('%H:%M'),
+                    'ensemble': {
+                        'temperature': round(ensemble_item.temperature, 1),
+                        'humidity': round(ensemble_item.humidity, 0),
+                        'pressure': round(ensemble_item.pressure, 0),
+                        'confidence': round(ensemble_item.metadata.confidence * 100, 0)
+                    }
+                }
+                
+                # Add AI data if available
+                if latest_ai and hour_idx < len(latest_ai.forecast_data):
+                    ai_item = latest_ai.forecast_data[hour_idx]
+                    hour_data['ai'] = {
+                        'temperature': round(ai_item.temperature, 1),
+                        'humidity': round(ai_item.humidity, 0),
+                        'pressure': round(ai_item.pressure, 0),
+                        'confidence': round(ai_item.metadata.confidence * 100, 0)
+                    }
+                
+                # Add Physics data if available
+                if latest_physics and hour_idx < len(latest_physics.forecast_data):
+                    physics_item = latest_physics.forecast_data[hour_idx]
+                    hour_data['physics'] = {
+                        'temperature': round(physics_item.temperature, 1),
+                        'humidity': round(physics_item.humidity, 0),
+                        'pressure': round(physics_item.pressure, 0),
+                        'confidence': round(physics_item.metadata.confidence * 100, 0)
+                    }
+                
+                comparison['comparison_matrix'].append(hour_data)
+        
+        return jsonify(comparison)
+        
+    except Exception as e:
+        logger.error(f"Error generating forecast comparison: {e}")
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     # Create templates directory if it doesn't exist
     Path('templates').mkdir(exist_ok=True)

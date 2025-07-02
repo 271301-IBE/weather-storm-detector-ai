@@ -529,3 +529,221 @@ class WeatherDatabase:
         except Exception as e:
             logger.error(f"Error retrieving latest weather forecast: {e}")
             return None
+    
+    def get_recent_weather_data(self, hours: int = 48) -> List[WeatherData]:
+        """Get recent weather data for forecasting."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                cutoff_time = (datetime.now() - timedelta(hours=hours)).isoformat()
+                
+                cursor.execute("""
+                    SELECT timestamp, source, temperature, humidity, pressure,
+                           wind_speed, wind_direction, precipitation, precipitation_probability,
+                           condition, visibility, cloud_cover, uv_index, description, raw_data
+                    FROM weather_data
+                    WHERE timestamp > ?
+                    ORDER BY timestamp DESC
+                """, (cutoff_time,))
+                
+                weather_data = []
+                for row in cursor.fetchall():
+                    try:
+                        raw_data = json.loads(row[14]) if row[14] else {}
+                    except:
+                        raw_data = {}
+                    
+                    weather_data.append(WeatherData(
+                        timestamp=datetime.fromisoformat(row[0]),
+                        source=row[1],
+                        temperature=row[2] or 0.0,
+                        humidity=row[3] or 0.0,
+                        pressure=row[4] or 0.0,
+                        wind_speed=row[5] or 0.0,
+                        wind_direction=row[6] or 0.0,
+                        precipitation=row[7] or 0.0,
+                        precipitation_probability=row[8],
+                        condition=WeatherCondition(row[9]) if row[9] else WeatherCondition.CLEAR,
+                        visibility=row[10],
+                        cloud_cover=row[11] or 0.0,
+                        uv_index=row[12],
+                        description=row[13] or "",
+                        raw_data=raw_data
+                    ))
+                
+                return weather_data
+                
+        except Exception as e:
+            logger.error(f"Error retrieving recent weather data: {e}")
+            return []
+    
+    def store_enhanced_forecast(self, forecast, method: str) -> bool:
+        """Store enhanced forecast with method tracking."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Create enhanced forecasts table if it doesn't exist
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS enhanced_forecasts (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp TEXT NOT NULL,
+                        method TEXT NOT NULL,
+                        forecast_data_json TEXT NOT NULL,
+                        confidence_data TEXT,
+                        metadata TEXT,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                
+                forecast_dict = forecast.to_dict()
+                
+                cursor.execute("""
+                    INSERT INTO enhanced_forecasts 
+                    (timestamp, method, forecast_data_json, confidence_data, metadata)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (
+                    forecast.timestamp.isoformat(),
+                    method,
+                    json.dumps(forecast_dict),
+                    json.dumps(forecast.method_confidences) if hasattr(forecast, 'method_confidences') else None,
+                    json.dumps({
+                        'primary_method': forecast.primary_method.value if hasattr(forecast, 'primary_method') else method,
+                        'data_sources': forecast.data_sources if hasattr(forecast, 'data_sources') else [],
+                        'ensemble_weight': forecast.ensemble_weight if hasattr(forecast, 'ensemble_weight') else None
+                    })
+                ))
+                
+                conn.commit()
+                logger.debug(f"Stored enhanced forecast using method: {method}")
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error storing enhanced forecast: {e}")
+            return False
+    
+    def get_latest_forecast_by_method(self, method: str):
+        """Get latest forecast by specific method."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT timestamp, forecast_data_json, confidence_data, metadata
+                    FROM enhanced_forecasts
+                    WHERE method = ?
+                    ORDER BY timestamp DESC
+                    LIMIT 1
+                """, (method,))
+                
+                row = cursor.fetchone()
+                if row:
+                    try:
+                        forecast_data = json.loads(row[1])
+                        confidence_data = json.loads(row[2]) if row[2] else {}
+                        metadata = json.loads(row[3]) if row[3] else {}
+                        
+                        # Convert back to enhanced forecast object
+                        from advanced_forecast import EnhancedWeatherForecast, EnhancedPredictedWeatherData, ForecastMethod, ForecastMetadata, ConfidenceLevel
+                        
+                        # Reconstruct forecast data items
+                        forecast_items = []
+                        for item_data in forecast_data.get('forecast_data', []):
+                            if 'metadata' in item_data:
+                                meta = item_data['metadata']
+                                forecast_meta = ForecastMetadata(
+                                    method=ForecastMethod(meta.get('method', 'local_physics')),
+                                    confidence=meta.get('confidence', 0.5),
+                                    confidence_level=ConfidenceLevel(meta.get('confidence_level', 'medium')),
+                                    generated_at=datetime.fromisoformat(meta.get('generated_at', datetime.now().isoformat())),
+                                    data_quality=meta.get('data_quality', 0.5),
+                                    model_version=meta.get('model_version', 'unknown'),
+                                    uncertainty_range=meta.get('uncertainty_range')
+                                )
+                                
+                                forecast_items.append(EnhancedPredictedWeatherData(
+                                    timestamp=datetime.fromisoformat(item_data['timestamp']),
+                                    temperature=item_data['temperature'],
+                                    humidity=item_data['humidity'],
+                                    pressure=item_data['pressure'],
+                                    wind_speed=item_data['wind_speed'],
+                                    wind_direction=item_data['wind_direction'],
+                                    precipitation=item_data['precipitation'],
+                                    precipitation_probability=item_data['precipitation_probability'],
+                                    condition=WeatherCondition(item_data['condition']),
+                                    cloud_cover=item_data['cloud_cover'],
+                                    visibility=item_data['visibility'],
+                                    description=item_data['description'],
+                                    metadata=forecast_meta,
+                                    alternative_predictions=item_data.get('alternative_predictions')
+                                ))
+                        
+                        return EnhancedWeatherForecast(
+                            timestamp=datetime.fromisoformat(forecast_data['timestamp']),
+                            forecast_data=forecast_items,
+                            primary_method=ForecastMethod(metadata.get('primary_method', method)),
+                            method_confidences=confidence_data,
+                            data_sources=metadata.get('data_sources', []),
+                            ensemble_weight=metadata.get('ensemble_weight')
+                        )
+                        
+                    except Exception as e:
+                        logger.error(f"Error reconstructing enhanced forecast: {e}")
+                        return None
+                
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error retrieving latest forecast by method {method}: {e}")
+            return None
+    
+    def store_forecast_accuracy(self, method: str, prediction_time: datetime, 
+                               actual_time: datetime, parameter: str, 
+                               predicted_value: float, actual_value: float) -> bool:
+        """Store forecast accuracy metrics for evaluation."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Create accuracy table if it doesn't exist
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS forecast_accuracy (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        forecast_method TEXT NOT NULL,
+                        prediction_time TEXT NOT NULL,
+                        actual_time TEXT NOT NULL,
+                        parameter TEXT NOT NULL,
+                        predicted_value REAL NOT NULL,
+                        actual_value REAL NOT NULL,
+                        error_abs REAL NOT NULL,
+                        error_relative REAL NOT NULL,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                
+                error_abs = abs(predicted_value - actual_value)
+                error_relative = error_abs / abs(actual_value) if actual_value != 0 else 1.0
+                
+                cursor.execute("""
+                    INSERT INTO forecast_accuracy 
+                    (forecast_method, prediction_time, actual_time, parameter,
+                     predicted_value, actual_value, error_abs, error_relative)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    method,
+                    prediction_time.isoformat(),
+                    actual_time.isoformat(),
+                    parameter,
+                    predicted_value,
+                    actual_value,
+                    error_abs,
+                    error_relative
+                ))
+                
+                conn.commit()
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error storing forecast accuracy: {e}")
+            return False
