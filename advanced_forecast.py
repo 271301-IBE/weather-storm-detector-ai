@@ -21,14 +21,12 @@ import asyncio
 import aiohttp
 import json
 import logging
-import numpy as np
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, asdict
 from enum import Enum
-from scipy import interpolate, optimize
-from sklearn.preprocessing import StandardScaler
-from sklearn.ensemble import RandomForestRegressor
+import math
+import statistics
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -157,8 +155,8 @@ class AtmosphericPhysicsModel:
         # Calculate phase in daily cycle
         if hour >= min_hour and hour <= peak_hour:
             # Morning/afternoon warming
-            phase = (hour - min_hour) / (peak_hour - min_hour) * np.pi
-            temp_offset = daily_range * 0.5 * (np.sin(phase - np.pi/2) + 1)
+            phase = (hour - min_hour) / (peak_hour - min_hour) * math.pi
+            temp_offset = daily_range * 0.5 * (math.sin(phase - math.pi/2) + 1)
         else:
             # Evening/night cooling
             if hour > peak_hour:
@@ -167,8 +165,8 @@ class AtmosphericPhysicsModel:
                 hours_since_peak = hour + 24 - peak_hour
             
             cooling_period = 24 - (peak_hour - min_hour)
-            phase = hours_since_peak / cooling_period * np.pi
-            temp_offset = daily_range * 0.5 * (1 - np.sin(phase))
+            phase = hours_since_peak / cooling_period * math.pi
+            temp_offset = daily_range * 0.5 * (1 - math.sin(phase))
         
         return current_temp + temp_offset - daily_range * 0.25  # Adjust baseline
     
@@ -186,7 +184,7 @@ class AdvancedTrendAnalyzer:
     """Advanced trend analysis using mathematical models."""
     
     def __init__(self):
-        self.scaler = StandardScaler()
+        pass
     
     def polynomial_trend(self, data_points: List[float], timestamps: List[datetime], 
                         future_time: datetime, degree: int = 2) -> Tuple[float, float]:
@@ -199,21 +197,45 @@ class AdvancedTrendAnalyzer:
         future_hours = (future_time - timestamps[0]).total_seconds() / 3600
         
         try:
-            # Fit polynomial
-            coeffs = np.polyfit(time_hours, data_points, degree)
-            poly_func = np.poly1d(coeffs)
+            # Simple polynomial fitting using least squares approach
+            if degree == 2 and len(data_points) >= 3:
+                # Quadratic fit: y = ax² + bx + c
+                x = time_hours
+                y = data_points
+                n = len(x)
+                
+                # Calculate sums for normal equations
+                sum_x = sum(x)
+                sum_x2 = sum(xi**2 for xi in x)
+                sum_x3 = sum(xi**3 for xi in x)
+                sum_x4 = sum(xi**4 for xi in x)
+                sum_y = sum(y)
+                sum_xy = sum(xi*yi for xi, yi in zip(x, y))
+                sum_x2y = sum(xi**2*yi for xi, yi in zip(x, y))
+                
+                # Solve normal equations for quadratic
+                det = n*sum_x2*sum_x4 + 2*sum_x*sum_x2*sum_x3 - sum_x2**3 - n*sum_x3**2 - sum_x**2*sum_x4
+                
+                if abs(det) > 1e-10:
+                    a = (n*sum_x2*sum_x2y + sum_x*sum_x3*sum_y + sum_x*sum_x2*sum_xy - sum_x2**2*sum_y - n*sum_x3*sum_xy - sum_x*sum_x2*sum_x2y) / det
+                    b = (sum_x2*sum_x4*sum_y + n*sum_x3*sum_xy + sum_x*sum_x2*sum_x2y - sum_x**2*sum_x2y - sum_x2*sum_x3*sum_y - n*sum_x4*sum_xy) / det
+                    c = (sum_x2*sum_x3*sum_xy + sum_x*sum_x4*sum_y + sum_x*sum_x2*sum_x2y - sum_x2**3*sum_y - sum_x*sum_x3*sum_x2y - sum_x2*sum_x4*sum_xy) / det
+                    
+                    # Predict future value
+                    predicted_value = a * future_hours**2 + b * future_hours + c
+                    
+                    # Calculate confidence based on fit quality
+                    predicted_current = [a * xi**2 + b * xi + c for xi in time_hours]
+                    mse = sum((actual - pred)**2 for actual, pred in zip(data_points, predicted_current)) / len(data_points)
+                    variance = sum((yi - statistics.mean(data_points))**2 for yi in data_points) / len(data_points)
+                    confidence = max(0.1, 1.0 - mse / variance) if variance > 0 else 0.1
+                    
+                    return float(predicted_value), min(1.0, confidence)
             
-            # Predict future value
-            predicted_value = poly_func(future_hours)
+            # Fallback to linear trend
+            return self.linear_trend(data_points, timestamps, future_time)
             
-            # Calculate confidence based on fit quality
-            predicted_current = [poly_func(t) for t in time_hours]
-            mse = np.mean([(actual - pred)**2 for actual, pred in zip(data_points, predicted_current)])
-            confidence = max(0.1, 1.0 - mse / np.var(data_points)) if np.var(data_points) > 0 else 0.1
-            
-            return float(predicted_value), min(1.0, confidence)
-            
-        except (np.linalg.LinAlgError, np.RankWarning):
+        except Exception:
             # Fallback to linear trend
             return self.linear_trend(data_points, timestamps, future_time)
     
@@ -226,12 +248,25 @@ class AdvancedTrendAnalyzer:
         time_hours = [(t - timestamps[0]).total_seconds() / 3600 for t in timestamps]
         future_hours = (future_time - timestamps[0]).total_seconds() / 3600
         
-        # Linear regression
-        slope, intercept = np.polyfit(time_hours, data_points, 1)
+        # Linear regression using least squares
+        n = len(time_hours)
+        sum_x = sum(time_hours)
+        sum_y = sum(data_points)
+        sum_xy = sum(x * y for x, y in zip(time_hours, data_points))
+        sum_x2 = sum(x**2 for x in time_hours)
+        
+        # Calculate slope and intercept
+        denominator = n * sum_x2 - sum_x**2
+        if abs(denominator) < 1e-10:
+            return data_points[-1], 0.1
+            
+        slope = (n * sum_xy - sum_x * sum_y) / denominator
+        intercept = (sum_y - slope * sum_x) / n
+        
         predicted_value = slope * future_hours + intercept
         
         # R-squared for confidence
-        y_mean = np.mean(data_points)
+        y_mean = statistics.mean(data_points)
         ss_tot = sum((y - y_mean)**2 for y in data_points)
         ss_res = sum((y - (slope * x + intercept))**2 for x, y in zip(time_hours, data_points))
         r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
@@ -257,152 +292,172 @@ class AdvancedTrendAnalyzer:
         predicted = smoothed[-1] + trend
         
         # Confidence based on recent stability
-        recent_variance = np.var(data_points[-5:]) if len(data_points) >= 5 else np.var(data_points)
-        confidence = max(0.1, 1.0 - (recent_variance / (np.var(data_points) + 1e-6)))
+        recent_data = data_points[-5:] if len(data_points) >= 5 else data_points
+        recent_mean = statistics.mean(recent_data)
+        recent_variance = sum((x - recent_mean)**2 for x in recent_data) / len(recent_data)
+        
+        all_mean = statistics.mean(data_points)
+        all_variance = sum((x - all_mean)**2 for x in data_points) / len(data_points)
+        
+        confidence = max(0.1, 1.0 - (recent_variance / (all_variance + 1e-6)))
         
         return float(predicted), confidence
 
-class MachineLearningPredictor:
-    """Machine learning based weather prediction."""
+class SimpleStatisticalPredictor:
+    """Simple statistical prediction without sklearn dependencies."""
     
     def __init__(self):
-        self.models = {}
-        self.feature_scalers = {}
         self.is_trained = False
+        self.statistical_models = {}
     
-    def extract_features(self, weather_data: List[WeatherData], target_hour: int) -> np.ndarray:
-        """Extract features for ML prediction."""
+    def extract_features(self, weather_data: List[WeatherData], target_hour: int) -> Dict[str, float]:
+        """Extract statistical features for prediction."""
         if not weather_data:
-            return np.array([])
+            return {}
         
         # Sort by timestamp
         sorted_data = sorted(weather_data, key=lambda x: x.timestamp)
         
-        features = []
+        features = {}
         
         # Current conditions
         latest = sorted_data[-1]
-        features.extend([
-            latest.temperature, latest.humidity, latest.pressure,
-            latest.wind_speed, latest.wind_direction, latest.precipitation,
-            latest.cloud_cover, latest.visibility or 10.0
-        ])
-        
-        # Temporal features
-        current_time = datetime.now()
-        features.extend([
-            current_time.hour, current_time.month, 
-            target_hour,  # Hour we're predicting for
-            (target_hour - current_time.hour) % 24  # Hours ahead
-        ])
+        features.update({
+            'current_temp': latest.temperature,
+            'current_humidity': latest.humidity,
+            'current_pressure': latest.pressure,
+            'current_wind': latest.wind_speed,
+            'target_hour': target_hour,
+            'hours_ahead': (target_hour - datetime.now().hour) % 24
+        })
         
         # Trend features (if enough data)
         if len(sorted_data) >= 3:
-            temp_trend = sorted_data[-1].temperature - sorted_data[-3].temperature
-            pressure_trend = sorted_data[-1].pressure - sorted_data[-3].pressure
-            humidity_trend = sorted_data[-1].humidity - sorted_data[-3].humidity
+            features['temp_trend'] = sorted_data[-1].temperature - sorted_data[-3].temperature
+            features['pressure_trend'] = sorted_data[-1].pressure - sorted_data[-3].pressure
+            features['humidity_trend'] = sorted_data[-1].humidity - sorted_data[-3].humidity
         else:
-            temp_trend = pressure_trend = humidity_trend = 0.0
-        
-        features.extend([temp_trend, pressure_trend, humidity_trend])
+            features['temp_trend'] = features['pressure_trend'] = features['humidity_trend'] = 0.0
         
         # Statistical features from recent data
         if len(sorted_data) >= 6:
             recent_temps = [d.temperature for d in sorted_data[-6:]]
             recent_pressures = [d.pressure for d in sorted_data[-6:]]
             
-            features.extend([
-                np.mean(recent_temps), np.std(recent_temps),
-                np.mean(recent_pressures), np.std(recent_pressures),
-                max(recent_temps) - min(recent_temps)  # Temperature range
-            ])
+            features.update({
+                'temp_mean': statistics.mean(recent_temps),
+                'temp_range': max(recent_temps) - min(recent_temps),
+                'pressure_mean': statistics.mean(recent_pressures)
+            })
         else:
-            features.extend([latest.temperature, 0, latest.pressure, 0, 0])
+            features.update({
+                'temp_mean': latest.temperature,
+                'temp_range': 0,
+                'pressure_mean': latest.pressure
+            })
         
-        return np.array(features).reshape(1, -1)
+        return features
     
-    def train_models(self, historical_data: List[WeatherData]) -> bool:
-        """Train ML models on historical data."""
-        if len(historical_data) < 50:  # Need minimum data
-            logger.warning("Not enough historical data for ML training")
+    def create_simple_model(self, historical_data: List[WeatherData]) -> bool:
+        """Create simple statistical model from historical data."""
+        if len(historical_data) < 20:  # Need minimum data
+            logger.warning("Not enough historical data for statistical modeling")
             return False
         
         try:
-            # Prepare training data
-            X_train = []
-            y_train = {'temperature': [], 'humidity': [], 'pressure': []}
-            
             # Sort data
             sorted_data = sorted(historical_data, key=lambda x: x.timestamp)
             
-            # Create training samples
-            for i in range(len(sorted_data) - 6):
-                # Use data from position i to i+5 to predict i+6
-                features = self.extract_features(sorted_data[i:i+6], sorted_data[i+6].timestamp.hour)
-                
-                if features.size > 0:
-                    X_train.append(features.flatten())
-                    y_train['temperature'].append(sorted_data[i+6].temperature)
-                    y_train['humidity'].append(sorted_data[i+6].humidity)
-                    y_train['pressure'].append(sorted_data[i+6].pressure)
+            # Calculate hourly averages and trends
+            hourly_stats = {}
             
-            if not X_train:
-                return False
+            for hour in range(24):
+                hour_data = [d for d in sorted_data if d.timestamp.hour == hour]
+                if hour_data:
+                    hourly_stats[hour] = {
+                        'temp_mean': statistics.mean(d.temperature for d in hour_data),
+                        'temp_std': statistics.stdev(d.temperature for d in hour_data) if len(hour_data) > 1 else 1.0,
+                        'humidity_mean': statistics.mean(d.humidity for d in hour_data),
+                        'pressure_mean': statistics.mean(d.pressure for d in hour_data)
+                    }
             
-            X_train = np.array(X_train)
+            self.statistical_models['hourly_stats'] = hourly_stats
             
-            # Train separate models for each variable
-            for variable in ['temperature', 'humidity', 'pressure']:
-                # Scale features
-                self.feature_scalers[variable] = StandardScaler()
-                X_scaled = self.feature_scalers[variable].fit_transform(X_train)
-                
-                # Train Random Forest model
-                self.models[variable] = RandomForestRegressor(
-                    n_estimators=100, 
-                    max_depth=10, 
-                    random_state=42,
-                    n_jobs=-1
-                )
-                self.models[variable].fit(X_scaled, y_train[variable])
+            # Calculate seasonal trends (monthly)
+            monthly_stats = {}
+            for month in range(1, 13):
+                month_data = [d for d in sorted_data if d.timestamp.month == month]
+                if month_data:
+                    monthly_stats[month] = {
+                        'temp_offset': statistics.mean(d.temperature for d in month_data) - statistics.mean(d.temperature for d in sorted_data),
+                        'humidity_offset': statistics.mean(d.humidity for d in month_data) - statistics.mean(d.humidity for d in sorted_data)
+                    }
             
+            self.statistical_models['monthly_stats'] = monthly_stats
             self.is_trained = True
-            logger.info("ML models trained successfully")
+            logger.info("Statistical models created successfully")
             return True
             
         except Exception as e:
-            logger.error(f"Error training ML models: {e}")
+            logger.error(f"Error creating statistical models: {e}")
             return False
     
     def predict(self, weather_data: List[WeatherData], target_time: datetime) -> Tuple[Dict[str, float], float]:
-        """Make ML prediction for target time."""
+        """Make statistical prediction for target time."""
         if not self.is_trained:
             return {}, 0.0
         
         try:
             features = self.extract_features(weather_data, target_time.hour)
             
-            if features.size == 0:
+            if not features:
                 return {}, 0.0
             
             predictions = {}
-            confidences = []
             
-            for variable in ['temperature', 'humidity', 'pressure']:
-                if variable in self.models and variable in self.feature_scalers:
-                    X_scaled = self.feature_scalers[variable].transform(features)
-                    pred = self.models[variable].predict(X_scaled)[0]
-                    predictions[variable] = float(pred)
-                    
-                    # Confidence based on feature importance and model score
-                    confidence = min(1.0, self.models[variable].score(X_scaled, [pred]) if hasattr(self.models[variable], 'score') else 0.7)
-                    confidences.append(confidence)
+            # Get hourly baseline
+            hourly_stats = self.statistical_models.get('hourly_stats', {})
+            target_hour_stats = hourly_stats.get(target_time.hour, {})
             
-            avg_confidence = np.mean(confidences) if confidences else 0.0
-            return predictions, avg_confidence
+            # Get monthly adjustment
+            monthly_stats = self.statistical_models.get('monthly_stats', {})
+            month_adjustments = monthly_stats.get(target_time.month, {'temp_offset': 0, 'humidity_offset': 0})
+            
+            # Predict temperature
+            if target_hour_stats:
+                base_temp = target_hour_stats['temp_mean'] + month_adjustments['temp_offset']
+                trend_adjustment = features.get('temp_trend', 0) * 0.5  # Dampen trend
+                predictions['temperature'] = base_temp + trend_adjustment
+            else:
+                predictions['temperature'] = features['current_temp']
+            
+            # Predict humidity
+            if target_hour_stats:
+                base_humidity = target_hour_stats['humidity_mean'] + month_adjustments['humidity_offset']
+                trend_adjustment = features.get('humidity_trend', 0) * 0.3
+                predictions['humidity'] = max(0, min(100, base_humidity + trend_adjustment))
+            else:
+                predictions['humidity'] = features['current_humidity']
+            
+            # Predict pressure (trend-based)
+            pressure_change = features.get('pressure_trend', 0) * 0.7  # Dampen pressure trend
+            predictions['pressure'] = features['current_pressure'] + pressure_change
+            
+            # Simple confidence based on data availability and trend stability
+            confidence = 0.6  # Base confidence for statistical method
+            if len(weather_data) > 10:
+                confidence += 0.1
+            if abs(features.get('temp_trend', 0)) < 2:  # Stable temperature
+                confidence += 0.1
+            if abs(features.get('pressure_trend', 0)) < 5:  # Stable pressure
+                confidence += 0.1
+                
+            confidence = min(0.9, confidence)  # Cap at 90%
+            
+            return predictions, confidence
             
         except Exception as e:
-            logger.error(f"Error making ML prediction: {e}")
+            logger.error(f"Error making statistical prediction: {e}")
             return {}, 0.0
 
 class AdvancedForecastGenerator:
@@ -412,7 +467,7 @@ class AdvancedForecastGenerator:
         self.config = config
         self.physics_model = AtmosphericPhysicsModel()
         self.trend_analyzer = AdvancedTrendAnalyzer()
-        self.ml_predictor = MachineLearningPredictor()
+        self.statistical_predictor = SimpleStatisticalPredictor()
         self.session: Optional[aiohttp.ClientSession] = None
     
     async def __aenter__(self):
@@ -513,7 +568,7 @@ class AdvancedForecastGenerator:
             future_time = datetime.now() + timedelta(hours=hour)
             
             # Physics-based temperature prediction
-            season_factor = 0.8 + 0.4 * np.cos(2 * np.pi * (datetime.now().month - 1) / 12)
+            season_factor = 0.8 + 0.4 * math.cos(2 * math.pi * (datetime.now().month - 1) / 12)
             physics_temp = self.physics_model.predict_temperature_diurnal(
                 latest_data.temperature, future_time.hour, season_factor
             )
@@ -586,7 +641,7 @@ class AdvancedForecastGenerator:
                 alternative_predictions=None
             ))
         
-        overall_confidence = np.mean(confidences) if confidences else 0.0
+        overall_confidence = statistics.mean(confidences) if confidences else 0.0
         
         return EnhancedWeatherForecast(
             timestamp=datetime.now(),
@@ -810,26 +865,26 @@ Requirements:
         physics_forecast = await self.generate_physics_forecast(weather_data)
         ai_forecast = await self.generate_ai_forecast(weather_data)
         
-        # Train and use ML if enough historical data
-        ml_predictions = {}
-        ml_confidence = 0.0
+        # Train and use statistical predictor if enough historical data
+        statistical_predictions = {}
+        statistical_confidence = 0.0
         
-        if len(weather_data) > 50:
-            if self.ml_predictor.train_models(weather_data):
-                # Get ML predictions for each hour
+        if len(weather_data) > 20:
+            if self.statistical_predictor.create_simple_model(weather_data):
+                # Get statistical predictions for each hour
                 for hour in range(1, 7):
                     future_time = datetime.now() + timedelta(hours=hour)
-                    pred, conf = self.ml_predictor.predict(weather_data, future_time)
+                    pred, conf = self.statistical_predictor.predict(weather_data, future_time)
                     if pred:
-                        ml_predictions[hour] = pred
-                        ml_confidence = max(ml_confidence, conf)
+                        statistical_predictions[hour] = pred
+                        statistical_confidence = max(statistical_confidence, conf)
         
         # Combine forecasts with weighted ensemble
         ensemble_data = []
         method_weights = {
             'physics': 0.4,
             'ai': 0.5 if ai_forecast else 0.0,
-            'ml': 0.1 if ml_predictions else 0.0
+            'statistical': 0.1 if statistical_predictions else 0.0
         }
         
         # Normalize weights
@@ -843,7 +898,7 @@ Requirements:
             # Get predictions from each method
             physics_pred = physics_forecast.forecast_data[hour] if hour < len(physics_forecast.forecast_data) else None
             ai_pred = ai_forecast.forecast_data[hour] if ai_forecast and hour < len(ai_forecast.forecast_data) else None
-            ml_pred = ml_predictions.get(hour+1, {})
+            statistical_pred = statistical_predictions.get(hour+1, {})
             
             # Weighted ensemble for each parameter
             ensemble_temp = 0.0
@@ -863,11 +918,11 @@ Requirements:
                 ensemble_pressure += ai_pred.pressure * method_weights['ai']
                 ensemble_confidence += ai_pred.metadata.confidence * method_weights['ai']
             
-            if ml_pred:
-                ensemble_temp += ml_pred.get('temperature', ensemble_temp) * method_weights['ml']
-                ensemble_humidity += ml_pred.get('humidity', ensemble_humidity) * method_weights['ml']
-                ensemble_pressure += ml_pred.get('pressure', ensemble_pressure) * method_weights['ml']
-                ensemble_confidence += ml_confidence * method_weights['ml']
+            if statistical_pred:
+                ensemble_temp += statistical_pred.get('temperature', ensemble_temp) * method_weights['statistical']
+                ensemble_humidity += statistical_pred.get('humidity', ensemble_humidity) * method_weights['statistical']
+                ensemble_pressure += statistical_pred.get('pressure', ensemble_pressure) * method_weights['statistical']
+                ensemble_confidence += statistical_confidence * method_weights['statistical']
             
             # Use physics forecast as base for other parameters
             base_pred = physics_pred or ai_pred
@@ -880,8 +935,8 @@ Requirements:
                 alternatives['physics_temp'] = physics_pred.temperature
             if ai_pred:
                 alternatives['ai_temp'] = ai_pred.temperature
-            if ml_pred:
-                alternatives['ml_temp'] = ml_pred.get('temperature')
+            if statistical_pred:
+                alternatives['statistical_temp'] = statistical_pred.get('temperature')
             
             metadata = ForecastMetadata(
                 method=ForecastMethod.ENSEMBLE,
@@ -917,8 +972,8 @@ Requirements:
             method_confidences={
                 'physics': physics_forecast.method_confidences.get('physics', 0),
                 'ai': ai_forecast.method_confidences.get('ai_deepseek', 0) if ai_forecast else 0,
-                'ml': ml_confidence,
-                'ensemble': np.mean([d.metadata.confidence for d in ensemble_data]) if ensemble_data else 0
+                'statistical': statistical_confidence,
+                'ensemble': statistics.mean([d.metadata.confidence for d in ensemble_data]) if ensemble_data else 0
             },
             data_sources=list(set([d.source for d in weather_data])),
             ensemble_weight=method_weights
