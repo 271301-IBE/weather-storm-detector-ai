@@ -754,12 +754,25 @@ def api_chmi_warnings():
         
         # Filter out warnings that have expired and keep only Jihomoravský kraj/Brno warnings
         current_time = datetime.now()
-        warnings = [
-            w for w in all_warnings 
-            if (getattr(w, 'area_description', '') and 
-                ('jihomoravský' in w.area_description.lower() or 'brno' in w.area_description.lower()))
-            and (w.time_end is None or w.time_end > current_time)
-        ] if all_warnings else []
+        warnings = []
+        for w in all_warnings:
+            # Check if area description contains Jihomoravský kraj or Brno
+            area_desc = getattr(w, 'area_description', '')
+            if area_desc and ('jihomoravský' in area_desc.lower() or 'brno' in area_desc.lower()):
+                # Check if warning is still valid (not expired)
+                if hasattr(w, 'time_end_unix') and w.time_end_unix:
+                    # Convert unix timestamp to datetime for comparison
+                    end_time = datetime.fromtimestamp(w.time_end_unix)
+                    if end_time > current_time:
+                        warnings.append(w)
+                elif hasattr(w, 'time_end_iso') and w.time_end_iso:
+                    # Parse ISO time string
+                    end_time = datetime.fromisoformat(w.time_end_iso.replace('Z', '+00:00')).replace(tzinfo=None)
+                    if end_time > current_time:
+                        warnings.append(w)
+                else:
+                    # No end time specified, assume it's active
+                    warnings.append(w)
         
         warning_data = []
         for warning in warnings:
