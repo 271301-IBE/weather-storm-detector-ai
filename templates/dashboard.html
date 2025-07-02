@@ -4,6 +4,20 @@
 
 {% block content %}
 <div id="dashboard-content">
+    <!-- ČHMÚ Warnings - Full Width at Top -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card border-warning">
+                <div class="card-header bg-warning text-dark">
+                    <h5 class="mb-0">⚠️ ČHMÚ Meteorologická Varování - Brno</h5>
+                </div>
+                <div class="card-body" id="chmiWarnings">
+                    <p class="text-center">Loading warnings...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
     <div class="row">
         <div class="col-lg-4">
             <div class="card">
@@ -115,14 +129,6 @@
                 <div class="card-header">Combined Weather Data ⚖️</div>
                 <div class="card-body" id="weatherAverages">
                     <p class="text-center">Loading averages...</p>
-                </div>
-            </div>
-        </div>
-        <div class="col-lg-4">
-            <div class="card">
-                <div class="card-header">ČHMÚ Varování - Brno ⚠️</div>
-                <div class="card-body" id="chmiWarnings">
-                    <p class="text-center">Loading warnings...</p>
                 </div>
             </div>
         </div>
@@ -701,41 +707,84 @@
                 const container = document.getElementById('chmiWarnings');
                 
                 if (data.warnings && data.warnings.length > 0) {
-                    let html = `<div class="alert alert-warning">
-                        <strong>Aktivních varování: ${data.total_warnings}</strong>
-                        ${data.storm_warnings > 0 ? `<br><span class="text-danger">Bouřková varování: ${data.storm_warnings}</span>` : ''}
-                    </div>`;
+                    let html = `<div class="row">
+                        <div class="col-md-12 mb-3">
+                            <div class="alert alert-info mb-0">
+                                <h6 class="mb-1"><strong>📊 Souhrn varování</strong></h6>
+                                Celkem aktivních varování: <strong>${data.total_warnings}</strong>
+                                ${data.storm_warnings > 0 ? `&nbsp;•&nbsp;<span class="text-danger">Bouřková varování: <strong>${data.storm_warnings}</strong></span>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">`;
                     
-                    data.warnings.forEach(warning => {
-                        // Map ČHMÚ colors to Bootstrap alert classes
-                        let alertClass = 'alert-info'; // Default
+                    data.warnings.forEach((warning, index) => {
+                        // Map ČHMÚ colors to Bootstrap alert classes and icons
+                        let alertClass = 'alert-info';
+                        let severityIcon = 'ℹ️';
                         switch (warning.color) {
-                            case 'green': alertClass = 'alert-success'; break;
-                            case 'yellow': alertClass = 'alert-warning'; break;
-                            case 'orange': alertClass = 'alert-danger'; break; // Orange often treated as severe
-                            case 'red': alertClass = 'alert-danger'; break;
+                            case 'green': 
+                                alertClass = 'alert-success'; 
+                                severityIcon = '🟢';
+                                break;
+                            case 'yellow': 
+                                alertClass = 'alert-warning'; 
+                                severityIcon = '🟡';
+                                break;
+                            case 'orange': 
+                                alertClass = 'alert-danger'; 
+                                severityIcon = '🟠';
+                                break;
+                            case 'red': 
+                                alertClass = 'alert-danger'; 
+                                severityIcon = '🔴';
+                                break;
                         }
 
-                        const startTime = warning.time_start ? new Date(warning.time_start).toLocaleString('cs-CZ') : 'Neuvedeno';
-                        const endTime = warning.time_end ? new Date(warning.time_end).toLocaleString('cs-CZ') : 'Neuvedeno';
+                        const startTime = warning.time_start ? new Date(warning.time_start).toLocaleString('cs-CZ', {
+                            day: '2-digit', 
+                            month: '2-digit', 
+                            hour: '2-digit', 
+                            minute: '2-digit'
+                        }) : 'Neuvedeno';
+                        const endTime = warning.time_end ? new Date(warning.time_end).toLocaleString('cs-CZ', {
+                            day: '2-digit', 
+                            month: '2-digit', 
+                            hour: '2-digit', 
+                            minute: '2-digit'
+                        }) : 'Neuvedeno';
                         
-                        html += `<div class="alert ${alertClass}">
-                            <h5 class="alert-heading">${warning.event}</h5>
-                            <p>${warning.description || 'Bez popisu'}</p>
-                            <hr>
-                            <p class="mb-0">Od: ${startTime} Do: ${endTime}</p>
+                        // Use responsive column sizing
+                        const colClass = data.warnings.length === 1 ? 'col-12' : 
+                                        data.warnings.length === 2 ? 'col-md-6' : 'col-lg-4 col-md-6';
+                        
+                        html += `<div class="${colClass} mb-3">
+                            <div class="alert ${alertClass} h-100 mb-0">
+                                <h6 class="alert-heading">
+                                    ${severityIcon} ${warning.event}
+                                    <span class="badge bg-secondary float-end">${warning.color.toUpperCase()}</span>
+                                </h6>
+                                <p class="mb-2">${warning.description || 'Bez detailního popisu'}</p>
+                                <hr class="my-2">
+                                <small>
+                                    <strong>Od:</strong> ${startTime}<br>
+                                    <strong>Do:</strong> ${endTime}
+                                </small>
+                            </div>
                         </div>`;
                     });
                     
+                    html += '</div>';
                     container.innerHTML = html;
                 } else {
-                    container.innerHTML = `<div class="alert alert-success">
-                        ✅ Žádná aktivní varování pro Brno
+                    container.innerHTML = `<div class="alert alert-success mb-0">
+                        <h6 class="mb-2"><strong>✅ Bez aktivních varování</strong></h6>
+                        <p class="mb-0">Žádná meteorologická varování nejsou momentálně vydána pro oblast Brno.</p>
                     </div>`;
                 }
             })
             .catch(error => {
-                document.getElementById('chmiWarnings').innerHTML = '<p class="text-center text-danger">Error loading ČHMÚ warnings</p>';
+                document.getElementById('chmiWarnings').innerHTML = '<div class="alert alert-danger mb-0"><strong>❌ Chyba při načítání varování</strong><br>Nepodařilo se načíst data z ČHMÚ.</div>';
                 console.error('Error:', error);
             });
     }
