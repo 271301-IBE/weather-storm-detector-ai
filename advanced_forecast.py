@@ -89,7 +89,7 @@ class EnhancedWeatherForecast(WeatherForecast):
     def to_dict(self) -> Dict[str, Any]:
         data = {
             'timestamp': self.timestamp.isoformat(),
-            'primary_method': self.primary_method.value,
+            'primary_method': self.primary_method.value if isinstance(self.primary_method, Enum) else self.primary_method,
             'method_confidences': self.method_confidences,
             'data_sources': self.data_sources,
             'ensemble_weight': self.ensemble_weight,
