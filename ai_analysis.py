@@ -404,16 +404,7 @@ class StormDetectionEngine:
         self.config = config
         self.local_forecast_generator = LocalForecastGenerator(config)
 
-    async def _generate_and_store_local_forecast(self, weather_data: List[WeatherData]):
-        """Generates and stores a local forecast."""
-        from storage import WeatherDatabase
-        db = WeatherDatabase(self.config)
-        forecast = self.local_forecast_generator.generate_forecast(weather_data)
-        if forecast:
-            db.store_weather_forecast(forecast)
-            logger.info("Local forecast generated and stored.")
-        else:
-            logger.warning("Failed to generate local forecast.")
+    
 
     def _is_ai_analysis_warranted(self, weather_data: List[WeatherData], historical_patterns: List[Dict[str, Any]], chmi_warnings: List[ChmiWarning] = None) -> bool:
         """Check if conditions warrant a full AI analysis to save costs."""
@@ -520,8 +511,6 @@ class StormDetectionEngine:
         historical_patterns = db.get_storm_patterns()
 
         if not self._is_ai_analysis_warranted(weather_data, historical_patterns, chmi_warnings):
-            # Always generate local forecast
-            await self._generate_and_store_local_forecast(weather_data)
             return None
             
         async with DeepSeekAnalyzer(self.config) as analyzer:

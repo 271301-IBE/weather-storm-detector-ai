@@ -325,10 +325,12 @@ class WeatherMonitoringScheduler:
         logger.info("Generating local 6-hour forecast...")
         try:
             weather_data = self.database.get_recent_weather_data(hours=24)
-            if weather_data:
-                await self.storm_engine._generate_and_store_local_forecast(weather_data)
-            else:
-                logger.warning("No weather data to generate local forecast.")
+            from advanced_forecast import AdvancedForecastGenerator
+            async with AdvancedForecastGenerator(self.config) as forecast_generator:
+                forecast = await forecast_generator.generate_physics_forecast(weather_data)
+                if forecast:
+                    self.database.store_enhanced_forecast(forecast, 'physics')
+                    logger.info("Local physics forecast generated and stored in enhanced_forecasts.")
         except Exception as e:
             logger.error(f"Error generating local forecast: {e}", exc_info=True)
 
@@ -337,15 +339,12 @@ class WeatherMonitoringScheduler:
         logger.info("Generating DeepSeek 6-hour forecast...")
         try:
             weather_data = await self.data_collector.collect_weather_data()
-            if weather_data:
-                forecast = await self.deepseek_predictor.generate_forecast(weather_data)
+            from advanced_forecast import AdvancedForecastGenerator
+            async with AdvancedForecastGenerator(self.config) as forecast_generator:
+                forecast = await forecast_generator.generate_ai_forecast(weather_data)
                 if forecast:
-                    self.database.store_weather_forecast(forecast)
-                    logger.info("DeepSeek forecast generated and stored.")
-                else:
-                    logger.warning("Failed to generate DeepSeek forecast.")
-            else:
-                logger.warning("No weather data to generate DeepSeek forecast.")
+                    self.database.store_enhanced_forecast(forecast, 'ai')
+                    logger.info("DeepSeek AI forecast generated and stored in enhanced_forecasts.")
         except Exception as e:
             logger.error(f"Error generating DeepSeek forecast: {e}", exc_info=True)
 
