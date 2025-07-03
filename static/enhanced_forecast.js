@@ -287,7 +287,7 @@ class EnhancedForecastManager {
         });
         
         html += `
-                                <span class="text-muted">Data sources: ${data.metadata.data_sources ? data.metadata.data_sources.length : 0}</span>
+                <span class="text-muted">Data sources: ${data.data_sources ? data.data_sources.length : 0}</span>
             </small>
         `;
         
@@ -305,7 +305,7 @@ class EnhancedForecastManager {
                 • Temperature: 0.1 (precise)<br>
                 • Considers: atmospheric patterns, historical data<br>
                 • Update frequency: Every 30 minutes<br>
-                                <span class="text-muted">Data sources: ${data.metadata.data_sources ? data.metadata.data_sources.length : 0}</span>
+                <span class="text-muted">Data sources: ${data.data_sources ? data.data_sources.length : 0}</span>
             </small>
         `;
     }
@@ -321,7 +321,7 @@ class EnhancedForecastManager {
                 • Diurnal temperature cycles<br>
                 • Polynomial trend fitting<br>
                 • Clausius-Clapeyron relations<br>
-                                <span class="text-muted">Data sources: ${data.metadata.data_sources ? data.metadata.data_sources.length : 0}</span>
+                <span class="text-muted">Data sources: ${data.data_sources ? data.data_sources.length : 0}</span>
             </small>
         `;
     }
