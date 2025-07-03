@@ -123,6 +123,19 @@ class WeatherDatabase:
                 )
             """)
             
+            # Enhanced forecasts table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS enhanced_forecasts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    method TEXT NOT NULL,
+                    forecast_data_json TEXT NOT NULL,
+                    confidence_data TEXT,
+                    metadata TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
             conn.commit()
             logger.info("Database initialized successfully")
     
@@ -578,24 +591,7 @@ class WeatherDatabase:
             logger.error(f"Error retrieving recent weather data: {e}")
             return []
     
-    def store_enhanced_forecast(self, forecast, method: str) -> bool:
-        """Store enhanced forecast with method tracking."""
-        try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Create enhanced forecasts table if it doesn't exist
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS enhanced_forecasts (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        timestamp TEXT NOT NULL,
-                        method TEXT NOT NULL,
-                        forecast_data_json TEXT NOT NULL,
-                        confidence_data TEXT,
-                        metadata TEXT,
-                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
+    
                 
                 forecast_dict = forecast.to_dict()
                 
