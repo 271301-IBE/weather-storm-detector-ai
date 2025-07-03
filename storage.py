@@ -591,9 +591,7 @@ class WeatherDatabase:
             logger.error(f"Error retrieving recent weather data: {e}")
             return []
     
-    
-                
-                def store_enhanced_forecast(self, forecast, method: str) -> bool:
+    def store_enhanced_forecast(self, forecast, method: str) -> bool:
         """Store enhanced forecast with method tracking."""
         try:
             with self.get_connection() as conn:
