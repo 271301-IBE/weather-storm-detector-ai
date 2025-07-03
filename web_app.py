@@ -41,9 +41,30 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+class StdevFunc:
+    def __init__(self):
+        self.M = 0.0
+        self.S = 0.0
+        self.k = 0
+
+    def step(self, value):
+        if value is None:
+            return
+        t = value - self.M
+        self.k += 1
+        self.M += t / self.k
+        self.S += t * (value - self.M)
+
+    def finalize(self):
+        if self.k < 2:
+            return None
+        return (self.S / (self.k - 1)) ** 0.5
+
 def get_db_connection():
     """Get database connection."""
-    return sqlite3.connect('./weather_data.db')
+    conn = sqlite3.connect('./weather_data.db')
+    conn.create_aggregate("STDDEV", 1, StdevFunc)
+    return conn
 
 def save_subscription(subscription):
     """Save a push notification subscription."""

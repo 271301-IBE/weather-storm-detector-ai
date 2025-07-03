@@ -103,7 +103,8 @@ print_info "Detekována Python verze: $PYTHON_VERSION"
 
 # Create virtual environment
 print_info "Vytváření virtuálního prostředí..."
-python3 -m venv weather_env
+VENV_DIR="weather_env"
+python3 -m venv $VENV_DIR
 
 # Activate virtual environment
 print_info "Aktivace virtuálního prostředí..."

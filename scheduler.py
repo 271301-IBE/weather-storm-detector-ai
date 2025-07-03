@@ -349,6 +349,18 @@ class WeatherMonitoringScheduler:
         except Exception as e:
             logger.error(f"Error generating DeepSeek forecast: {e}", exc_info=True)
 
+    async def run_thunderstorm_predictor(self):
+        """Runs the thunderstorm predictor script."""
+        logger.info("Running thunderstorm predictor...")
+        try:
+            from thunderstorm_predictor import ThunderstormPredictor
+            predictor = ThunderstormPredictor(self.config)
+            predicted_time, confidence = predictor.predict_next_storm()
+            predictor.store_prediction(predicted_time, confidence)
+            logger.info("Thunderstorm predictor run successfully.")
+        except Exception as e:
+            logger.error(f"Error running thunderstorm predictor: {e}", exc_info=True)
+
     def setup_jobs(self):
         """Set up scheduled jobs."""
         logger.info("Setting up scheduled jobs...")
@@ -398,6 +410,17 @@ class WeatherMonitoringScheduler:
             max_instances=1,
             coalesce=True,
             misfire_grace_time=60
+        )
+        
+        # Thunderstorm prediction generation every hour
+        self.scheduler.add_job(
+            self.run_thunderstorm_predictor,
+            trigger=IntervalTrigger(hours=1),
+            id='thunderstorm_prediction',
+            name='Thunderstorm Prediction',
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=300
         )
         
         # Database cleanup every day at 2 AM
