@@ -146,9 +146,9 @@ def dashboard():
 
     # Prepare data for rendering
     forecast_data = {
-        'ensemble': format_forecast_data(latest_ensemble),
-        'physics': format_forecast_data(latest_physics),
-        'ai': format_forecast_data(latest_ai)
+        'ensemble': format_forecast_data(latest_ensemble) or {},
+        'physics': format_forecast_data(latest_physics) or {},
+        'ai': format_forecast_data(latest_ai) or {}
     }
 
     return render_template('dashboard.html', forecast_data=forecast_data)

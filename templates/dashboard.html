@@ -490,18 +490,7 @@
         }
     }
 
-    function loadAllData() {
-        loadCurrentWeather();
-        loadSystemStats();
-        loadRecentAnalysis();
-        loadNextStormPrediction();
-        loadWeatherChart();
-        loadApiUsageStats();
-        loadWeatherAverages();
-        loadChmiWarnings();
-        loadLightningStats();
-        updateLastUpdateTime();
-    }
+    
     
     function updateLastUpdateTime() {
         document.getElementById('lastUpdate').textContent = 'Last update: ' + new Date().toLocaleTimeString();
