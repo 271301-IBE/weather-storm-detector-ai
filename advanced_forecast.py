@@ -28,6 +28,7 @@ from enum import Enum
 import math
 import statistics
 import warnings
+import numpy as np
 warnings.filterwarnings('ignore')
 
 from models import WeatherData, WeatherCondition, PredictedWeatherData, WeatherForecast
@@ -144,31 +145,28 @@ class AtmosphericPhysicsModel:
     def predict_temperature_diurnal(self, current_temp: float, hour: int, 
                                    season_factor: float = 1.0) -> float:
         """Predict temperature using diurnal cycle model."""
+        # Validate inputs
+        if current_temp is None or current_temp < -50 or current_temp > 60:
+            current_temp = 15.0  # Reasonable default for Czech Republic
+        
         # Simple sinusoidal model for daily temperature variation
         # Peak around 14:00, minimum around 06:00
         peak_hour = 14
         min_hour = 6
         
-        # Daily temperature range (varies by season)
-        daily_range = 8.0 * season_factor  # Base range of 8°C
+        # Daily temperature range (varies by season, but keep reasonable)
+        daily_range = min(10.0, max(3.0, 6.0 * season_factor))  # 3-10°C range
         
-        # Calculate phase in daily cycle
-        if hour >= min_hour and hour <= peak_hour:
-            # Morning/afternoon warming
-            phase = (hour - min_hour) / (peak_hour - min_hour) * math.pi
-            temp_offset = daily_range * 0.5 * (math.sin(phase - math.pi/2) + 1)
-        else:
-            # Evening/night cooling
-            if hour > peak_hour:
-                hours_since_peak = hour - peak_hour
-            else:
-                hours_since_peak = hour + 24 - peak_hour
-            
-            cooling_period = 24 - (peak_hour - min_hour)
-            phase = hours_since_peak / cooling_period * math.pi
-            temp_offset = daily_range * 0.5 * (1 - math.sin(phase))
+        # Calculate temperature offset based on hour
+        # Use a simple sinusoidal function
+        hour_angle = (hour - min_hour) * 2 * math.pi / 24
+        temp_offset = daily_range * 0.5 * math.sin(hour_angle)
         
-        return current_temp + temp_offset - daily_range * 0.25  # Adjust baseline
+        # Apply offset but keep result reasonable
+        predicted_temp = current_temp + temp_offset
+        
+        # Clamp to reasonable range for Czech Republic
+        return max(-30.0, min(45.0, predicted_temp))
     
     def calculate_humidity_trend(self, temp_trend: float, pressure_trend: float) -> float:
         """Calculate humidity trend based on temperature and pressure changes."""
@@ -501,49 +499,100 @@ class AdvancedForecastGenerator:
             return ConfidenceLevel.VERY_HIGH
     
     def _clamp_weather_values(self, **kwargs) -> Dict[str, float]:
-        """Clamp weather values to realistic ranges."""
+        """Clamp weather values to realistic ranges with proper validation."""
         clamped = {}
         
-        # Temperature: -50°C to 50°C
-        clamped['temperature'] = max(-50.0, min(50.0, kwargs.get('temperature', 20.0)))
+        # Temperature: -40°C to 50°C (avoid -50°C default issue)
+        temp = kwargs.get('temperature')
+        if temp is None or temp < -40.0 or temp > 50.0:
+            # Use a reasonable default for Czech Republic
+            temp = 15.0
+        clamped['temperature'] = max(-40.0, min(50.0, temp))
         
         # Humidity: 0% to 100%
-        clamped['humidity'] = max(0.0, min(100.0, kwargs.get('humidity', 50.0)))
+        humidity = kwargs.get('humidity', 60.0)
+        clamped['humidity'] = max(0.0, min(100.0, humidity))
         
-        # Pressure: 900 to 1100 hPa
-        clamped['pressure'] = max(900.0, min(1100.0, kwargs.get('pressure', 1013.25)))
+        # Pressure: 950 to 1050 hPa (more realistic range)
+        pressure = kwargs.get('pressure', 1013.25)
+        clamped['pressure'] = max(950.0, min(1050.0, pressure))
         
-        # Wind speed: 0 to 50 m/s
-        clamped['wind_speed'] = max(0.0, min(50.0, kwargs.get('wind_speed', 0.0)))
+        # Wind speed: 0 to 40 m/s
+        wind_speed = kwargs.get('wind_speed', 3.0)
+        clamped['wind_speed'] = max(0.0, min(40.0, wind_speed))
         
         # Wind direction: 0 to 360 degrees
-        clamped['wind_direction'] = kwargs.get('wind_direction', 0.0) % 360
+        wind_dir = kwargs.get('wind_direction', 180.0)
+        clamped['wind_direction'] = wind_dir % 360
         
-        # Precipitation: 0 to 100 mm/h
-        clamped['precipitation'] = max(0.0, min(100.0, kwargs.get('precipitation', 0.0)))
+        # Precipitation: 0 to 50 mm/h
+        precip = kwargs.get('precipitation', 0.0)
+        clamped['precipitation'] = max(0.0, min(50.0, precip))
         
         # Precipitation probability: 0% to 100%
-        clamped['precipitation_probability'] = max(0.0, min(100.0, kwargs.get('precipitation_probability', 0.0)))
+        precip_prob = kwargs.get('precipitation_probability', 0.0)
+        clamped['precipitation_probability'] = max(0.0, min(100.0, precip_prob))
         
         # Cloud cover: 0% to 100%
-        clamped['cloud_cover'] = max(0.0, min(100.0, kwargs.get('cloud_cover', 0.0)))
+        cloud_cover = kwargs.get('cloud_cover', 20.0)
+        clamped['cloud_cover'] = max(0.0, min(100.0, cloud_cover))
         
         # Visibility: 0.1 to 50 km
-        clamped['visibility'] = max(0.1, min(50.0, kwargs.get('visibility', 10.0)))
+        visibility = kwargs.get('visibility', 15.0)
+        clamped['visibility'] = max(0.1, min(50.0, visibility))
         
         return clamped
     
+    def _generate_fallback_forecast(self, method: ForecastMethod) -> EnhancedWeatherForecast:
+        """Generate a basic fallback forecast when no data is available."""
+        forecast_data = []
+        
+        # Create basic hourly forecasts for next 6 hours
+        for hour in range(1, 7):
+            future_time = datetime.now() + timedelta(hours=hour)
+            
+            # Use basic defaults for Czech Republic
+            metadata = ForecastMetadata(
+                method=method,
+                confidence=0.3,  # Low confidence for fallback
+                confidence_level=ConfidenceLevel.LOW,
+                generated_at=datetime.now(),
+                data_quality=0.2,
+                model_version="fallback_v1.0",
+                uncertainty_range=(10.0, 20.0)
+            )
+            
+            forecast_data.append(EnhancedPredictedWeatherData(
+                timestamp=future_time,
+                temperature=15.0,  # Reasonable default for Czech Republic
+                humidity=65.0,
+                pressure=1013.25,
+                wind_speed=5.0,
+                wind_direction=180.0,
+                precipitation=0.0,
+                precipitation_probability=20.0,
+                condition=WeatherCondition.CLOUDS,
+                cloud_cover=50.0,
+                visibility=15.0,
+                description=f"Fallback forecast for {future_time.strftime('%H:%M')} (no data available)",
+                metadata=metadata,
+                alternative_predictions=None
+            ))
+        
+        return EnhancedWeatherForecast(
+            timestamp=datetime.now(),
+            forecast_data=forecast_data,
+            primary_method=method,
+            method_confidences={method.value: 0.3},
+            data_sources=["fallback"],
+            ensemble_weight=None
+        )
+
     async def generate_physics_forecast(self, weather_data: List[WeatherData]) -> EnhancedWeatherForecast:
         """Generate forecast using atmospheric physics models."""
         if not weather_data:
-            return EnhancedWeatherForecast(
-                timestamp=datetime.now(),
-                forecast_data=[],
-                primary_method=ForecastMethod.LOCAL_PHYSICS,
-                method_confidences={'physics': 0.0},
-                data_sources=[],
-                ensemble_weight=None
-            )
+            logger.warning("No weather data available for physics forecast, generating fallback")
+            return self._generate_fallback_forecast(ForecastMethod.LOCAL_PHYSICS)
         
         # Sort data by timestamp
         sorted_data = sorted(weather_data, key=lambda x: x.timestamp)
@@ -674,7 +723,8 @@ class AdvancedForecastGenerator:
     async def generate_ai_forecast(self, weather_data: List[WeatherData]) -> Optional[EnhancedWeatherForecast]:
         """Generate AI-powered forecast using DeepSeek."""
         if not weather_data:
-            return None
+            logger.warning("No weather data available for AI forecast, generating fallback")
+            return self._generate_fallback_forecast(ForecastMethod.AI_DEEPSEEK)
         
         try:
             # Prepare context for AI
@@ -864,6 +914,12 @@ Requirements:
         # Generate forecasts from different methods
         physics_forecast = await self.generate_physics_forecast(weather_data)
         ai_forecast = await self.generate_ai_forecast(weather_data)
+        
+        # Ensure we have at least fallback forecasts
+        if not physics_forecast:
+            physics_forecast = self._generate_fallback_forecast(ForecastMethod.LOCAL_PHYSICS)
+        if not ai_forecast:
+            ai_forecast = self._generate_fallback_forecast(ForecastMethod.AI_DEEPSEEK)
         
         # Train and use statistical predictor if enough historical data
         statistical_predictions = {}

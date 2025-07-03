@@ -348,6 +348,20 @@ class WeatherMonitoringScheduler:
         except Exception as e:
             logger.error(f"Error generating DeepSeek forecast: {e}", exc_info=True)
 
+    async def generate_ensemble_forecast_task(self):
+        """Generates and stores an ensemble 6-hour forecast combining multiple methods."""
+        logger.info("Generating ensemble 6-hour forecast...")
+        try:
+            weather_data = self.database.get_recent_weather_data(hours=24)
+            from advanced_forecast import AdvancedForecastGenerator
+            async with AdvancedForecastGenerator(self.config) as forecast_generator:
+                forecast = await forecast_generator.generate_ensemble_forecast(weather_data)
+                if forecast:
+                    self.database.store_enhanced_forecast(forecast, 'ensemble')
+                    logger.info("Ensemble forecast generated and stored in enhanced_forecasts.")
+        except Exception as e:
+            logger.error(f"Error generating ensemble forecast: {e}", exc_info=True)
+
     async def run_thunderstorm_predictor(self):
         """Runs the thunderstorm predictor script."""
         logger.info("Running thunderstorm predictor...")
@@ -392,6 +406,17 @@ class WeatherMonitoringScheduler:
             trigger=IntervalTrigger(hours=self.config.system.deepseek_forecast_interval_hours),
             id='deepseek_forecast_generation',
             name='DeepSeek Forecast Generation',
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=60
+        )
+
+        # Ensemble forecast generation every 5 minutes (combining all methods)
+        self.scheduler.add_job(
+            self.generate_ensemble_forecast_task,
+            trigger=IntervalTrigger(minutes=5),
+            id='ensemble_forecast_generation',
+            name='Ensemble Forecast Generation',
             max_instances=1,
             coalesce=True,
             misfire_grace_time=60
@@ -459,6 +484,14 @@ class WeatherMonitoringScheduler:
         # Run initial monitoring cycle
         logger.info("Running initial monitoring cycle...")
         await self.monitoring_cycle()
+        
+        # Generate initial forecasts immediately
+        logger.info("Generating initial forecasts...")
+        try:
+            await self.generate_local_forecast_task()
+            await self.generate_ensemble_forecast_task()
+        except Exception as e:
+            logger.error(f"Error generating initial forecasts: {e}")
         
         logger.info("Weather Storm Detection System started successfully")
         logger.info("System is now monitoring weather conditions...")
