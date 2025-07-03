@@ -525,7 +525,9 @@ class StormDetectionEngine:
                 db.store_storm_pattern("ai_detection", weather_data)
             
         # Always generate local forecast after analysis
-        await self._generate_and_store_local_forecast(weather_data)
+        local_forecast = self.local_forecast_generator.generate_forecast(weather_data)
+        db.store_weather_forecast(local_forecast)
+        return analysis
         return analysis
     
     def should_send_alert(self, analysis: StormAnalysis) -> bool:

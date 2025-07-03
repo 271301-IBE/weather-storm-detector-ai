@@ -107,27 +107,51 @@ def logout():
 def dashboard():
     """Main dashboard page."""
     from storage import WeatherDatabase
-    from models import WeatherForecast
     db = WeatherDatabase(config)
-    latest_forecast: Optional[WeatherForecast] = db.get_latest_weather_forecast()
-    forecast_data_for_template = []
-    if latest_forecast:
-        for item in latest_forecast.forecast_data:
-            forecast_data_for_template.append({
+    
+    # Fetch the latest forecasts for each method
+    latest_ensemble = db.get_latest_forecast_by_method('ensemble')
+    latest_physics = db.get_latest_forecast_by_method('physics')
+    latest_ai = db.get_latest_forecast_by_method('ai')
+
+    # Function to format forecast data for the template
+    def format_forecast_data(forecast):
+        if not forecast or not forecast.forecast_data:
+            return None
+        
+        formatted_data = []
+        for item in forecast.forecast_data:
+            formatted_data.append({
                 'timestamp': item.timestamp.strftime('%H:%M'),
                 'temperature': round(item.temperature, 1),
                 'humidity': round(item.humidity, 1),
                 'pressure': round(item.pressure, 1),
                 'wind_speed': round(item.wind_speed, 1),
                 'precipitation': round(item.precipitation, 1),
-                'precipitation_probability': round(item.precipitation_probability, 1) if item.precipitation_probability is not None else None,
+                'precipitation_probability': round(item.precipitation_probability * 100, 0) if item.precipitation_probability is not None else None,
                 'condition': item.condition.value,
-                'cloud_cover': round(item.cloud_cover, 1),
+                'cloud_cover': round(item.cloud_cover, 1) if item.cloud_cover is not None else None,
                 'visibility': round(item.visibility, 1) if item.visibility is not None else None,
-                'description': item.description
+                'description': item.description,
+                'confidence': round(item.metadata.confidence * 100, 0) if item.metadata and item.metadata.confidence is not None else 0,
+                'confidence_level': item.metadata.confidence_level.value if item.metadata and item.metadata.confidence_level else 'unknown'
             })
+            
+        return {
+            'forecast': formatted_data,
+            'method': forecast.primary_method.value,
+            'confidence': round(forecast.method_confidences.get(forecast.primary_method.value, 0) * 100, 0),
+            'generated_at': forecast.timestamp.isoformat()
+        }
 
-    return render_template('dashboard.html', forecast=forecast_data_for_template)
+    # Prepare data for rendering
+    forecast_data = {
+        'ensemble': format_forecast_data(latest_ensemble),
+        'physics': format_forecast_data(latest_physics),
+        'ai': format_forecast_data(latest_ai)
+    }
+
+    return render_template('dashboard.html', forecast_data=forecast_data)
 
 @app.route('/map')
 @login_required
@@ -881,70 +905,72 @@ def api_test_forecast():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/enhanced_forecast')
+@login_required
 def api_enhanced_forecast():
     """Get enhanced forecast with multiple prediction methods."""
     try:
         logger.info("Enhanced forecast endpoint called")
-        
-        # Get stored forecast data from database
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Get latest forecast data
-        cursor.execute("""
-            SELECT forecast_data_json FROM weather_forecasts 
-            ORDER BY created_at DESC
-            LIMIT 1
-        """)
-        
-        result = cursor.fetchone()
-        conn.close()
-        
-        if not result:
-            logger.warning("No forecast data found in database")
-            return jsonify({'error': 'No forecast data available'}), 404
-        
-        # Parse JSON forecast data
-        forecast_json = json.loads(result[0])
-        forecast_data = forecast_json['forecast_data']
-        
-        # Format forecast data for frontend
-        formatted_forecast = []
-        for i, item in enumerate(forecast_data):
-            formatted_forecast.append({
-                'hour': i + 1,
-                'temperature': round(item['temperature'], 1),
-                'humidity': round(item['humidity'], 0),
-                'pressure': round(item['pressure'], 0),
-                'wind_speed': round(item['wind_speed'], 1),
-                'precipitation': round(item['precipitation'], 1),
-                'precipitation_probability': round(item['precipitation_probability'] * 100, 0),
-                'condition': item['condition'],
-                'confidence': 85,  # Default confidence
-                'timestamp': item['timestamp']
-            })
-        
+        from storage import WeatherDatabase
+        db = WeatherDatabase(config)
+
+        latest_ensemble = db.get_latest_forecast_by_method('ensemble')
+        latest_physics = db.get_latest_forecast_by_method('physics')
+        latest_ai = db.get_latest_forecast_by_method('ai')
+
+        def format_forecast_data(forecast):
+            if not forecast or not forecast.forecast_data:
+                return []
+            formatted = []
+            for i, item in enumerate(forecast.forecast_data):
+                formatted.append({
+                    'hour': i + 1,
+                    'timestamp': item.timestamp.isoformat(),
+                    'temperature': round(item.temperature, 1),
+                    'humidity': round(item.humidity, 0),
+                    'pressure': round(item.pressure, 0),
+                    'wind_speed': round(item.wind_speed, 1),
+                    'precipitation': round(item.precipitation, 1),
+                    'precipitation_probability': round(item.precipitation_probability * 100, 0) if item.precipitation_probability is not None else None,
+                    'condition': item.condition.value,
+                    'cloud_cover': round(item.cloud_cover, 1) if item.cloud_cover is not None else None,
+                    'visibility': round(item.visibility, 1) if item.visibility is not None else None,
+                    'description': item.description,
+                    'confidence': round(item.metadata.confidence * 100, 0) if item.metadata and item.metadata.confidence is not None else 0,
+                    'confidence_level': item.metadata.confidence_level.value if item.metadata and item.metadata.confidence_level else 'unknown'
+                })
+            return formatted
+
+        ensemble_forecast = format_forecast_data(latest_ensemble)
+        physics_forecast = format_forecast_data(latest_physics)
+        ai_forecast = format_forecast_data(latest_ai)
+
         result = {
             'ensemble': {
-                'forecast': formatted_forecast,
-                'method': 'local_physics',
-                'confidence': 0.85
+                'forecast': ensemble_forecast,
+                'method': latest_ensemble.primary_method.value if latest_ensemble else 'N/A',
+                'confidence': round(latest_ensemble.method_confidences.get('ensemble', 0) * 100, 0) if latest_ensemble and latest_ensemble.method_confidences else 0,
+                'generated_at': latest_ensemble.timestamp.isoformat() if latest_ensemble else None,
+                'data_points_used': len(ensemble_forecast)
             },
             'physics': {
-                'forecast': formatted_forecast,
-                'method': 'local_physics', 
-                'confidence': 0.85
+                'forecast': physics_forecast,
+                'method': latest_physics.primary_method.value if latest_physics else 'N/A',
+                'confidence': round(latest_physics.method_confidences.get('physics', 0) * 100, 0) if latest_physics and latest_physics.method_confidences else 0,
+                'generated_at': latest_physics.timestamp.isoformat() if latest_physics else None,
+                'data_points_used': len(physics_forecast)
             },
             'ai': {
-                'forecast': formatted_forecast,
-                'method': 'local_physics',
-                'confidence': 0.85
+                'forecast': ai_forecast,
+                'method': latest_ai.primary_method.value if latest_ai else 'N/A',
+                'confidence': round(latest_ai.method_confidences.get('ai', 0) * 100, 0) if latest_ai and latest_ai.method_confidences else 0,
+                'generated_at': latest_ai.timestamp.isoformat() if latest_ai else None,
+                'data_points_used': len(ai_forecast)
             },
-            'generated_at': datetime.now().isoformat(),
-            'data_points_used': len(formatted_forecast)
+            'generated_at': datetime.now().isoformat(), # Overall generation time
+            'data_points_used': max(len(ensemble_forecast), len(physics_forecast), len(ai_forecast))
         }
         
-        logger.info(f"Returning {len(formatted_forecast)} forecast hours")
+        logger.info(f"Returning enhanced forecast data for ensemble ({len(ensemble_forecast)}), physics ({len(physics_forecast)}), and AI ({len(ai_forecast)})")
         return jsonify(result)
         
     except Exception as e:

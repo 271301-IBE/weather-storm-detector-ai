@@ -11,6 +11,7 @@ import sys
 import logging
 from datetime import datetime
 from pathlib import Path
+import pytest
 
 # Add current directory to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -252,7 +253,7 @@ def test_chmi_integration(config):
             
         except Exception as xml_error:
             print(f"⚠️ ČHMÚ XML fetch failed (network/server issue): {xml_error}")
-            # This is not a critical failure for the test
+            # This is not a critical failure for the test, so we don't assert False here
         
         # Test email generation with dummy data
         test_warning = ChmiWarning(
@@ -284,13 +285,14 @@ def test_chmi_integration(config):
         print("✅ ČHMÚ email generation successful")
         print(f"   📧 Subject: {email_msg['Subject']}")
         
-        return True
+        assert True
         
     except Exception as e:
         print(f"❌ ČHMÚ integration test failed: {e}")
-        return False
+        assert False
 
-async def run_full_test():
+@pytest.mark.asyncio
+def run_full_test():
     """Run complete system test."""
     print("🌩️ Weather Storm Detection System - Full Test Suite")
     print("=" * 60)
@@ -308,7 +310,7 @@ async def run_full_test():
     }
     
     # 1. Configuration
-    config = await test_configuration()
+    config = asyncio.run(test_configuration())
     results['config'] = config is not None
     
     if not config:
@@ -316,14 +318,14 @@ async def run_full_test():
         return results
     
     # 2. Database
-    results['database'] = await test_database(config)
+    results['database'] = asyncio.run(test_database(config))
     
     # 3. Weather APIs
-    weather_data = await test_weather_apis(config)
+    weather_data = asyncio.run(test_weather_apis(config))
     results['weather_apis'] = weather_data is not None
     
     # 4. AI Analysis
-    analysis = await test_ai_analysis(config, weather_data)
+    analysis = asyncio.run(test_ai_analysis(config, weather_data))
     results['ai_analysis'] = analysis is not None
     
     # 5. PDF Generation
@@ -351,7 +353,7 @@ async def run_full_test():
         status = "✅ PASS" if passed else "❌ FAIL"
         print(f"   {test_name.replace('_', ' ').title():20} {status}")
     
-    print(f"\n🎯 Overall: {passed_tests}/{total_tests} tests passed ({passed_tests/total_tests*100:.0f}%)")
+    print(f"\n🎯 Overall: {passed_tests}/{total_tests} tests passed ({passed_tests/total_tests*100:.0f}%) ")
     
     if passed_tests == total_tests:
         print("🎉 ALL TESTS PASSED! System ready for Raspberry Pi deployment.")
@@ -380,7 +382,7 @@ async def run_full_test():
 
 if __name__ == "__main__":
     try:
-        results = asyncio.run(run_full_test())
+        run_full_test()
     except KeyboardInterrupt:
         print("\n⚠️ Test interrupted by user")
     except Exception as e:

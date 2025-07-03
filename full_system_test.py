@@ -6,6 +6,7 @@ import os
 import asyncio
 import traceback
 from datetime import datetime
+import pytest
 
 # Add project root to path
 sys.path.insert(0, '/home/pi/weather-storm-detector')
@@ -42,12 +43,12 @@ def test_imports():
         from scheduler import WeatherMonitoringScheduler
         print("✅ Scheduler")
         
-        return True
+        assert True
         
     except Exception as e:
         print(f"❌ Import error: {e}")
         traceback.print_exc()
-        return False
+        assert False
 
 def test_config():
     """Test konfigurace."""
@@ -69,12 +70,13 @@ def test_config():
         print(f"✅ Storm confidence threshold: {config.ai.storm_confidence_threshold:.1%}")
         print(f"✅ Email recipient: {config.email.recipient_email}")
         
-        return True
+        assert True
         
     except Exception as e:
         print(f"❌ Config error: {e}")
-        return False
+        assert False
 
+@pytest.mark.asyncio
 async def test_weather_data():
     """Test získávání meteorologických dat."""
     print("\n🌤️ TESTOVÁNÍ METEOROLOGICKÝCH DAT...")
@@ -93,19 +95,18 @@ async def test_weather_data():
             print(f"✅ Získáno {len(weather_data)} datových sad")
             for data in weather_data:
                 print(f"   📊 {data.source}: {data.temperature:.1f}°C, {data.humidity:.0f}%, {data.description}")
+            assert True
         else:
             print("❌ Žádná data získána")
-            return False
+            assert False
             
-        return True
-        
     except Exception as e:
         print(f"❌ Weather data error: {e}")
         traceback.print_exc()
-        return False
+        assert False
 
-def test_chmi_warnings():
-    """Test ČHMÚ varování."""
+def _get_chmi_warnings():
+    """Helper to get ČHMÚ varování."""
     print("\n🏛️ TESTOVÁNÍ ČHMÚ VAROVÁNÍ...")
     
     try:
@@ -152,15 +153,16 @@ def test_database():
         else:
             print("ℹ️ Žádná předchozí AI analýza")
             
-        return True
+        assert True
         
     except Exception as e:
         print(f"❌ Database error: {e}")
         traceback.print_exc()
-        return False
+        assert False
 
 
 
+@pytest.mark.asyncio
 async def test_ai_analysis(chmi_warnings: list):
     """Test AI analýzy (jen pokud jsou storm podmínky)."""
     print("\n🤖 TESTOVÁNÍ AI ANALÝZY...")
@@ -177,16 +179,17 @@ async def test_ai_analysis(chmi_warnings: list):
         scheduler = WeatherMonitoringScheduler(config)
         
         # Get recent weather data
-        weather_data = await test_weather_data_for_ai()
+        weather_data = await _get_weather_data_for_ai()
         if not weather_data:
             print("⚠️ Přeskakuji AI test - žádná meterologická data")
-            return True
+            assert True
+            return
             
         # Check if AI analysis should run (cost optimization)
-        chmi_warnings = test_chmi_warnings()
         if not chmi_warnings:
             print("⚠️ Přeskakuji AI test - žádná ČHMÚ varování")
-            return True
+            assert True
+            return
 
         should_run = scheduler._should_run_ai_analysis(weather_data, chmi_warnings)
         
@@ -196,17 +199,17 @@ async def test_ai_analysis(chmi_warnings: list):
             analysis = await engine.analyze_storm_potential(weather_data, chmi_warnings)
             
             print(f"✅ AI analýza dokončena: {analysis.alert_level.value} (confidence: {analysis.confidence_score:.1%})")
+            assert True
         else:
             print("✅ AI analýza přeskočena - normální podmínky (úspora nákladů)")
+            assert True
             
-        return True
-        
     except Exception as e:
         print(f"❌ AI analysis error: {e}")
         traceback.print_exc()
-        return False
+        assert False
 
-async def test_weather_data_for_ai():
+async def _get_weather_data_for_ai():
     """Helper pro získání dat pro AI test."""
     try:
         from config import load_config
@@ -216,32 +219,20 @@ async def test_weather_data_for_ai():
         collector = WeatherDataCollector(config)
         return await collector.collect_weather_data()
     except:
-        return None
+        return None # This is a helper, not a test, so returning is fine
 
-async def main():
+def test_full_system_run():
     """Hlavní test funkce."""
     print("🚀 KOMPLETNÍ TEST SYSTÉMU")
     print("=" * 50)
     
-    results = []
-    
     # Run tests sequentially
-    if not test_imports():
-        sys.exit(1)
-        
-    if not test_config():
-        sys.exit(1)
-        
-    if not await test_weather_data():
-        sys.exit(1)
-        
-    chmi_warnings_list = test_chmi_warnings()
-    
-    if not test_database():
-        sys.exit(1)
-        
-    if not await test_ai_analysis(chmi_warnings=chmi_warnings_list):
-        sys.exit(1)
+    test_imports()
+    test_config()
+    asyncio.run(test_weather_data())
+    chmi_warnings_list = _get_chmi_warnings()
+    test_database()
+    asyncio.run(test_ai_analysis(chmi_warnings=chmi_warnings_list))
 
     print("\n" + "="*50)
     print("🎉 VŠECHNY TESTY PROŠLY!")
@@ -249,8 +240,8 @@ async def main():
 
 if __name__ == "__main__":
     try:
-        result = asyncio.run(main())
-        sys.exit(0 if result else 1)
+        test_full_system_run()
+        pass # Let pytest handle the exit code
     except KeyboardInterrupt:
         print("\n⏹️ Test přerušen uživatelem")
         sys.exit(1)

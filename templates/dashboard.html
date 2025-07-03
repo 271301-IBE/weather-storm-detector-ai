@@ -131,9 +131,27 @@
                                         </tr>
                                     </thead>
                                     <tbody id="ensembleForecastBody">
+                                        {% if forecast_data and forecast_data.ensemble and forecast_data.ensemble.forecast %}
+                                            {% for item in forecast_data.ensemble.forecast %}
+                                            <tr>
+                                                <td><strong>{{ item.timestamp }}</strong></td>
+                                                <td>{{ item.temperature }}°C</td>
+                                                <td>{{ item.humidity }}%</td>
+                                                <td>{{ item.pressure }}</td>
+                                                <td>{{ item.wind_speed }}</td>
+                                                <td>{{ item.precipitation }}</td>
+                                                <td>{{ item.precipitation_probability }}%</td>
+                                                <td>
+                                                    <span class="badge bg-light text-dark">{{ item.condition }}</span>
+                                                </td>
+                                                <td><span class="badge bg-success">{{ item.confidence }}%</span> <span class="badge bg-secondary">{{ item.confidence_level }}</span></td>
+                                            </tr>
+                                            {% endfor %}
+                                        {% else %}
                                         <tr>
                                             <td colspan="9" class="text-center">Loading ensemble forecast...</td>
                                         </tr>
+                                        {% endif %}
                                     </tbody>
                                 </table>
                             </div>
@@ -160,9 +178,27 @@
                                         </tr>
                                     </thead>
                                     <tbody id="aiForecastBody">
+                                        {% if forecast_data and forecast_data.ai and forecast_data.ai.forecast %}
+                                            {% for item in forecast_data.ai.forecast %}
+                                            <tr>
+                                                <td><strong>{{ item.timestamp }}</strong></td>
+                                                <td>{{ item.temperature }}°C</td>
+                                                <td>{{ item.humidity }}%</td>
+                                                <td>{{ item.pressure }}</td>
+                                                <td>{{ item.wind_speed }}</td>
+                                                <td>{{ item.precipitation }}</td>
+                                                <td>{{ item.precipitation_probability }}%</td>
+                                                <td>
+                                                    <span class="badge bg-light text-dark">{{ item.condition }}</span>
+                                                </td>
+                                                <td><span class="badge bg-info">{{ item.confidence }}%</span> <span class="badge bg-secondary">{{ item.confidence_level }}</span></td>
+                                            </tr>
+                                            {% endfor %}
+                                        {% else %}
                                         <tr>
                                             <td colspan="9" class="text-center">Loading AI forecast...</td>
                                         </tr>
+                                        {% endif %}
                                     </tbody>
                                 </table>
                             </div>
@@ -189,9 +225,27 @@
                                         </tr>
                                     </thead>
                                     <tbody id="physicsForecastBody">
+                                        {% if forecast_data and forecast_data.physics and forecast_data.physics.forecast %}
+                                            {% for item in forecast_data.physics.forecast %}
+                                            <tr>
+                                                <td><strong>{{ item.timestamp }}</strong></td>
+                                                <td>{{ item.temperature }}°C</td>
+                                                <td>{{ item.humidity }}%</td>
+                                                <td>{{ item.pressure }}</td>
+                                                <td>{{ item.wind_speed }}</td>
+                                                <td>{{ item.precipitation }}</td>
+                                                <td>{{ item.precipitation_probability }}%</td>
+                                                <td>
+                                                    <span class="badge bg-light text-dark">{{ item.condition }}</span>
+                                                </td>
+                                                <td><span class="badge bg-warning">{{ item.confidence }}%</span> <span class="badge bg-secondary">{{ item.confidence_level }}</span></td>
+                                            </tr>
+                                            {% endfor %}
+                                        {% else %}
                                         <tr>
                                             <td colspan="9" class="text-center">Loading physics forecast...</td>
                                         </tr>
+                                        {% endif %}
                                     </tbody>
                                 </table>
                             </div>
@@ -224,9 +278,26 @@
                                         </tr>
                                     </thead>
                                     <tbody id="comparisonForecastBody">
+                                        {% if forecast_data and forecast_data.ensemble and forecast_data.ensemble.forecast %}
+                                            {% for i in range(forecast_data.ensemble.forecast|length) %}
+                                            <tr>
+                                                <td><strong>{{ forecast_data.ensemble.forecast[i].timestamp }}</strong></td>
+                                                <td class="text-success">{{ forecast_data.ensemble.forecast[i].temperature if forecast_data.ensemble else '--' }}</td>
+                                                <td class="text-info">{{ forecast_data.ai.forecast[i].temperature if forecast_data.ai else '--' }}</td>
+                                                <td class="text-warning">{{ forecast_data.physics.forecast[i].temperature if forecast_data.physics else '--' }}</td>
+                                                <td class="text-success">{{ forecast_data.ensemble.forecast[i].humidity if forecast_data.ensemble else '--' }}</td>
+                                                <td class="text-info">{{ forecast_data.ai.forecast[i].humidity if forecast_data.ai else '--' }}</td>
+                                                <td class="text-warning">{{ forecast_data.physics.forecast[i].humidity if forecast_data.physics else '--' }}</td>
+                                                <td class="text-success">{{ forecast_data.ensemble.forecast[i].pressure if forecast_data.ensemble else '--' }}</td>
+                                                <t class="text-info">{{ forecast_data.ai.forecast[i].pressure if forecast_data.ai else '--' }}</td>
+                                                <td class="text-warning">{{ forecast_data.physics.forecast[i].pressure if forecast_data.physics else '--' }}</td>
+                                            </tr>
+                                            {% endfor %}
+                                        {% else %}
                                         <tr>
                                             <td colspan="10" class="text-center">Loading comparison data...</td>
                                         </tr>
+                                        {% endif %}
                                     </tbody>
                                 </table>
                             </div>
