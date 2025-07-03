@@ -149,7 +149,7 @@
                                             {% endfor %}
                                         {% else %}
                                         <tr>
-                                            <td colspan="9" class="text-center">Loading ensemble forecast...</td>
+                                            <td colspan="9" class="text-center">No forecast data available</td>
                                         </tr>
                                         {% endif %}
                                     </tbody>
@@ -196,7 +196,7 @@
                                             {% endfor %}
                                         {% else %}
                                         <tr>
-                                            <td colspan="9" class="text-center">Loading AI forecast...</td>
+                                            <td colspan="9" class="text-center">No forecast data available</td>
                                         </tr>
                                         {% endif %}
                                     </tbody>
@@ -243,7 +243,7 @@
                                             {% endfor %}
                                         {% else %}
                                         <tr>
-                                            <td colspan="9" class="text-center">Loading physics forecast...</td>
+                                            <td colspan="9" class="text-center">No forecast data available</td>
                                         </tr>
                                         {% endif %}
                                     </tbody>
@@ -289,13 +289,13 @@
                                                 <td class="text-info">{{ forecast_data.ai.forecast[i].humidity if forecast_data.ai else '--' }}</td>
                                                 <td class="text-warning">{{ forecast_data.physics.forecast[i].humidity if forecast_data.physics else '--' }}</td>
                                                 <td class="text-success">{{ forecast_data.ensemble.forecast[i].pressure if forecast_data.ensemble else '--' }}</td>
-                                                <t class="text-info">{{ forecast_data.ai.forecast[i].pressure if forecast_data.ai else '--' }}</td>
+                                                <td class="text-info">{{ forecast_data.ai.forecast[i].pressure if forecast_data.ai else '--' }}</td>
                                                 <td class="text-warning">{{ forecast_data.physics.forecast[i].pressure if forecast_data.physics else '--' }}</td>
                                             </tr>
                                             {% endfor %}
                                         {% else %}
                                         <tr>
-                                            <td colspan="10" class="text-center">Loading comparison data...</td>
+                                            <td colspan="10" class="text-center">No comparison data available</td>
                                         </tr>
                                         {% endif %}
                                     </tbody>
@@ -420,3 +420,1174 @@
 </div>
 {% endblock %}
 
+{% block scripts %}
+<script>
+    let weatherChart;
+    const historyCharts = {}; // Object to store multiple history chart instances
+    
+    // Auto-refresh data every 30 seconds
+    setInterval(loadDashboardData, 30000);
+    
+    // Load all data on page load
+    window.onload = function() {
+        loadDashboardData();
+        showTab('dashboard'); // Default to dashboard tab
+
+        // Event listeners for history panel
+        document.getElementById('historyTimeline').addEventListener('change', loadAllHistoryCharts);
+    };
+    
+    function getSeverityClass(value, type) {
+        if (value === null || value === undefined) {
+            return 'bg-secondary'; // Grey for N/A
+        }
+
+        switch (type) {
+            case 'temperature':
+                if (value > 30 || value < -10) return 'bg-danger'; // Extreme hot/cold
+                if (value > 25 || value < 0) return 'bg-warning';  // Very hot/cold
+                return 'bg-success'; // Normal
+            case 'humidity':
+                if (value > 90 || value < 20) return 'bg-danger'; // Too humid/dry
+                if (value > 80 || value < 30) return 'bg-warning'; // Very humid/dry
+                return 'bg-success'; // Normal
+            case 'pressure': // Assuming hPa
+                if (value < 980 || value > 1030) return 'bg-danger'; // Very low/high pressure (stormy/very stable)
+                if (value < 1000 || value > 1020) return 'bg-warning'; // Low/high pressure
+                return 'bg-success'; // Normal
+            case 'wind_speed': // m/s
+                if (value > 15) return 'bg-danger'; // Storm/Gale
+                if (value > 8) return 'bg-warning';  // Strong wind
+                return 'bg-success'; // Moderate/Light wind
+            case 'precipitation': // mm
+                if (value > 10) return 'bg-danger'; // Heavy rain
+                if (value > 2) return 'bg-warning';  // Moderate rain
+                return 'bg-success'; // Light/No rain
+            case 'precipitation_probability': // %
+                if (value > 70) return 'bg-danger'; // High probability
+                if (value > 40) return 'bg-warning'; // Moderate probability
+                return 'bg-success'; // Low probability
+            default:
+                return 'bg-primary'; // Default blue for unknown types
+        }
+    }
+
+    function showTab(tabId) {
+        document.getElementById('dashboard-content').style.display = 'none';
+        document.getElementById('history-content').style.display = 'none';
+
+        document.querySelectorAll('.navbar-nav .nav-link').forEach(link => {
+            link.classList.remove('active');
+        });
+
+        if (tabId === 'dashboard') {
+            document.getElementById('dashboard-content').style.display = 'block';
+            document.querySelector('a[href="/"]').classList.add('active');
+        } else if (tabId === 'history') {
+            document.getElementById('history-content').style.display = 'block';
+            document.querySelector('a[href="/history"]').classList.add('active');
+            loadAllHistoryCharts(); // Load all charts when history tab is shown
+        }
+    }
+
+    function loadDashboardData() {
+        loadCurrentWeather();
+        loadSystemStats();
+        loadRecentAnalysis();
+        loadNextStormPrediction();
+        loadWeatherChart();
+        loadApiUsageStats();
+        loadWeatherAverages();
+        loadChmiWarnings();
+        loadLightningStats();
+        updateLastUpdateTime();
+    }
+    
+    function updateLastUpdateTime() {
+        document.getElementById('lastUpdate').textContent = 'Last update: ' + new Date().toLocaleTimeString();
+    }
+    
+    function loadCurrentWeather() {
+        fetch('/api/current_weather')
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('currentWeather');
+                if (data.length > 0) {
+                    const latest = data[0];
+                    container.innerHTML = `
+                        <ul class="list-group list-group-flush">
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Temperature
+                                <span class="badge rounded-pill ${getSeverityClass(latest.temperature, 'temperature')}">${latest.temperature?.toFixed(1) || 'N/A'}°C</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Humidity
+                                <span class="badge rounded-pill ${getSeverityClass(latest.humidity, 'humidity')}">${latest.humidity?.toFixed(0) || 'N/A'}%</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Pressure
+                                <span class="badge rounded-pill ${getSeverityClass(latest.pressure, 'pressure')}">${latest.pressure?.toFixed(0) || 'N/A'} hPa</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Wind Speed
+                                <span class="badge rounded-pill ${getSeverityClass(latest.wind_speed, 'wind_speed')}">${latest.wind_speed?.toFixed(1) || 'N/A'} m/s</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Precipitation
+                                <span class="badge rounded-pill ${getSeverityClass(latest.precipitation, 'precipitation')}">${latest.precipitation?.toFixed(1) || 'N/A'} mm</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Source
+                                <span class="badge bg-secondary rounded-pill">${latest.source || 'N/A'}</span>
+                            </li>
+                        </ul>
+                    `;
+                } else {
+                    container.innerHTML = '<p class="text-center">No weather data available</p>';
+                }
+            })
+            .catch(error => {
+                document.getElementById('currentWeather').innerHTML = '<p class="text-center text-danger">Error loading weather data</p>';
+                console.error('Error:', error);
+            });
+    }
+    
+    function loadSystemStats() {
+        fetch('/api/system_stats')
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('systemStats');
+                container.innerHTML = `
+                    <ul class="list-group list-group-flush">
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            Weather Data Points
+                            <span class="badge bg-primary rounded-pill">${data.weather_data_24h || 0}</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            AI Analyses
+                            <span class="badge bg-primary rounded-pill">${data.ai_analysis_24h || 0}</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            Emails Sent
+                            <span class="badge bg-primary rounded-pill">${data.emails_24h || 0}</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            Storms Detected (7d)
+                            <span class="badge bg-primary rounded-pill">${data.storms_detected_7d || 0}</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            Avg Confidence (7d)
+                            <span class="badge bg-primary rounded-pill">${data.avg_confidence_7d || 0}%</span>
+                        </li>
+                    </ul>
+                `;
+            })
+            .catch(error => {
+                document.getElementById('systemStats').innerHTML = '<p class="text-center text-danger">Error loading statistics</p>';
+                console.error('Error:', error);
+            });
+    }
+
+    function loadLightningStats() {
+        fetch('/api/lightning_dashboard_stats')
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('lightningStats');
+                container.innerHTML = `
+                    <ul class="list-group list-group-flush">
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            Total Strikes
+                            <span class="badge bg-primary rounded-pill">${data.total_strikes || 0}</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            In Czech Republic
+                            <span class="badge bg-primary rounded-pill">${data.czech_strikes || 0}</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            Nearby Strikes
+                            <span class="badge bg-primary rounded-pill">${data.nearby_strikes || 0}</span>
+                        </li>
+                    </ul>
+                `;
+            })
+            .catch(error => {
+                document.getElementById('lightningStats').innerHTML = '<p class="text-center text-danger">Error loading lightning stats</p>';
+                console.error('Error:', error);
+            });
+    }
+    
+    function loadRecentAnalysis() {
+        fetch('/api/recent_analysis')
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('recentAnalysis');
+                if (data.length > 0) {
+                    container.innerHTML = data.slice(0, 5).map(analysis => {
+                        const confidence = (analysis.confidence_score * 100).toFixed(1);
+                        const confidenceClass = confidence > 80 ? 'text-danger' : 
+                                              confidence > 50 ? 'text-warning' : 'text-success';
+                        const timestamp = new Date(analysis.timestamp).toLocaleString();
+                        
+                        let alertLevelClass = 'text-secondary';
+                        if (analysis.alert_level === 'Green') alertLevelClass = 'text-success';
+                        else if (analysis.alert_level === 'Yellow') alertLevelClass = 'text-warning';
+                        else if (analysis.alert_level === 'Orange' || analysis.alert_level === 'Red') alertLevelClass = 'text-danger';
+
+                        return `
+                            <div class="list-group-item">
+                                <strong>${analysis.storm_detected ? '⚡ Storm Detected' : '✅ Normal Conditions'}</strong>
+                                <span class="float-end ${confidenceClass}">${confidence}%</span>
+                                <div class="text-muted small">${timestamp} - Alert: <span class="${alertLevelClass}">${analysis.alert_level}</span></div>
+                            </div>
+                        `;
+                    }).join('');
+                } else {
+                    container.innerHTML = '<p class="text-center">No analysis data available</p>';
+                }
+            })
+            .catch(error => {
+                document.getElementById('recentAnalysis').innerHTML = '<p class="text-center text-danger">Error loading analysis data</p>';
+                console.error('Error:', error);
+            });
+    }
+
+    function loadNextStormPrediction() {
+        fetch('/api/next_storm_prediction')
+            .then(response => {
+                if (!response.ok) {
+                    return response.text().then(text => { throw new Error(text) });
+                }
+                return response.json();
+            })
+            .then(data => {
+                const container = document.getElementById('nextStormPrediction');
+                if (data && data.prediction_timestamp) {
+                    const predictionDate = new Date(data.prediction_timestamp);
+                    const confidence = (data.confidence * 100).toFixed(1);
+                    container.innerHTML = `
+                        <h4 class="text-center">${predictionDate.toLocaleDateString()} at ${predictionDate.toLocaleTimeString()}</h4>
+                        <p class="text-center">Confidence: ${confidence}%</p>
+                    `;
+                } else {
+                    container.innerHTML = '<p class="text-center">No prediction available yet.</p>';
+                }
+            })
+            .catch(error => {
+                const container = document.getElementById('nextStormPrediction');
+                container.innerHTML = '<p class="text-center">No prediction available yet.</p>';
+                console.error('Error loading next storm prediction:', error);
+            });
+    }
+    
+    function loadWeatherChart() {
+        fetch('/api/weather_history?hours=24')
+            .then(response => response.json())
+            .then(data => {
+                if (data.length === 0) {
+                    document.getElementById('weatherChart').getContext('2d').clearRect(0, 0, document.getElementById('weatherChart').width, document.getElementById('weatherChart').height);
+                    if (weatherChart) weatherChart.destroy();
+                    return;
+                }
+                
+                const ctx = document.getElementById('weatherChart').getContext('2d');
+                
+                const openweatherData = data.filter(d => d.source === 'openweather');
+                const visualcrossingData = data.filter(d => d.source === 'visual_crossing');
+                const tomorrowioData = data.filter(d => d.source === 'tomorrow_io');
+                
+                if (weatherChart) {
+                    weatherChart.destroy();
+                }
+                
+                weatherChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        datasets: [
+                            {
+                                label: 'Temperature (°C) - OpenWeather',
+                                data: openweatherData.map(d => ({ x: new Date(d.timestamp), y: d.temperature })),
+                                borderColor: 'rgba(255, 99, 132, 1)',
+                                backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                                tension: 0.3,
+                                fill: false,
+                                yAxisID: 'y-temp'
+                            },
+                            {
+                                label: 'Temperature (°C) - Visual Crossing',
+                                data: visualcrossingData.map(d => ({ x: new Date(d.timestamp), y: d.temperature })),
+                                borderColor: 'rgba(54, 162, 235, 1)',
+                                backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                                tension: 0.3,
+                                fill: false,
+                                yAxisID: 'y-temp'
+                            },
+                            {
+                                label: 'Temperature (°C) - Tomorrow.io',
+                                data: tomorrowioData.map(d => ({ x: new Date(d.timestamp), y: d.temperature })),
+                                borderColor: 'rgba(255, 206, 86, 1)',
+                                backgroundColor: 'rgba(255, 206, 86, 0.2)',
+                                tension: 0.3,
+                                fill: false,
+                                yAxisID: 'y-temp'
+                            },
+                            {
+                                label: 'Wind Speed (m/s) - OpenWeather',
+                                data: openweatherData.map(d => ({ x: new Date(d.timestamp), y: d.wind_speed })),
+                                borderColor: 'rgba(75, 192, 192, 1)',
+                                backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                                tension: 0.3,
+                                fill: false,
+                                yAxisID: 'y-wind'
+                            },
+                            {
+                                label: 'Humidity (%) - OpenWeather',
+                                data: openweatherData.map(d => ({ x: new Date(d.timestamp), y: d.humidity })),
+                                borderColor: 'rgba(153, 102, 255, 1)',
+                                backgroundColor: 'rgba(153, 102, 255, 0.2)',
+                                tension: 0.3,
+                                fill: false,
+                                yAxisID: 'y-humidity'
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: {
+                            mode: 'index',
+                            intersect: false,
+                        },
+                        scales: {
+                            x: {
+                                type: 'time',
+                                time: {
+                                    unit: 'hour',
+                                    displayFormats: {
+                                        hour: 'HH:mm'
+                                    }
+                                },
+                                title: {
+                                    display: true,
+                                    text: 'Time'
+                                }
+                            },
+                            'y-temp': {
+                                type: 'linear',
+                                display: true,
+                                position: 'left',
+                                title: {
+                                    display: true,
+                                    text: 'Temperature (°C)'
+                                },
+                                grid: {
+                                    drawOnChartArea: true,
+                                },
+                            },
+                            'y-wind': {
+                                type: 'linear',
+                                display: true,
+                                position: 'right',
+                                title: {
+                                    display: true,
+                                    text: 'Wind Speed (m/s)'
+                                },
+                                grid: {
+                                    drawOnChartArea: false,
+                                },
+                                // Offset this axis slightly if it overlaps with y-humidity
+                                // offset: true 
+                            },
+                            'y-humidity': {
+                                type: 'linear',
+                                display: true,
+                                position: 'right',
+                                title: {
+                                    display: true,
+                                    text: 'Humidity (%)'
+                                },
+                                grid: {
+                                    drawOnChartArea: false,
+                                },
+                                // Ensure this axis is distinct from y-wind if both are on the right
+                                // You might need to adjust `offset` or `position` more carefully
+                                // For now, let's assume they won't overlap too badly or one will be primary
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                position: 'bottom'
+                            },
+                            zoom: {
+                                zoom: {
+                                    wheel: {
+                                        enabled: true,
+                                    },
+                                    pinch: {
+                                        enabled: true
+                                    },
+                                    mode: 'x',
+                                },
+                                pan: {
+                                    enabled: true,
+                                    mode: 'x',
+                                }
+                            }
+                        }
+                    }
+                });
+            })
+            .catch(error => {
+                console.error('Error loading weather chart:', error);
+                document.getElementById('weatherChart').getContext('2d').clearRect(0, 0, document.getElementById('weatherChart').width, document.getElementById('weatherChart').height);
+                if (weatherChart) weatherChart.destroy();
+            });
+    }
+    
+    function loadApiUsageStats() {
+        fetch('/api/api_usage_stats')
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('apiUsageStats');
+                let html = '<ul class="list-group list-group-flush">';
+                
+                html += '<li class="list-group-item list-group-item-info"><strong>24h API volání:</strong></li>';
+                if (data.usage_24h && Object.keys(data.usage_24h).length > 0) {
+                    Object.entries(data.usage_24h).forEach(([source, count]) => {
+                        html += `<li class="list-group-item d-flex justify-content-between align-items-center">
+                            ${source}
+                            <span class="badge bg-primary rounded-pill">${count}</span>
+                        </li>`;
+                    });
+                } else {
+                    html += '<li class="list-group-item">Žádná data za posledních 24h</li>';
+                }
+                
+                html += '</ul>';
+                container.innerHTML = html;
+            })
+            .catch(error => {
+                document.getElementById('apiUsageStats').innerHTML = '<p class="text-center text-danger">Error loading API usage data</p>';
+                console.error('Error:', error);
+            });
+    }
+    
+    function loadWeatherAverages() {
+        fetch('/api/weather_averages')
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('weatherAverages');
+                
+                if (data.source_count > 0) {
+                    container.innerHTML = `
+                        <ul class="list-group list-group-flush">
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Průměr teplota
+                                <span class="badge rounded-pill ${getSeverityClass(data.temperature, 'temperature')}">${data.temperature?.toFixed(1) || 'N/A'}°C</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Průměr vlhkost
+                                <span class="badge rounded-pill ${getSeverityClass(data.humidity, 'humidity')}">${data.humidity?.toFixed(0) || 'N/A'}%</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Průměr tlak
+                                <span class="badge rounded-pill ${getSeverityClass(data.pressure, 'pressure')}">${data.pressure?.toFixed(0) || 'N/A'} hPa</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Průměr vítr
+                                <span class="badge rounded-pill ${getSeverityClass(data.wind_speed, 'wind_speed')}">${data.wind_speed?.toFixed(1) || 'N/A'} m/s</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Srážky pravděp.
+                                <span class="badge rounded-pill ${getSeverityClass(data.precipitation_probability, 'precipitation_probability')}">${data.precipitation_probability?.toFixed(0) || 'N/A'}%</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                API zdrojů
+                                <span class="badge bg-secondary rounded-pill">${data.source_count}</span>
+                            </li>
+                        </ul>
+                    `;
+                } else {
+                    container.innerHTML = '<p class="text-center">Žádná aktuální data k dispozici</p>';
+                }
+            })
+            .catch(error => {
+                document.getElementById('weatherAverages').innerHTML = '<p class="text-center text-danger">Error loading average data</p>';
+                console.error('Error:', error);
+            });
+    }
+    
+    function loadChmiWarnings() {
+        fetch('/api/chmi_warnings')
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('chmiWarnings');
+                
+                if (data.warnings && data.warnings.length > 0) {
+                    let html = `<div class="row">
+                        <div class="col-md-12 mb-3">
+                            <div class="alert alert-info mb-0">
+                                <h6 class="mb-1"><strong>📊 Souhrn varování</strong></h6>
+                                Celkem aktivních varování: <strong>${data.total_warnings}</strong>
+                                ${data.storm_warnings > 0 ? `&nbsp;•&nbsp;<span class="text-danger">Bouřková varování: <strong>${data.storm_warnings}</strong></span>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">`;
+                    
+                    data.warnings.forEach((warning, index) => {
+                        // Map ČHMÚ colors to Bootstrap alert classes and icons
+                        let alertClass = 'alert-info';
+                        let severityIcon = 'ℹ️';
+                        switch (warning.color) {
+                            case 'green': 
+                                alertClass = 'alert-success'; 
+                                severityIcon = '🟢';
+                                break;
+                            case 'yellow': 
+                                alertClass = 'alert-warning'; 
+                                severityIcon = '🟡';
+                                break;
+                            case 'orange': 
+                                alertClass = 'alert-danger'; 
+                                severityIcon = '🟠';
+                                break;
+                            case 'red': 
+                                alertClass = 'alert-danger'; 
+                                severityIcon = '🔴';
+                                break;
+                        }
+
+                        const startTime = warning.time_start ? new Date(warning.time_start).toLocaleString('cs-CZ', {
+                            day: '2-digit', 
+                            month: '2-digit', 
+                            hour: '2-digit', 
+                            minute: '2-digit'
+                        }) : 'Neuvedeno';
+                        const endTime = warning.time_end ? new Date(warning.time_end).toLocaleString('cs-CZ', {
+                            day: '2-digit', 
+                            month: '2-digit', 
+                            hour: '2-digit', 
+                            minute: '2-digit'
+                        }) : 'Neuvedeno';
+                        
+                        // Use responsive column sizing
+                        const colClass = data.warnings.length === 1 ? 'col-12' : 
+                                        data.warnings.length === 2 ? 'col-md-6' : 'col-lg-4 col-md-6';
+                        
+                        html += `<div class="${colClass} mb-3">
+                            <div class="alert ${alertClass} h-100 mb-0">
+                                <h6 class="alert-heading">
+                                    ${severityIcon} ${warning.event}
+                                    <span class="badge bg-secondary float-end">${warning.color.toUpperCase()}</span>
+                                </h6>
+                                <p class="mb-2">${warning.description || 'Bez detailního popisu'}</p>
+                                <hr class="my-2">
+                                <small>
+                                    <strong>Od:</strong> ${startTime}<br>
+                                    <strong>Do:</strong> ${endTime}
+                                </small>
+                            </div>
+                        </div>`;
+                    });
+                    
+                    html += '</div>';
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = `<div class="alert alert-success mb-0">
+                        <h6 class="mb-2"><strong>✅ Bez aktivních varování</strong></h6>
+                        <p class="mb-0">Žádná meteorologická varování nejsou momentálně vydána pro oblast Brno.</p>
+                    </div>`;
+                }
+            })
+            .catch(error => {
+                document.getElementById('chmiWarnings').innerHTML = '<div class="alert alert-danger mb-0"><strong>❌ Chyba při načítání varování</strong><br>Nepodařilo se načíst data z ČHMÚ.</div>';
+                console.error('Error:', error);
+            });
+    }
+
+    const metricConfigs = {
+        temperature: { label: 'Temperature (°C)', unit: '°C', color: 'rgba(255, 99, 132, 1)' },
+        humidity: { label: 'Humidity (%)', unit: '%', color: 'rgba(54, 162, 235, 1)' },
+        pressure: { label: 'Pressure (hPa)', unit: 'hPa', color: 'rgba(75, 192, 192, 1)' },
+        wind_speed: { label: 'Wind Speed (m/s)', unit: 'm/s', color: 'rgba(153, 102, 255, 1)' },
+        precipitation: { label: 'Precipitation (mm)', unit: 'mm', color: 'rgba(255, 159, 64, 1)' },
+        precipitation_probability: { label: 'Precipitation Probability (%)', unit: '%', color: 'rgba(201, 203, 207, 1)' }
+    };
+
+    function loadAllHistoryCharts() {
+        const timeline = document.getElementById('historyTimeline').value;
+
+        fetch(`/api/weather_history?hours=${timeline}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.length === 0) {
+                    // Clear all history charts if no data
+                    Object.keys(metricConfigs).forEach(metric => {
+                        const ctx = document.getElementById(`historyChart${metric.charAt(0).toUpperCase() + metric.slice(1)}`).getContext('2d');
+                        if (historyCharts[metric]) {
+                            historyCharts[metric].destroy();
+                            delete historyCharts[metric];
+                        }
+                        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                    });
+                    return;
+                }
+
+                Object.keys(metricConfigs).forEach(metric => {
+                    const config = metricConfigs[metric];
+                    const canvasId = `historyChart${metric.charAt(0).toUpperCase() + metric.slice(1)}`;
+                    const ctx = document.getElementById(canvasId).getContext('2d');
+
+                    if (historyCharts[metric]) {
+                        historyCharts[metric].destroy();
+                    }
+
+                    const datasets = [
+                        {
+                            label: `${config.label} - OpenWeather`,
+                            data: data.filter(d => d.source === 'openweather').map(d => ({ x: new Date(d.timestamp), y: d[metric] })),
+                            borderColor: config.color,
+                            backgroundColor: config.color.replace('1)', '0.2)'),
+                            tension: 0.3,
+                            fill: false,
+                        },
+                        {
+                            label: `${config.label} - Visual Crossing`,
+                            data: data.filter(d => d.source === 'visual_crossing').map(d => ({ x: new Date(d.timestamp), y: d[metric] })),
+                            borderColor: config.color,
+                            backgroundColor: config.color.replace('1)', '0.2)'),
+                            tension: 0.3,
+                            fill: false,
+                        },
+                        {
+                            label: `${config.label} - Tomorrow.io`,
+                            data: data.filter(d => d.source === 'tomorrow_io').map(d => ({ x: new Date(d.timestamp), y: d[metric] })),
+                            borderColor: config.color,
+                            backgroundColor: config.color.replace('1)', '0.2)'),
+                            tension: 0.3,
+                            fill: false,
+                        }
+                    ];
+
+                    historyCharts[metric] = new Chart(ctx, {
+                        type: 'line',
+                        data: { datasets: datasets },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            interaction: {
+                                mode: 'index',
+                                intersect: false,
+                            },
+                            scales: {
+                                x: {
+                                    type: 'time',
+                                    time: {
+                                        unit: 'hour',
+                                        displayFormats: {
+                                            hour: 'HH:mm'
+                                        }
+                                    },
+                                    title: {
+                                        display: true,
+                                        text: 'Time'
+                                    }
+                                },
+                                y: {
+                                    title: {
+                                        display: true,
+                                        text: `${config.label}`
+                                    }
+                                }
+                            },
+                            plugins: {
+                                legend: {
+                                    position: 'bottom'
+                                }
+                            }
+                        }
+                    });
+                });
+
+                loadCombinedHistoryChart(data);
+                loadHistoryChartWindPrecipitation(data);
+                loadHistoryChartPrecipitationProbabilityCombined(data);
+            })
+            .catch(error => {
+                console.error('Error loading history charts:', error);
+            });
+    }
+
+    function loadCombinedHistoryChart(data) {
+        const ctx = document.getElementById('historyChartCombined').getContext('2d');
+
+        if (historyCharts.combined) {
+            historyCharts.combined.destroy();
+        }
+
+        const openweatherData = data.filter(d => d.source === 'openweather');
+        const visualcrossingData = data.filter(d => d.source === 'visual_crossing');
+        const tomorrowioData = data.filter(d => d.source === 'tomorrow_io');
+
+        historyCharts.combined = new Chart(ctx, {
+            type: 'line',
+            data: {
+                datasets: [
+                    {
+                        label: 'Temperature (°C) - OpenWeather',
+                        data: openweatherData.map(d => ({ x: new Date(d.timestamp), y: d.temperature })),
+                        borderColor: 'rgba(255, 99, 132, 1)',
+                        backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                        tension: 0.3,
+                        fill: false,
+                        yAxisID: 'y-temp'
+                    },
+                    {
+                        label: 'Humidity (%) - OpenWeather',
+                        data: openweatherData.map(d => ({ x: new Date(d.timestamp), y: d.humidity })),
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                        tension: 0.3,
+                        fill: false,
+                        yAxisID: 'y-humidity'
+                    },
+                    {
+                        label: 'Pressure (hPa) - OpenWeather',
+                        data: openweatherData.map(d => ({ x: new Date(d.timestamp), y: d.pressure })),
+                        borderColor: 'rgba(75, 192, 192, 1)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                        tension: 0.3,
+                        fill: false,
+                        yAxisID: 'y-pressure'
+                    },
+                    {
+                        label: 'Temperature (°C) - Visual Crossing',
+                        data: visualcrossingData.map(d => ({ x: new Date(d.timestamp), y: d.temperature })),
+                        borderColor: 'rgba(255, 99, 132, 0.7)',
+                        backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                        tension: 0.3,
+                        fill: false,
+                        yAxisID: 'y-temp'
+                    },
+                    {
+                        label: 'Humidity (%) - Visual Crossing',
+                        data: visualcrossingData.map(d => ({ x: new Date(d.timestamp), y: d.humidity })),
+                        borderColor: 'rgba(54, 162, 235, 0.7)',
+                        backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                        tension: 0.3,
+                        fill: false,
+                        yAxisID: 'y-humidity'
+                    },
+                    {
+                        label: 'Pressure (hPa) - Visual Crossing',
+                        data: visualcrossingData.map(d => ({ x: new Date(d.timestamp), y: d.pressure })),
+                        borderColor: 'rgba(75, 192, 192, 0.7)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                        tension: 0.3,
+                        fill: false,
+                        yAxisID: 'y-pressure'
+                    },
+                    {
+                        label: 'Temperature (°C) - Tomorrow.io',
+                        data: tomorrowioData.map(d => ({ x: new Date(d.timestamp), y: d.temperature })),
+                        borderColor: 'rgba(255, 99, 132, 0.4)',
+                        backgroundColor: 'rgba(255, 99, 132, 0.05)',
+                        tension: 0.3,
+                        fill: false,
+                        yAxisID: 'y-temp'
+                    },
+                    {
+                        label: 'Humidity (%) - Tomorrow.io',
+                        data: tomorrowioData.map(d => ({ x: new Date(d.timestamp), y: d.humidity })),
+                        borderColor: 'rgba(54, 162, 235, 0.4)',
+                        backgroundColor: 'rgba(54, 162, 235, 0.05)',
+                        tension: 0.3,
+                        fill: false,
+                        yAxisID: 'y-humidity'
+                    },
+                    {
+                        label: 'Pressure (hPa) - Tomorrow.io',
+                        data: tomorrowioData.map(d => ({ x: new Date(d.timestamp), y: d.pressure })),
+                        borderColor: 'rgba(75, 192, 192, 0.4)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.05)',
+                        tension: 0.3,
+                        fill: false,
+                        yAxisID: 'y-pressure'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: {
+                            unit: 'hour',
+                            displayFormats: {
+                                hour: 'HH:mm'
+                            }
+                        },
+                        title: {
+                            display: true,
+                            text: 'Time'
+                        }
+                    },
+                    'y-temp': {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        title: {
+                            display: true,
+                            text: 'Temperature (°C)'
+                        },
+                        grid: {
+                            drawOnChartArea: true,
+                        },
+                    },
+                    'y-humidity': {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        title: {
+                            display: true,
+                            text: 'Humidity (%)'
+                        },
+                        grid: {
+                            drawOnChartArea: false,
+                        },
+                    },
+                    'y-pressure': {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        title: {
+                            display: true,
+                            text: 'Pressure (hPa)'
+                        },
+                        grid: {
+                            drawOnChartArea: false,
+                        },
+                        // Offset this axis slightly if it overlaps with y-humidity
+                        offset: true
+                    }
+                },
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                }
+            }
+        });
+    }
+
+    function loadHistoryChartWindPrecipitation(data) {
+        const ctx = document.getElementById('historyChartWindPrecipitation').getContext('2d');
+
+        if (historyCharts.windPrecipitation) {
+            historyCharts.windPrecipitation.destroy();
+        }
+
+        const openweatherData = data.filter(d => d.source === 'openweather');
+        const visualcrossingData = data.filter(d => d.source === 'visual_crossing');
+        const tomorrowioData = data.filter(d => d.source === 'tomorrow_io');
+
+        historyCharts.windPrecipitation = new Chart(ctx, {
+            type: 'line',
+            data: {
+                datasets: [
+                    {
+                        label: 'Wind Speed (m/s) - OpenWeather',
+                        data: openweatherData.map(d => ({ x: new Date(d.timestamp), y: d.wind_speed })),
+                        borderColor: 'rgba(255, 159, 64, 1)',
+                        backgroundColor: 'rgba(255, 159, 64, 0.2)',
+                        tension: 0.3,
+                        fill: false,
+                        yAxisID: 'y-wind'
+                    },
+                    {
+                        label: 'Precipitation (mm) - OpenWeather',
+                        data: openweatherData.map(d => ({ x: new Date(d.timestamp), y: d.precipitation })),
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                        tension: 0.3,
+                        fill: false,
+                        yAxisID: 'y-precipitation'
+                    },
+                    {
+                        label: 'Wind Speed (m/s) - Visual Crossing',
+                        data: visualcrossingData.map(d => ({ x: new Date(d.timestamp), y: d.wind_speed })),
+                        borderColor: 'rgba(255, 159, 64, 0.7)',
+                        backgroundColor: 'rgba(255, 159, 64, 0.1)',
+                        tension: 0.3,
+                        fill: false,
+                        yAxisID: 'y-wind'
+                    },
+                    {
+                        label: 'Precipitation (mm) - Visual Crossing',
+                        data: visualcrossingData.map(d => ({ x: new Date(d.timestamp), y: d.precipitation })),
+                        borderColor: 'rgba(54, 162, 235, 0.7)',
+                        backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                        tension: 0.3,
+                        fill: false,
+                        yAxisID: 'y-precipitation'
+                    },
+                    {
+                        label: 'Wind Speed (m/s) - Tomorrow.io',
+                        data: tomorrowioData.map(d => ({ x: new Date(d.timestamp), y: d.wind_speed })),
+                        borderColor: 'rgba(255, 159, 64, 0.4)',
+                        backgroundColor: 'rgba(255, 159, 64, 0.05)',
+                        tension: 0.3,
+                        fill: false,
+                        yAxisID: 'y-wind'
+                    },
+                    {
+                        label: 'Precipitation (mm) - Tomorrow.io',
+                        data: tomorrowioData.map(d => ({ x: new Date(d.timestamp), y: d.precipitation })),
+                        borderColor: 'rgba(54, 162, 235, 0.4)',
+                        backgroundColor: 'rgba(54, 162, 235, 0.05)',
+                        tension: 0.3,
+                        fill: false,
+                        yAxisID: 'y-precipitation'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: {
+                            unit: 'hour',
+                            displayFormats: {
+                                hour: 'HH:mm'
+                            }
+                        },
+                        title: {
+                            display: true,
+                            text: 'Time'
+                        }
+                    },
+                    'y-wind': {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        title: {
+                            display: true,
+                            text: 'Wind Speed (m/s)'
+                        },
+                        grid: {
+                            drawOnChartArea: true,
+                        },
+                    },
+                    'y-precipitation': {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        title: {
+                            display: true,
+                            text: 'Precipitation (mm)'
+                        },
+                        grid: {
+                            drawOnChartArea: false,
+                        },
+                        offset: true
+                    }
+                },
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                }
+            }
+        });
+    }
+
+    function loadHistoryChartPrecipitationProbabilityCombined(data) {
+        const ctx = document.getElementById('historyChartPrecipitationProbabilityCombined').getContext('2d');
+
+        if (historyCharts.precipitationProbabilityCombined) {
+            historyCharts.precipitationProbabilityCombined.destroy();
+        }
+
+        const openweatherData = data.filter(d => d.source === 'openweather');
+        const visualcrossingData = data.filter(d => d.source === 'visual_crossing');
+        const tomorrowioData = data.filter(d => d.source === 'tomorrow_io');
+
+        historyCharts.precipitationProbabilityCombined = new Chart(ctx, {
+            type: 'line',
+            data: {
+                datasets: [
+                    {
+                        label: 'Precipitation (mm) - OpenWeather',
+                        data: openweatherData.map(d => ({ x: new Date(d.timestamp), y: d.precipitation })),
+                        borderColor: 'rgba(255, 99, 132, 1)',
+                        backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                        tension: 0.3,
+                        fill: false,
+                        yAxisID: 'y-precipitation'
+                    },
+                    {
+                        label: 'Precipitation Probability (%) - OpenWeather',
+                        data: openweatherData.map(d => ({ x: new Date(d.timestamp), y: d.precipitation_probability })),
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                        tension: 0.3,
+                        fill: false,
+                        yAxisID: 'y-precipitation-probability'
+                    },
+                    {
+                        label: 'Precipitation (mm) - Visual Crossing',
+                        data: visualcrossingData.map(d => ({ x: new Date(d.timestamp), y: d.precipitation })),
+                        borderColor: 'rgba(255, 99, 132, 0.7)',
+                        backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                        tension: 0.3,
+                        fill: false,
+                        yAxisID: 'y-precipitation'
+                    },
+                    {
+                        label: 'Precipitation Probability (%) - Visual Crossing',
+                        data: visualcrossingData.map(d => ({ x: new Date(d.timestamp), y: d.precipitation_probability })),
+                        borderColor: 'rgba(54, 162, 235, 0.7)',
+                        backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                        tension: 0.3,
+                        fill: false,
+                        yAxisID: 'y-precipitation-probability'
+                    },
+                    {
+                        label: 'Precipitation (mm) - Tomorrow.io',
+                        data: tomorrowioData.map(d => ({ x: new Date(d.timestamp), y: d.precipitation })),
+                        borderColor: 'rgba(255, 99, 132, 0.4)',
+                        backgroundColor: 'rgba(255, 99, 132, 0.05)',
+                        tension: 0.3,
+                        fill: false,
+                        yAxisID: 'y-precipitation'
+                    },
+                    {
+                        label: 'Precipitation Probability (%) - Tomorrow.io',
+                        data: tomorrowioData.map(d => ({ x: new Date(d.timestamp), y: d.precipitation_probability })),
+                        borderColor: 'rgba(54, 162, 235, 0.4)',
+                        backgroundColor: 'rgba(54, 162, 235, 0.05)',
+                        tension: 0.3,
+                        fill: false,
+                        yAxisID: 'y-precipitation-probability'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: {
+                            unit: 'hour',
+                            displayFormats: {
+                                hour: 'HH:mm'
+                            }
+                        },
+                        title: {
+                            display: true,
+                            text: 'Time'
+                        }
+                    },
+                    'y-precipitation': {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        title: {
+                            display: true,
+                            text: 'Precipitation (mm)'
+                        },
+                        grid: {
+                            drawOnChartArea: true,
+                        },
+                    },
+                    'y-precipitation-probability': {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        title: {
+                            display: true,
+                            text: 'Precipitation Probability (%)'
+                        },
+                        grid: {
+                            drawOnChartArea: false,
+                        },
+                        offset: true
+                    }
+                },
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                }
+            }
+        });
+    }
+
+    function urlBase64ToUint8Array(base64String) {
+        const padding = '='.repeat((4 - base64String.length % 4) % 4);
+        const base64 = (base64String + padding)
+            .replace(/\-/g, '+')
+            .replace(/_/g, '/');
+
+        const rawData = window.atob(base64);
+        const outputArray = new Uint8Array(rawData.length);
+
+        for (let i = 0; i < rawData.length; ++i) {
+            outputArray[i] = rawData.charCodeAt(i);
+        }
+        return outputArray;
+    }
+
+    document.getElementById('enableNotifications').addEventListener('click', () => {
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js').then(registration => {
+                console.log('Service Worker registered with scope:', registration.scope);
+                Notification.requestPermission().then(permission => {
+                    if (permission === 'granted') {
+                        console.log('Notification permission granted.');
+                        fetch('/api/vapid_public_key')
+                            .then(response => response.json())
+                            .then(data => {
+                                const vapidPublicKey = data.public_key;
+                                const convertedVapidKey = urlBase64ToUint8Array(vapidPublicKey);
+
+                                registration.pushManager.subscribe({
+                                    userVisibleOnly: true,
+                                    applicationServerKey: convertedVapidKey
+                                }).then(subscription => {
+                                    fetch('/api/subscribe', {
+                                        method: 'POST',
+                                        body: JSON.stringify(subscription),
+                                        headers: {
+                                            'Content-Type': 'application/json'
+                                        }
+                                    });
+                                });
+                            });
+                    }
+                });
+            });
+        }
+    });
+</script>
+
+<!-- Enhanced Forecast JavaScript -->
+<script src="{{ url_for('static', filename='enhanced_forecast.js') }}"></script>
+
+{% endblock %}
