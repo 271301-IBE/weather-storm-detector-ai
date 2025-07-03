@@ -157,7 +157,7 @@ class EnhancedForecastManager {
         const tableBodyId = `${method}ForecastBody`;
         const tableBody = document.getElementById(tableBodyId);
         
-        if (!forecastData || !forecastData.forecast_data) {
+                if (!forecastData || !forecastData.forecast_data || forecastData.forecast_data.length === 0) {
             tableBody.innerHTML = '<tr><td colspan="9" class="text-center text-muted">No forecast data available</td></tr>';
             return;
         }
@@ -219,12 +219,12 @@ class EnhancedForecastManager {
     
     updateHeaderInfo() {
         // Determine best forecast to show in header
-        let bestForecast = this.forecastData.ensemble || this.forecastData.ai || this.forecastData.physics;
+                let bestForecast = this.forecastData.ensemble || this.forecastData.ai || this.forecastData.physics;
         
-        if (bestForecast) {
-            const method = bestForecast.primary_method || 'unknown';
-            const confidence = bestForecast.method_confidences ? 
-                Object.values(bestForecast.method_confidences)[0] * 100 : 0;
+        if (bestForecast && bestForecast.metadata) {
+            const method = bestForecast.metadata.primary_method || 'unknown';
+            const confidence = bestForecast.metadata.confidence ? 
+                bestForecast.metadata.confidence * 100 : 0;
             
             // Update method badge
             const methodBadge = document.getElementById('forecastMethod');
@@ -272,9 +272,9 @@ class EnhancedForecastManager {
     }
     
     generateEnsembleDetails(data) {
-        if (!data) return '<small class="text-danger">Ensemble forecast not available</small>';
+                if (!data || !data.metadata) return '<small class="text-danger">Ensemble forecast not available</small>';
         
-        const weights = data.ensemble_weight || {};
+        const weights = data.metadata.ensemble_weights || {};
         let html = `
             <small>
                 <strong>🎯 Ensemble Method:</strong><br>
@@ -287,7 +287,7 @@ class EnhancedForecastManager {
         });
         
         html += `
-                <span class="text-muted">Data sources: ${data.data_sources ? data.data_sources.length : 0}</span>
+                                <span class="text-muted">Data sources: ${data.metadata.data_sources ? data.metadata.data_sources.length : 0}</span>
             </small>
         `;
         
@@ -305,7 +305,7 @@ class EnhancedForecastManager {
                 • Temperature: 0.1 (precise)<br>
                 • Considers: atmospheric patterns, historical data<br>
                 • Update frequency: Every 30 minutes<br>
-                <span class="text-muted">Data sources: ${data.data_sources ? data.data_sources.length : 0}</span>
+                                <span class="text-muted">Data sources: ${data.metadata.data_sources ? data.metadata.data_sources.length : 0}</span>
             </small>
         `;
     }
@@ -321,7 +321,7 @@ class EnhancedForecastManager {
                 • Diurnal temperature cycles<br>
                 • Polynomial trend fitting<br>
                 • Clausius-Clapeyron relations<br>
-                <span class="text-muted">Data sources: ${data.data_sources ? data.data_sources.length : 0}</span>
+                                <span class="text-muted">Data sources: ${data.metadata.data_sources ? data.metadata.data_sources.length : 0}</span>
             </small>
         `;
     }
