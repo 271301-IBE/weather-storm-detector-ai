@@ -593,6 +593,12 @@ class WeatherDatabase:
     
     
                 
+                def store_enhanced_forecast(self, forecast, method: str) -> bool:
+        """Store enhanced forecast with method tracking."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
                 forecast_dict = forecast.to_dict()
                 
                 cursor.execute("""
