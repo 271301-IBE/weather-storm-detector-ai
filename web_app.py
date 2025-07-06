@@ -311,13 +311,14 @@ def api_recent_analysis():
 @app.route('/api/weather_history')
 @login_required
 def api_weather_history():
-    """Get weather history for charts."""
+    """Get weather history for charts with CHMI alerts."""
     try:
         hours = request.args.get('hours', 72, type=int)
         
         conn = get_db_connection()
         cursor = conn.cursor()
         
+        # Get weather data
         cursor.execute("""
             SELECT timestamp, temperature, humidity, pressure, wind_speed, precipitation, source
             FROM weather_data 
@@ -334,11 +335,186 @@ def api_weather_history():
             data['timestamp'] = datetime.fromisoformat(data['timestamp']).timestamp() * 1000
             history_data.append(data)
         
+        # Get CHMI warnings/alerts for the same period
+        try:
+            from chmi_warnings import ChmiWarningMonitor
+            chmi_monitor = ChmiWarningMonitor(config)
+            warnings = chmi_monitor.get_all_warnings_for_period(hours=hours)
+            
+            chmi_alerts = []
+            for warning in warnings:
+                # Ensure description_text exists
+                description = getattr(warning, 'description_text', None) or getattr(warning, 'detailed_text', '')
+                
+                alert_data = {
+                    'id': warning.identifier,
+                    'event': warning.event,
+                    'color': warning.color,
+                    'start_time': warning.time_start_iso,
+                    'end_time': warning.time_end_iso,
+                    'description': description,
+                    'urgency': warning.urgency
+                }
+                if warning.time_start_iso:
+                    try:
+                        start_dt = datetime.fromisoformat(warning.time_start_iso.replace('Z', '+00:00'))
+                        alert_data['start_timestamp'] = start_dt.timestamp() * 1000
+                    except:
+                        pass
+                if warning.time_end_iso:
+                    try:
+                        end_dt = datetime.fromisoformat(warning.time_end_iso.replace('Z', '+00:00'))
+                        alert_data['end_timestamp'] = end_dt.timestamp() * 1000
+                    except:
+                        pass
+                chmi_alerts.append(alert_data)
+                
+        except Exception as e:
+            logger.warning(f"Could not fetch CHMI alerts: {e}")
+            chmi_alerts = []
+        
         conn.close()
-        return jsonify(history_data)
+        return jsonify({
+            'weather_data': history_data,
+            'chmi_alerts': chmi_alerts
+        })
         
     except Exception as e:
         logger.error(f"Error fetching weather history: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/storm_event', methods=['POST'])
+@login_required
+def api_storm_event():
+    """Log a user-reported storm event for machine learning."""
+    try:
+        data = request.json
+        event_type = data.get('type', 'storm_now')  # 'storm_now', 'rain_now', 'no_storm'
+        user_timestamp = datetime.now().isoformat()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Create table if it doesn't exist
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_storm_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                weather_data_json TEXT,
+                chmi_warnings_json TEXT,
+                ai_confidence REAL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Get current weather data
+        cursor.execute("""
+            SELECT temperature, humidity, pressure, wind_speed, precipitation, 
+                   precipitation_probability, condition, description
+            FROM weather_data 
+            ORDER BY timestamp DESC 
+            LIMIT 3
+        """)
+        
+        weather_rows = cursor.fetchall()
+        weather_data = []
+        for row in weather_rows:
+            weather_data.append({
+                'temperature': row[0],
+                'humidity': row[1], 
+                'pressure': row[2],
+                'wind_speed': row[3],
+                'precipitation': row[4],
+                'precipitation_probability': row[5],
+                'condition': row[6],
+                'description': row[7]
+            })
+        
+        # Get current AI analysis confidence
+        cursor.execute("""
+            SELECT confidence_score FROM storm_analysis 
+            ORDER BY timestamp DESC 
+            LIMIT 1
+        """)
+        ai_row = cursor.fetchone()
+        ai_confidence = ai_row[0] if ai_row else None
+        
+        # Get current CHMI warnings
+        try:
+            from chmi_warnings import ChmiWarningMonitor
+            chmi_monitor = ChmiWarningMonitor(config)
+            warnings = chmi_monitor.get_storm_warnings()
+            chmi_data = [{
+                'event': w.event,
+                'color': w.color,
+                'description': w.description_text
+            } for w in warnings]
+        except:
+            chmi_data = []
+        
+        # Store the event
+        cursor.execute("""
+            INSERT INTO user_storm_events 
+            (timestamp, event_type, weather_data_json, chmi_warnings_json, ai_confidence)
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            user_timestamp,
+            event_type,
+            json.dumps(weather_data),
+            json.dumps(chmi_data),
+            ai_confidence
+        ))
+        
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"User reported storm event: {event_type} at {user_timestamp}")
+        return jsonify({'success': True, 'timestamp': user_timestamp})
+        
+    except Exception as e:
+        logger.error(f"Error logging storm event: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/storm_learning_data')
+@login_required
+def api_storm_learning_data():
+    """Get historical storm events for machine learning analysis."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT timestamp, event_type, weather_data_json, chmi_warnings_json, ai_confidence
+            FROM user_storm_events 
+            ORDER BY timestamp DESC 
+            LIMIT 100
+        """)
+        
+        rows = cursor.fetchall()
+        events = []
+        
+        for row in rows:
+            try:
+                weather_data = json.loads(row[2]) if row[2] else []
+                chmi_data = json.loads(row[3]) if row[3] else []
+            except:
+                weather_data = []
+                chmi_data = []
+                
+            events.append({
+                'timestamp': row[0],
+                'event_type': row[1],
+                'weather_data': weather_data,
+                'chmi_warnings': chmi_data,
+                'ai_confidence': row[4]
+            })
+        
+        conn.close()
+        return jsonify(events)
+        
+    except Exception as e:
+        logger.error(f"Error fetching learning data: {e}")
         return jsonify({'error': str(e)}), 500
 
 # Lightning Data APIs
@@ -910,33 +1086,68 @@ def api_enhanced_forecast():
     """Get enhanced forecast with multiple prediction methods."""
     try:
         logger.info("Enhanced forecast endpoint called")
-        from storage import WeatherDatabase
-        db = WeatherDatabase(config)
+        
+        # Direct database query to avoid deserialization issues
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Get latest forecasts for each method
+        forecasts = {}
+        for method in ['ensemble', 'physics', 'ai']:
+            cursor.execute("""
+                SELECT timestamp, forecast_data_json, confidence_data, metadata
+                FROM enhanced_forecasts
+                WHERE method = ?
+                ORDER BY timestamp DESC
+                LIMIT 1
+            """, (method,))
+            
+            row = cursor.fetchone()
+            if row:
+                try:
+                    forecast_data = json.loads(row[1])
+                    confidence_data = json.loads(row[2]) if row[2] else {}
+                    metadata = json.loads(row[3]) if row[3] else {}
+                    
+                    forecasts[method] = {
+                        'timestamp': row[0],
+                        'data': forecast_data.get('forecast_data', []),
+                        'confidence': confidence_data,
+                        'metadata': metadata
+                    }
+                except Exception as e:
+                    logger.warning(f"Error parsing {method} forecast: {e}")
+                    forecasts[method] = None
+            else:
+                forecasts[method] = None
+        
+        conn.close()
+        
+        # Get the best available forecast
+        latest_ensemble = forecasts.get('ensemble')
+        latest_physics = forecasts.get('physics') 
+        latest_ai = forecasts.get('ai')
 
-        latest_ensemble = db.get_latest_forecast_by_method('ensemble')
-        latest_physics = db.get_latest_forecast_by_method('physics')
-        latest_ai = db.get_latest_forecast_by_method('ai')
-
-        def format_forecast_data(forecast):
-            if not forecast or not forecast.forecast_data:
+        def format_forecast_data(forecast_dict):
+            if not forecast_dict or not forecast_dict.get('data'):
                 return []
             formatted = []
-            for i, item in enumerate(forecast.forecast_data):
+            for i, item in enumerate(forecast_dict['data']):
                 formatted.append({
                     'hour': i + 1,
-                    'timestamp': item.timestamp.isoformat(),
-                    'temperature': round(item.temperature, 1),
-                    'humidity': round(item.humidity, 0),
-                    'pressure': round(item.pressure, 0),
-                    'wind_speed': round(item.wind_speed, 1),
-                    'precipitation': round(item.precipitation, 1),
-                    'precipitation_probability': round(item.precipitation_probability * 100, 0) if item.precipitation_probability is not None else None,
-                    'condition': item.condition.value,
-                    'cloud_cover': round(item.cloud_cover, 1) if item.cloud_cover is not None else None,
-                    'visibility': round(item.visibility, 1) if item.visibility is not None else None,
-                    'description': item.description,
-                    'confidence': round(item.metadata.confidence * 100, 0) if item.metadata and item.metadata.confidence is not None else 0,
-                    'confidence_level': item.metadata.confidence_level.value if item.metadata and item.metadata.confidence_level else 'unknown'
+                    'timestamp': item.get('timestamp', ''),
+                    'temperature': round(float(item.get('temperature', 0)), 1),
+                    'humidity': round(float(item.get('humidity', 0)), 0),
+                    'pressure': round(float(item.get('pressure', 1013)), 0),
+                    'wind_speed': round(float(item.get('wind_speed', 0)), 1),
+                    'precipitation': round(float(item.get('precipitation', 0)), 1),
+                    'precipitation_probability': round(float(item.get('precipitation_probability', 0)), 0) if item.get('precipitation_probability') is not None else 0,
+                    'condition': item.get('condition', 'clear'),
+                    'cloud_cover': round(float(item.get('cloud_cover', 0)), 1),
+                    'visibility': round(float(item.get('visibility', 10)), 1),
+                    'description': item.get('description', ''),
+                    'confidence': round(float(item.get('metadata', {}).get('confidence', 0.5)) * 100, 0),
+                    'confidence_level': item.get('metadata', {}).get('confidence_level', 'unknown')
                 })
             return formatted
 
@@ -947,23 +1158,23 @@ def api_enhanced_forecast():
         result = {
             'ensemble': {
                 'forecast': ensemble_forecast,
-                'method': latest_ensemble.primary_method.value if latest_ensemble else 'N/A',
-                'confidence': round(latest_ensemble.method_confidences.get('ensemble', 0) * 100, 0) if latest_ensemble and latest_ensemble.method_confidences else 0,
-                'generated_at': latest_ensemble.timestamp.isoformat() if latest_ensemble else None,
+                'method': latest_ensemble.get('metadata', {}).get('primary_method', 'ensemble') if latest_ensemble else 'N/A',
+                'confidence': round(latest_ensemble.get('confidence', {}).get('ensemble', 0.5) * 100, 0) if latest_ensemble else 0,
+                'generated_at': latest_ensemble.get('timestamp') if latest_ensemble else None,
                 'data_points_used': len(ensemble_forecast)
             },
             'physics': {
                 'forecast': physics_forecast,
-                'method': latest_physics.primary_method.value if latest_physics else 'N/A',
-                'confidence': round(latest_physics.method_confidences.get('physics', 0) * 100, 0) if latest_physics and latest_physics.method_confidences else 0,
-                'generated_at': latest_physics.timestamp.isoformat() if latest_physics else None,
+                'method': latest_physics.get('metadata', {}).get('primary_method', 'physics') if latest_physics else 'N/A',
+                'confidence': round(latest_physics.get('confidence', {}).get('physics', 0.6) * 100, 0) if latest_physics else 0,
+                'generated_at': latest_physics.get('timestamp') if latest_physics else None,
                 'data_points_used': len(physics_forecast)
             },
             'ai': {
                 'forecast': ai_forecast,
-                'method': latest_ai.primary_method.value if latest_ai else 'N/A',
-                'confidence': round(latest_ai.method_confidences.get('ai', 0) * 100, 0) if latest_ai and latest_ai.method_confidences else 0,
-                'generated_at': latest_ai.timestamp.isoformat() if latest_ai else None,
+                'method': latest_ai.get('metadata', {}).get('primary_method', 'ai') if latest_ai else 'N/A',
+                'confidence': round(latest_ai.get('confidence', {}).get('ai', 0.7) * 100, 0) if latest_ai else 0,
+                'generated_at': latest_ai.get('timestamp') if latest_ai else None,
                 'data_points_used': len(ai_forecast)
             },
             'generated_at': datetime.now().isoformat(), # Overall generation time

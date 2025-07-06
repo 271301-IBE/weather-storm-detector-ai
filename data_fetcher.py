@@ -19,6 +19,8 @@ class WeatherDataFetcher:
         """Initialize fetcher with configuration."""
         self.config = config
         self.session: Optional[aiohttp.ClientSession] = None
+        self._response_cache = {}  # Simple response cache
+        self._cache_ttl = 300  # 5 minutes cache TTL
         
     async def __aenter__(self):
         """Async context manager entry."""
@@ -43,12 +45,27 @@ class WeatherDataFetcher:
             await self.session.close()
     
     async def _fetch_data(self, url: str, params: Dict[str, Any], source_name: str) -> Optional[Dict[str, Any]]:
-        """Generic data fetching method with retry logic."""
+        """Generic data fetching method with retry logic and caching."""
+        # Create cache key
+        cache_key = f"{source_name}_{hash(frozenset(params.items()))}"
+        
+        # Check cache first
+        if cache_key in self._response_cache:
+            cached_data, cached_time = self._response_cache[cache_key]
+            if (datetime.now() - cached_time).total_seconds() < self._cache_ttl:
+                logger.debug(f"Using cached data for {source_name}")
+                return cached_data
+        
         for attempt in range(self.config.weather.api_retry_attempts):
             try:
                 async with self.session.get(url, params=params) as response:
                     if response.status == 200:
-                        return await response.json()
+                        data = await response.json()
+                        # Cache the response
+                        self._response_cache[cache_key] = (data, datetime.now())
+                        # Clean old cache entries
+                        self._clean_cache()
+                        return data
                     else:
                         logger.error(f"{source_name} API error: {response.status}")
                         return None
@@ -231,6 +248,16 @@ class WeatherDataFetcher:
             description=f"Weather code: {weather_code}",
             raw_data=data
         )
+    
+    def _clean_cache(self):
+        """Clean expired cache entries."""
+        now = datetime.now()
+        expired_keys = [
+            key for key, (_, cached_time) in self._response_cache.items()
+            if (now - cached_time).total_seconds() > self._cache_ttl
+        ]
+        for key in expired_keys:
+            del self._response_cache[key]
     
     async def fetch_all_data(self) -> List[WeatherData]:
         """Fetch data from all available APIs concurrently."""

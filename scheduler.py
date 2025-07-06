@@ -12,6 +12,12 @@ from apscheduler.triggers.cron import CronTrigger
 import json
 import os
 
+# Import psutil for CPU monitoring
+try:
+    import psutil
+except ImportError:
+    psutil = None
+
 from config import Config, load_config
 from data_fetcher import WeatherDataCollector
 from ai_analysis import StormDetectionEngine, LocalForecastGenerator, DeepSeekPredictor, DeepSeekPredictor
@@ -47,6 +53,10 @@ class WeatherMonitoringScheduler:
         
         # Warning analysis cache to prevent duplicate AI analysis
         self._warning_analysis_cache = {}  # {warning_key: analysis_timestamp}
+        
+        # CPU monitoring
+        self._cpu_overload_count = 0
+        self._last_cpu_check = datetime.now()
         
         # Set up signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -282,49 +292,49 @@ class WeatherMonitoringScheduler:
         except Exception as e:
             logger.error(f"Error checking ČHMÚ warnings: {e}", exc_info=True)
     
-    async def chmi_warning_check(self):
-        """Check for new standalone ČHMÚ warnings (separate from storm alerts)."""
-        logger.info("Checking for standalone ČHMÚ warnings")
+    def _check_cpu_usage(self) -> bool:
+        """Check if system CPU usage is within acceptable limits."""
+        # If psutil is not available, always return True
+        if psutil is None:
+            return True
+            
+        current_time = datetime.now()
+        
+        # Check CPU usage every 30 seconds
+        if (current_time - self._last_cpu_check).total_seconds() < 30:
+            return True
+        
+        self._last_cpu_check = current_time
         
         try:
-            # Check for new warnings that aren't part of storm analysis
-            new_warnings = self.chmi_monitor.check_for_new_warnings()
+            cpu_usage = psutil.cpu_percent(interval=1)
             
-            if new_warnings:
-                logger.info(f"Found {len(new_warnings)} new ČHMÚ warning(s)")
+            if cpu_usage > self.config.system.max_cpu_usage_threshold:
+                self._cpu_overload_count += 1
+                logger.warning(f"High CPU usage detected: {cpu_usage:.1f}% (threshold: {self.config.system.max_cpu_usage_threshold}%)")
                 
-                # Only send standalone ČHMÚ email if no recent storm alert was sent
-                last_alert_time = self.database.get_last_storm_alert()
-                recent_storm_alert = (
-                    last_alert_time and 
-                    (datetime.now() - last_alert_time).total_seconds() < 3600  # Within last hour
-                )
-                
-                if not recent_storm_alert:
-                    # Send standalone ČHMÚ notification email
-                    notification = self.email_notifier.send_chmi_warning(new_warnings)
-                    
-                    if notification.sent_successfully:
-                        logger.warning(f"STANDALONE ČHMÚ WARNING EMAIL SENT: {len(new_warnings)} warning(s) for {self.config.weather.city_name}")
-                        
-                        # Log each warning
-                        for warning in new_warnings:
-                            logger.info(f"  - {warning.event} ({warning.color}) - {warning.time_start_text}")
-                    else:
-                        logger.error(f"Failed to send ČHMÚ warning email: {notification.error_message}")
-                else:
-                    logger.info("New ČHMÚ warnings detected but recent storm alert already sent - skipping standalone email")
+                # Skip non-critical tasks if CPU is overloaded
+                if self._cpu_overload_count >= 3:
+                    logger.warning("CPU overload detected - throttling non-critical tasks")
+                    return False
             else:
-                logger.debug("No new ČHMÚ warnings detected")
+                self._cpu_overload_count = max(0, self._cpu_overload_count - 1)
                 
         except Exception as e:
-            logger.error(f"Error checking ČHMÚ warnings: {e}", exc_info=True)
+            logger.error(f"Error checking CPU usage: {e}")
+            return True  # Don't throttle on error
+        
+        return True
 
     async def generate_local_forecast_task(self):
         """Generates and stores a local 6-hour forecast."""
+        if not self._check_cpu_usage():
+            logger.info("Skipping local forecast generation due to high CPU usage")
+            return
+            
         logger.info("Generating local 6-hour forecast...")
         try:
-            weather_data = self.database.get_recent_weather_data(hours=24)
+            weather_data = self.database.get_recent_weather_data_for_forecast(hours=24)
             from advanced_forecast import AdvancedForecastGenerator
             async with AdvancedForecastGenerator(self.config) as forecast_generator:
                 forecast = await forecast_generator.generate_physics_forecast(weather_data)
@@ -336,6 +346,10 @@ class WeatherMonitoringScheduler:
 
     async def generate_deepseek_forecast_task(self):
         """Generates and stores a DeepSeek 6-hour forecast."""
+        if not self._check_cpu_usage():
+            logger.info("Skipping DeepSeek forecast generation due to high CPU usage")
+            return
+            
         logger.info("Generating DeepSeek 6-hour forecast...")
         try:
             weather_data = await self.data_collector.collect_weather_data()
@@ -350,9 +364,13 @@ class WeatherMonitoringScheduler:
 
     async def generate_ensemble_forecast_task(self):
         """Generates and stores an ensemble 6-hour forecast combining multiple methods."""
+        if not self._check_cpu_usage():
+            logger.info("Skipping ensemble forecast generation due to high CPU usage")
+            return
+            
         logger.info("Generating ensemble 6-hour forecast...")
         try:
-            weather_data = self.database.get_recent_weather_data(hours=24)
+            weather_data = self.database.get_recent_weather_data_for_forecast(hours=24)
             from advanced_forecast import AdvancedForecastGenerator
             async with AdvancedForecastGenerator(self.config) as forecast_generator:
                 forecast = await forecast_generator.generate_ensemble_forecast(weather_data)
@@ -364,6 +382,10 @@ class WeatherMonitoringScheduler:
 
     async def run_thunderstorm_predictor(self):
         """Runs the thunderstorm predictor script."""
+        if not self._check_cpu_usage():
+            logger.info("Skipping thunderstorm predictor due to high CPU usage")
+            return
+            
         logger.info("Running thunderstorm predictor...")
         try:
             from thunderstorm_predictor import ThunderstormPredictor
@@ -389,10 +411,10 @@ class WeatherMonitoringScheduler:
             misfire_grace_time=60
         )
         
-        # Local forecast generation every 2 minutes
+        # Local forecast generation every 10 minutes (configurable)
         self.scheduler.add_job(
             self.generate_local_forecast_task,
-            trigger=IntervalTrigger(minutes=2),
+            trigger=IntervalTrigger(minutes=self.config.system.local_forecast_interval_minutes),
             id='local_forecast_generation',
             name='Local Forecast Generation',
             max_instances=1,
@@ -400,7 +422,7 @@ class WeatherMonitoringScheduler:
             misfire_grace_time=60
         )
 
-        # DeepSeek forecast generation every 5 hours (configurable)
+        # DeepSeek forecast generation every 8 hours (configurable)
         self.scheduler.add_job(
             self.generate_deepseek_forecast_task,
             trigger=IntervalTrigger(hours=self.config.system.deepseek_forecast_interval_hours),
@@ -411,10 +433,10 @@ class WeatherMonitoringScheduler:
             misfire_grace_time=60
         )
 
-        # Ensemble forecast generation every 5 minutes (combining all methods)
+        # Ensemble forecast generation every 30 minutes (configurable)
         self.scheduler.add_job(
             self.generate_ensemble_forecast_task,
-            trigger=IntervalTrigger(minutes=5),
+            trigger=IntervalTrigger(minutes=self.config.system.ensemble_forecast_interval_minutes),
             id='ensemble_forecast_generation',
             name='Ensemble Forecast Generation',
             max_instances=1,
@@ -596,36 +618,36 @@ class WeatherMonitoringScheduler:
         
         for data in weather_data:
             # Very high precipitation probability (more conservative)
-            if data.precipitation_probability and data.precipitation_probability > 80:
+            if data.precipitation_probability and data.precipitation_probability > 90:
                 cache_key = f"precip_prob_{data.precipitation_probability:.0f}"
                 if not self.database.is_weather_condition_recently_analyzed(cache_key):
-                    self.database.mark_weather_condition_analyzed(cache_key)
+                    self.database.mark_weather_condition_analyzed(cache_key, 2)  # 2 hour cache
                     logger.info(f"AI analysis triggered by very high precipitation probability: {data.precipitation_probability}%")
                     return True
             
-            # Heavy precipitation only
-            if data.precipitation and data.precipitation > 5.0:
+            # Heavy precipitation only (increased threshold further)
+            if data.precipitation and data.precipitation > 12.0:
                 cache_key = f"precipitation_{data.precipitation:.1f}"
                 if not self.database.is_weather_condition_recently_analyzed(cache_key):
-                    self.database.mark_weather_condition_analyzed(cache_key)
+                    self.database.mark_weather_condition_analyzed(cache_key, 2)  # 2 hour cache
                     logger.info(f"AI analysis triggered by active precipitation: {data.precipitation}mm")
                     return True
             
-            # High humidity + low pressure (storm conditions)
-            if data.humidity > 80 and data.pressure < 1010:
+            # High humidity + low pressure (storm conditions - more restrictive)
+            if data.humidity > 90 and data.pressure < 1000:
                 cache_key = f"storm_conditions_{data.humidity:.0f}_{data.pressure:.0f}"
                 if not self.database.is_weather_condition_recently_analyzed(cache_key):
-                    self.database.mark_weather_condition_analyzed(cache_key)
+                    self.database.mark_weather_condition_analyzed(cache_key, 2)  # 2 hour cache
                     logger.info(f"AI analysis triggered by storm conditions: humidity {data.humidity}%, pressure {data.pressure}hPa")
                     return True
             
             # Extreme wind speeds (severe gale/storm force winds only)
-            if data.wind_speed and data.wind_speed > 24:  # >24 m/s (~86 km/h, severe gale force)
+            if data.wind_speed and data.wind_speed > 28:  # >28 m/s (~100 km/h, severe gale force)
                 # Group wind speeds into ranges to avoid repeated analysis for similar values
                 wind_range = int(data.wind_speed // 5) * 5  # Group into 5 m/s ranges
                 cache_key = f"extreme_wind_range_{wind_range}"
                 if not self.database.is_weather_condition_recently_analyzed(cache_key):
-                    self.database.mark_weather_condition_analyzed(cache_key)
+                    self.database.mark_weather_condition_analyzed(cache_key, 2)  # 2 hour cache
                     logger.info(f"AI analysis triggered by very high wind speed: {data.wind_speed} m/s (range {wind_range}-{wind_range+4})")
                     return True
                 else:
@@ -642,16 +664,16 @@ class WeatherMonitoringScheduler:
                         logger.info(f"AI analysis triggered by weather description: {data.description}")
                         return True
         
-        # Run AI analysis occasionally even in normal conditions (once per hour max)
+        # Run AI analysis occasionally even in normal conditions (once per 4 hours max)
         last_analysis = self.database.get_last_storm_analysis()
         if last_analysis is None:
             logger.info("AI analysis triggered - no previous analysis found")
             return True
         
-        # If last analysis was more than 1 hour ago, run periodic check
+        # If last analysis was more than 4 hours ago, run periodic check
         time_since_last = datetime.now() - last_analysis.timestamp
-        if time_since_last.total_seconds() > 3600:  # 1 hour
-            logger.info("AI analysis triggered - periodic check (>1 hour since last)")
+        if time_since_last.total_seconds() > 14400:  # 4 hours
+            logger.info("AI analysis triggered - periodic check (>4 hours since last)")
             return True
         
         # Skip AI analysis - normal conditions

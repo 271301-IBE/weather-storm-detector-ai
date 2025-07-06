@@ -63,7 +63,22 @@
     <div class="row">
         <div class="col-lg-12">
             <div class="card">
-                <div class="card-header">Weather Trends (24h) 📈</div>
+                <div class="card-header">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span>Weather Trends (24h) 📈</span>
+                        <div class="btn-group" role="group">
+                            <button type="button" class="btn btn-danger btn-sm" onclick="reportStormEvent('storm_now')">
+                                ⛈️ Bouřka nyní
+                            </button>
+                            <button type="button" class="btn btn-primary btn-sm" onclick="reportStormEvent('rain_now')">
+                                🌧️ Déšť nyní
+                            </button>
+                            <button type="button" class="btn btn-success btn-sm" onclick="reportStormEvent('no_storm')">
+                                ☀️ Bez bouře
+                            </button>
+                        </div>
+                    </div>
+                </div>
                 <div class="card-body">
                     <canvas id="weatherChart"></canvas>
                 </div>
@@ -422,6 +437,9 @@
 
 {% block scripts %}
 <script>
+    // Register Chart.js plugins
+    Chart.register(window['chartjs-plugin-annotation']);
+    
     let weatherChart;
     const historyCharts = {}; // Object to store multiple history chart instances
     
@@ -679,11 +697,70 @@
             });
     }
     
+    function createChmiAnnotations(chmiAlerts) {
+        const annotations = {};
+        
+        chmiAlerts.forEach((alert, index) => {
+            if (alert.start_timestamp && alert.end_timestamp) {
+                const colorMap = {
+                    'green': 'rgba(40, 167, 69, 0.2)',
+                    'yellow': 'rgba(255, 193, 7, 0.3)', 
+                    'orange': 'rgba(253, 126, 20, 0.4)',
+                    'red': 'rgba(220, 53, 69, 0.5)'
+                };
+                
+                annotations[`chmi_${index}`] = {
+                    type: 'box',
+                    xMin: alert.start_timestamp,
+                    xMax: alert.end_timestamp,
+                    backgroundColor: colorMap[alert.color] || 'rgba(128, 128, 128, 0.2)',
+                    borderColor: colorMap[alert.color] || 'rgba(128, 128, 128, 0.5)',
+                    borderWidth: 1,
+                    label: {
+                        display: true,
+                        content: `ČHMÚ: ${alert.event}`,
+                        position: 'center'
+                    }
+                };
+            }
+        });
+        
+        return annotations;
+    }
+    
+    function reportStormEvent(type) {
+        fetch('/api/storm_event', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ type: type })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert(`Událost "${type}" byla úspěšně zaznamenána v ${data.timestamp}`);
+                // Reload chart to potentially show updated data
+                loadWeatherChart();
+            } else {
+                alert('Chyba při zaznamenávání události: ' + (data.error || 'Neznámá chyba'));
+            }
+        })
+        .catch(error => {
+            console.error('Error reporting storm event:', error);
+            alert('Chyba při komunikaci se serverem');
+        });
+    }
+    
     function loadWeatherChart() {
         fetch('/api/weather_history?hours=24')
             .then(response => response.json())
-            .then(data => {
-                if (data.length === 0) {
+            .then(response => {
+                // Handle new API structure with weather_data and chmi_alerts
+                const data = response.weather_data || response;
+                const chmiAlerts = response.chmi_alerts || [];
+                
+                if (!data || data.length === 0) {
                     document.getElementById('weatherChart').getContext('2d').clearRect(0, 0, document.getElementById('weatherChart').width, document.getElementById('weatherChart').height);
                     if (weatherChart) weatherChart.destroy();
                     return;
@@ -831,6 +908,9 @@
                                     enabled: true,
                                     mode: 'x',
                                 }
+                            },
+                            annotation: {
+                                annotations: createChmiAnnotations(chmiAlerts)
                             }
                         }
                     }

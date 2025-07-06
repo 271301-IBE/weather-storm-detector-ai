@@ -141,9 +141,14 @@ class WeatherDatabase:
     
     @contextmanager
     def get_connection(self):
-        """Get database connection with automatic close."""
+        """Get database connection with automatic close and optimization."""
         conn = sqlite3.connect(self.db_path)
         try:
+            # Optimize database connection
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            conn.execute("PRAGMA cache_size=10000")
+            conn.execute("PRAGMA temp_store=MEMORY")
             yield conn
         finally:
             conn.close()
@@ -303,38 +308,38 @@ class WeatherDatabase:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
+                # More efficient query - only essential columns, limit results
                 cursor.execute("""
                     SELECT timestamp, source, temperature, humidity, pressure, wind_speed, 
                            wind_direction, precipitation, precipitation_probability, condition,
-                           visibility, cloud_cover, uv_index, description, raw_data
+                           visibility, cloud_cover, uv_index, description
                     FROM weather_data 
                     WHERE timestamp > ? 
                     ORDER BY timestamp DESC
+                    LIMIT 200
                 """, (cutoff_time.isoformat(),))
                 
                 rows = cursor.fetchall()
-                columns = [description[0] for description in cursor.description]
                 
                 weather_data_list = []
                 for row in rows:
-                    data = dict(zip(columns, row))
-                    # Reconstruct WeatherData object
+                    # Direct construction without dict comprehension
                     wd = WeatherData(
-                        timestamp=datetime.fromisoformat(data['timestamp']),
-                        source=data['source'],
-                        temperature=data['temperature'],
-                        humidity=data['humidity'],
-                        pressure=data['pressure'],
-                        wind_speed=data['wind_speed'],
-                        wind_direction=data['wind_direction'],
-                        precipitation=data['precipitation'],
-                        precipitation_probability=data['precipitation_probability'],
-                        condition=WeatherCondition(data['condition']),
-                        visibility=data['visibility'],
-                        cloud_cover=data['cloud_cover'],
-                        uv_index=data['uv_index'],
-                        description=data['description'],
-                        raw_data=json.loads(data['raw_data'])
+                        timestamp=datetime.fromisoformat(row[0]),
+                        source=row[1],
+                        temperature=row[2] or 0.0,
+                        humidity=row[3] or 0.0,
+                        pressure=row[4] or 0.0,
+                        wind_speed=row[5] or 0.0,
+                        wind_direction=row[6] or 0.0,
+                        precipitation=row[7] or 0.0,
+                        precipitation_probability=row[8],
+                        condition=WeatherCondition(row[9]) if row[9] else WeatherCondition.CLEAR,
+                        visibility=row[10],
+                        cloud_cover=row[11] or 0.0,
+                        uv_index=row[12],
+                        description=row[13] or "",
+                        raw_data={}  # Skip raw_data for performance
                     )
                     weather_data_list.append(wd)
                 
@@ -370,18 +375,36 @@ class WeatherDatabase:
         """Remove old data beyond retention period."""
         try:
             cutoff_time = datetime.now() - timedelta(days=days_to_keep)
+            analysis_cutoff = datetime.now() - timedelta(days=90)
             
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
-                # Keep storm analysis longer (90 days)
-                analysis_cutoff = datetime.now() - timedelta(days=90)
+                # Clean up weather data (keep only recent data)
+                cursor.execute("DELETE FROM weather_data WHERE timestamp < ?", 
+                             (cutoff_time.isoformat(),))
+                weather_deleted = cursor.rowcount
                 
+                # Clean up email notifications
                 cursor.execute("DELETE FROM email_notifications WHERE timestamp < ?", 
                              (cutoff_time.isoformat(),))
+                email_deleted = cursor.rowcount
+                
+                # Clean up storm analysis (keep longer)
+                cursor.execute("DELETE FROM storm_analysis WHERE timestamp < ?", 
+                             (analysis_cutoff.isoformat(),))
+                analysis_deleted = cursor.rowcount
+                
+                # Clean up old forecast data
+                cursor.execute("DELETE FROM enhanced_forecasts WHERE timestamp < ?", 
+                             (cutoff_time.isoformat(),))
+                forecast_deleted = cursor.rowcount
+                
+                # Vacuum database to reclaim space
+                cursor.execute("VACUUM")
                 
                 conn.commit()
-                logger.info(f"Cleaned up data older than {days_to_keep} days")
+                logger.info(f"Cleaned up old data: {weather_deleted} weather records, {email_deleted} emails, {analysis_deleted} analyses, {forecast_deleted} forecasts")
                 
         except Exception as e:
             logger.error(f"Error cleaning up old data: {e}")
@@ -543,30 +566,27 @@ class WeatherDatabase:
             logger.error(f"Error retrieving latest weather forecast: {e}")
             return None
     
-    def get_recent_weather_data(self, hours: int = 48) -> List[WeatherData]:
-        """Get recent weather data for forecasting."""
+    def get_recent_weather_data_for_forecast(self, hours: int = 48) -> List[WeatherData]:
+        """Get recent weather data for forecasting - optimized version."""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
                 cutoff_time = (datetime.now() - timedelta(hours=hours)).isoformat()
                 
+                # Optimized query with limit and essential columns only
                 cursor.execute("""
                     SELECT timestamp, source, temperature, humidity, pressure,
                            wind_speed, wind_direction, precipitation, precipitation_probability,
-                           condition, visibility, cloud_cover, uv_index, description, raw_data
+                           condition, visibility, cloud_cover, description
                     FROM weather_data
                     WHERE timestamp > ?
                     ORDER BY timestamp DESC
+                    LIMIT 100
                 """, (cutoff_time,))
                 
                 weather_data = []
                 for row in cursor.fetchall():
-                    try:
-                        raw_data = json.loads(row[14]) if row[14] else {}
-                    except:
-                        raw_data = {}
-                    
                     weather_data.append(WeatherData(
                         timestamp=datetime.fromisoformat(row[0]),
                         source=row[1],
@@ -580,9 +600,9 @@ class WeatherDatabase:
                         condition=WeatherCondition(row[9]) if row[9] else WeatherCondition.CLEAR,
                         visibility=row[10],
                         cloud_cover=row[11] or 0.0,
-                        uv_index=row[12],
-                        description=row[13] or "",
-                        raw_data=raw_data
+                        uv_index=None,
+                        description=row[12] or "",
+                        raw_data={}  # Skip raw_data for performance
                     ))
                 
                 return weather_data
@@ -645,7 +665,11 @@ class WeatherDatabase:
                         metadata = json.loads(row[3]) if row[3] else {}
                         
                         # Convert back to enhanced forecast object
-                        from advanced_forecast import EnhancedWeatherForecast, EnhancedPredictedWeatherData, ForecastMethod, ForecastMetadata, ConfidenceLevel
+                        try:
+                            from advanced_forecast import EnhancedWeatherForecast, EnhancedPredictedWeatherData, ForecastMethod, ForecastMetadata, ConfidenceLevel
+                        except ImportError as e:
+                            logger.error(f"Failed to import forecast classes: {e}")
+                            return None
                         
                         # Reconstruct forecast data items
                         forecast_items = []

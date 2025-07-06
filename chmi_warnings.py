@@ -397,6 +397,36 @@ class ChmiWarningParser:
         
         new_warnings = []
         
+    def get_all_warnings_for_period(self, hours: int = 72) -> List[ChmiWarning]:
+        """Get all warnings for a specific time period."""
+        try:
+            xml_content = self.fetch_xml_data()
+            all_warnings = self.parse_xml(xml_content)
+            
+            # Filter warnings within the time period
+            current_time = datetime.now()
+            time_limit = current_time - timedelta(hours=hours)
+            
+            period_warnings = []
+            for warning in all_warnings:
+                # Check if warning is within the time period
+                if warning.time_start_unix:
+                    warning_time = datetime.fromtimestamp(warning.time_start_unix)
+                    if warning_time >= time_limit:
+                        period_warnings.append(warning)
+                        
+            return period_warnings
+            
+        except Exception as e:
+            logger.error(f"Error fetching warnings for period: {e}")
+            return []
+    
+    def detect_new_warnings_continued(self, current_warnings: List[ChmiWarning]) -> List[ChmiWarning]:
+        """Continue the detect_new_warnings method."""
+        previous_state = self.load_state()
+        previous_warnings = previous_state.get("warnings", {})
+        new_warnings = []
+        
         for warning in current_warnings:
             warning_id = warning.identifier
             warning_hash = self._calculate_warning_hash(warning)
@@ -462,6 +492,14 @@ class ChmiWarningMonitor:
             logger.error(f"Error fetching ČHMÚ warnings: {e}")
             return []
     
+    def get_all_warnings_for_period(self, hours: int = 72) -> List[ChmiWarning]:
+        """Get all warnings for a specific time period."""
+        try:
+            return self.parser.get_all_warnings_for_period(hours)
+        except Exception as e:
+            logger.error(f"Error fetching warnings for period: {e}")
+            return []
+    
     def get_storm_warnings(self) -> List[ChmiWarning]:
         """Get only storm-related warnings (Thunderstorm, Rain, Wind, flooding)."""
         try:
@@ -469,6 +507,10 @@ class ChmiWarningMonitor:
             storm_warnings = []
             
             for warning in all_warnings:
+                # Add description_text property for API compatibility first
+                if not hasattr(warning, 'description_text'):
+                    warning.description_text = warning.detailed_text
+                
                 # Check warning type
                 if warning.warning_type in self.parser.storm_warning_types:
                     storm_warnings.append(warning)

@@ -20,6 +20,8 @@ class DeepSeekAnalyzer:
         """Initialize analyzer with configuration."""
         self.config = config
         self.session: Optional[aiohttp.ClientSession] = None
+        self._analysis_cache = {}  # Cache for analysis results
+        self._cache_ttl = 600  # 10 minutes cache TTL
         
     async def __aenter__(self):
         """Async context manager entry."""
@@ -29,7 +31,7 @@ class DeepSeekAnalyzer:
         }
         self.session = aiohttp.ClientSession(
             headers=headers,
-            timeout=aiohttp.ClientTimeout(total=120, connect=30)
+            timeout=aiohttp.ClientTimeout(total=60, connect=15)
         )
         return self
         
@@ -560,7 +562,7 @@ class DeepSeekPredictor:
         }
         self.session = aiohttp.ClientSession(
             headers=headers,
-            timeout=aiohttp.ClientTimeout(total=120, connect=30)
+            timeout=aiohttp.ClientTimeout(total=60, connect=15)
         )
         return self
 
