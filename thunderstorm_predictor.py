@@ -1,4 +1,3 @@
-
 import sqlite3
 from datetime import datetime, timedelta
 import logging
@@ -20,131 +19,95 @@ class ThunderstormPredictor:
         conn.execute("PRAGMA journal_mode=WAL")
         return conn
 
-    def fetch_weather_data(self):
-        """Fetch all weather data from the database with retry logic."""
-        max_retries = 3
-        base_delay = 0.2
-        
-        for attempt in range(max_retries):
-            try:
-                conn = self.get_db_connection()
-                # Fetching all data to find patterns
-                query = "SELECT * FROM weather_data ORDER BY timestamp ASC"
-                df = pd.read_sql_query(query, conn)
-                conn.close()
-                logger.info(f"Fetched {len(df)} records from the database.")
-                return df
-            except sqlite3.OperationalError as e:
-                if "database is locked" in str(e) and attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)
-                    logger.debug(f"Database locked, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})")
-                    import time
-                    time.sleep(delay)
-                    continue
-                else:
-                    logger.error(f"Error fetching weather data after {attempt + 1} attempts: {e}")
-                    return pd.DataFrame()
-            except Exception as e:
-                logger.error(f"Error fetching weather data: {e}")
-                return pd.DataFrame()
-
-    def identify_storm_events(self, df):
-        """Identify historical storm events from data."""
-        # This is a heuristic. A storm is defined by high wind and precipitation.
-        # These thresholds can be tuned.
-        wind_speed_threshold = self.config.prediction.wind_speed_threshold
-        precipitation_threshold = self.config.prediction.precipitation_threshold
-        
-        df['storm'] = (df['wind_speed'] > wind_speed_threshold) & (df['precipitation'] > precipitation_threshold)
-        
-        # Identify the start of a storm event
-        df['storm_start'] = df['storm'] & ~df['storm'].shift(1).fillna(False)
-        
-        return df
+    def fetch_recent_weather_data(self):
+        """Fetch weather data from the last 2 hours."""
+        try:
+            conn = self.get_db_connection()
+            two_hours_ago = datetime.now() - timedelta(hours=2)
+            query = f"SELECT * FROM weather_data WHERE timestamp >= '{two_hours_ago.isoformat()}' ORDER BY timestamp ASC"
+            df = pd.read_sql_query(query, conn)
+            conn.close()
+            logger.info(f"Fetched {len(df)} records from the last 2 hours.")
+            return df
+        except Exception as e:
+            logger.error(f"Error fetching recent weather data: {e}")
+            return pd.DataFrame()
 
     def predict_next_storm(self):
         """
-        Predict the next thunderstorm based on historical data patterns.
-        This is a simplified model and should be improved with more advanced techniques.
+        Predicts a thunderstorm based on recent weather data trends.
+        A simple heuristic model looking for sharp drops in pressure and rises in humidity.
         """
-        df = self.fetch_weather_data()
-        if df.empty:
-            logger.warning("No data available to make a prediction.")
+        df = self.fetch_recent_weather_data()
+        if df.empty or len(df) < 4: # Need at least 4 data points (30 mins of data)
+            logger.info("Not enough recent data to make a prediction.")
             return None, 0.0
 
-        df = self.identify_storm_events(df)
-        storm_events = df[df['storm_start']]
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        df = df.set_index('timestamp')
 
-        if len(storm_events) < 2:
-            logger.info("Not enough historical storm events to make a prediction.")
+        # Calculate changes (deltas)
+        df['pressure_delta'] = df['pressure'].diff()
+        df['humidity_delta'] = df['humidity'].diff()
+        df['wind_speed_delta'] = df['wind_speed'].diff()
+
+        # Look for storm conditions in the last 30 minutes
+        last_30_min = df.last('30T')
+        if last_30_min.empty:
             return None, 0.0
 
-        # Calculate the average time between storms
-        storm_times = pd.to_datetime(storm_events['timestamp'])
-        time_deltas = storm_times.diff().dropna()
-        
-        if time_deltas.empty:
+        # Conditions for a potential storm
+        pressure_drop = last_30_min['pressure_delta'].sum() < -2 # More than 2 hPa drop
+        humidity_increase = last_30_min['humidity_delta'].sum() > 10 # More than 10% increase
+        wind_increase = last_30_min['wind_speed_delta'].sum() > 3 # More than 3 m/s increase
+
+        confidence = 0.0
+        if pressure_drop:
+            confidence += 0.4
+        if humidity_increase:
+            confidence += 0.3
+        if wind_increase:
+            confidence += 0.3
+
+        if confidence > 0.5:
+            # Predict storm in the next 30-60 minutes
+            predicted_time = datetime.now() + timedelta(minutes=45)
+            logger.info(f"Potential storm detected with confidence {confidence:.2f}. Predicted time: {predicted_time}")
+            return predicted_time, confidence
+        else:
+            logger.info("No significant storm indicators found in recent data.")
             return None, 0.0
-
-        average_delta = time_deltas.mean()
-        last_storm_time = storm_times.iloc[-1]
-        
-        predicted_time = last_storm_time + average_delta
-        
-        # Simple confidence score based on the standard deviation of storm frequency
-        time_deltas_days = time_deltas.dt.total_seconds() / (24 * 3600)
-        confidence = 1.0 - (time_deltas_days.std() / time_deltas_days.mean())
-        confidence = max(0.0, min(1.0, confidence)) # Clamp between 0 and 1
-
-        return predicted_time, confidence
 
     def store_prediction(self, predicted_time, confidence):
-        """Stores the prediction in the database with retry logic."""
+        """Stores the prediction in the database."""
         if predicted_time is None:
             return
-            
-        max_retries = 3
-        base_delay = 0.2
-        
-        for attempt in range(max_retries):
-            try:
-                conn = self.get_db_connection()
-                cursor = conn.cursor()
-                
-                # Create table if it doesn't exist
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS thunderstorm_predictions (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        prediction_timestamp TEXT NOT NULL,
-                        confidence REAL NOT NULL,
-                        created_at TEXT NOT NULL
-                    )
-                """)
-                
-                # Insert new prediction
-                cursor.execute("""
-                    INSERT INTO thunderstorm_predictions (prediction_timestamp, confidence, created_at)
-                    VALUES (?, ?, ?)
-                """, (predicted_time.isoformat(), confidence, datetime.now().isoformat()))
-                
-                conn.commit()
-                conn.close()
-                logger.info(f"Stored prediction: {predicted_time} with confidence {confidence:.2f}")
-                return  # Success, exit retry loop
-                
-            except sqlite3.OperationalError as e:
-                if "database is locked" in str(e) and attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)
-                    logger.debug(f"Database locked during prediction storage, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})")
-                    import time
-                    time.sleep(delay)
-                    continue
-                else:
-                    logger.error(f"Error storing prediction after {attempt + 1} attempts: {e}")
-                    return
-            except Exception as e:
-                logger.error(f"Error storing prediction: {e}")
-                return
+
+        try:
+            conn = self.get_db_connection()
+            cursor = conn.cursor()
+
+            # Create table if it doesn't exist
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS thunderstorm_predictions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    prediction_timestamp TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+            """)
+
+            # Insert new prediction
+            cursor.execute("""
+                INSERT INTO thunderstorm_predictions (prediction_timestamp, confidence, created_at)
+                VALUES (?, ?, ?)
+            """, (predicted_time.isoformat(), confidence, datetime.now().isoformat()))
+
+            conn.commit()
+            conn.close()
+            logger.info(f"Stored prediction: {predicted_time} with confidence {confidence:.2f}")
+        except Exception as e:
+            logger.error(f"Error storing prediction: {e}")
 
 def main():
     config = load_config()

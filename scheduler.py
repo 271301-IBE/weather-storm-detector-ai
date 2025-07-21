@@ -458,10 +458,10 @@ class WeatherMonitoringScheduler:
             misfire_grace_time=60
         )
         
-        # Thunderstorm prediction generation every hour
+        # Thunderstorm prediction generation every 15 minutes
         self.scheduler.add_job(
             self.run_thunderstorm_predictor,
-            trigger=IntervalTrigger(hours=1),
+            trigger=IntervalTrigger(minutes=15),
             id='thunderstorm_prediction',
             name='Thunderstorm Prediction',
             max_instances=1,
