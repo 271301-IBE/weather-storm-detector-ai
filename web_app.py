@@ -97,6 +97,25 @@ def login():
     
     return render_template('login.html')
 
+@app.route('/api/login', methods=['POST'])
+def api_login():
+    """API login endpoint."""
+    if not request.is_json:
+        return jsonify({"error": "Missing JSON in request"}), 400
+
+    data = request.get_json()
+    username = data.get('username')
+    password = data.get('password')
+
+    if not username or not password:
+        return jsonify({"error": "Username and password are required"}), 400
+
+    if username == USERNAME and password == PASSWORD:
+        session['logged_in'] = True
+        return jsonify({'status': 'success', 'message': 'Logged in successfully.'})
+    else:
+        return jsonify({'status': 'error', 'message': 'Invalid credentials.'}), 401
+
 @app.route('/logout')
 def logout():
     session.pop('logged_in', None)
