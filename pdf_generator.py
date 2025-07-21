@@ -48,57 +48,45 @@ class WeatherReportGenerator:
             textColor=colors.darkgreen
         )
     
-    def _create_weather_chart(self, weather_data: List[WeatherData], chart_type: str = "temperature") -> str:
-        """Create weather chart and save as image."""
-        if not weather_data:
+    def _create_weather_chart_cz(self, weather_data: List[WeatherData], analysis_time: datetime) -> Optional[str]:
+        """Vytvoří kombinovaný graf počasí v češtině a uloží ho jako obrázek."""
+        if not weather_data or len(weather_data) < 2:
             return None
-            
-        # Sort data by timestamp
-        weather_data = sorted(weather_data, key=lambda x: x.timestamp)
-        
-        fig, ax = plt.subplots(figsize=(12, 6))
-        
-        timestamps = [data.timestamp for data in weather_data]
-        
-        if chart_type == "temperature":
-            values = [data.temperature for data in weather_data]
-            ax.plot(timestamps, values, 'b-', marker='o', linewidth=2, markersize=4)
-            ax.set_ylabel('Temperature (°C)', fontsize=12)
-            ax.set_title('Temperature Trend', fontsize=14, fontweight='bold')
-            ax.grid(True, alpha=0.3)
-            
-        elif chart_type == "pressure":
-            values = [data.pressure for data in weather_data]
-            ax.plot(timestamps, values, 'r-', marker='s', linewidth=2, markersize=4)
-            ax.set_ylabel('Pressure (hPa)', fontsize=12)
-            ax.set_title('Atmospheric Pressure Trend', fontsize=14, fontweight='bold')
-            ax.grid(True, alpha=0.3)
-            
-        elif chart_type == "humidity":
-            values = [data.humidity for data in weather_data]
-            ax.plot(timestamps, values, 'g-', marker='^', linewidth=2, markersize=4)
-            ax.set_ylabel('Humidity (%)', fontsize=12)
-            ax.set_title('Humidity Trend', fontsize=14, fontweight='bold')
-            ax.grid(True, alpha=0.3)
-            
-        elif chart_type == "wind":
-            wind_speeds = [data.wind_speed for data in weather_data]
-            ax.plot(timestamps, wind_speeds, 'orange', marker='d', linewidth=2, markersize=4)
-            ax.set_ylabel('Wind Speed (m/s)', fontsize=12)
-            ax.set_title('Wind Speed Trend', fontsize=14, fontweight='bold')
-            ax.grid(True, alpha=0.3)
-        
-        # Format x-axis
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-        ax.xaxis.set_major_locator(mdates.HourLocator(interval=2))
+
+        df = pd.DataFrame([vars(d) for d in weather_data])
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        df = df.sort_values('timestamp').set_index('timestamp')
+
+        plt.style.use('seaborn-v0_8-whitegrid')
+        fig, ax1 = plt.subplots(figsize=(12, 6.75))
+
+        # Teplota a Srážky (levá osa Y)
+        ax1.set_xlabel('Čas (posledních 24 hodin)', fontsize=12)
+        ax1.set_ylabel('Teplota (°C) / Srážky (mm)', fontsize=12, color='#d62728')
+        ax1.plot(df.index, df['temperature'], color='#d62728', marker='o', linestyle='-', label='Teplota')
+        ax1.tick_params(axis='y', labelcolor='#d62728')
+        ax1.axhline(0, color='blue', linestyle='--', linewidth=1, label='Bod mrazu')
+
+        # Srážky jako sloupcový graf
+        ax1.bar(df.index, df['precipitation'], width=0.01, color='#1f77b4', alpha=0.6, label='Srážky')
+
+        # Tlak (pravá osa Y)
+        ax2 = ax1.twinx()
+        ax2.set_ylabel('Tlak (hPa)', fontsize=12, color='#2ca02c')
+        ax2.plot(df.index, df['pressure'], color='#2ca02c', marker='s', linestyle='--', label='Tlak')
+        ax2.tick_params(axis='y', labelcolor='#2ca02c')
+
+        # Formátování a titulky
+        plt.title(f'Vývoj počasí předcházející analýze ze dne {analysis_time.strftime("%d.%m.%Y %H:%M")}', fontsize=16, fontweight='bold')
+        fig.legend(loc="upper right", bbox_to_anchor=(1,1), bbox_transform=ax1.transAxes)
+        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
         plt.xticks(rotation=45)
-        
-        plt.tight_layout()
-        
-        chart_path = os.path.join(self.reports_dir, f"{chart_type}_chart_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
-        plt.savefig(chart_path, dpi=300, bbox_inches='tight')
-        plt.close()
-        
+        fig.tight_layout()
+
+        chart_path = os.path.join(self.reports_dir, f"combined_chart_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+        plt.savefig(chart_path, dpi=300)
+        plt.close(fig)
+
         return chart_path
     
     def _create_weather_summary_table(self, weather_data: List[WeatherData]) -> List[List[str]]:
@@ -157,111 +145,107 @@ class WeatherReportGenerator:
         return table_data
     
     def generate_storm_report(self, analysis: StormAnalysis, weather_data: List[WeatherData]) -> str:
-        """Generate detailed PDF report for storm analysis."""
+        """Generuje detailní PDF report o analýze bouřky v češtině."""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"storm_report_{timestamp}.pdf"
         filepath = os.path.join(self.reports_dir, filename)
         
         try:
-            doc = SimpleDocTemplate(filepath, pagesize=A4, topMargin=1*inch, bottomMargin=1*inch)
+            doc = SimpleDocTemplate(filepath, pagesize=A4, topMargin=0.8*inch, bottomMargin=0.8*inch, leftMargin=0.8*inch, rightMargin=0.8*inch)
             story = []
             
-            # Title
-            title_text = f"Storm Analysis Report - {self.config.weather.city_name}"
+            # Titulek
+            title_text = f"Zpráva o analýze bouřky - {self.config.weather.city_name}"
             story.append(Paragraph(title_text, self.title_style))
-            story.append(Spacer(1, 20))
+            story.append(Spacer(1, 15))
             
-            # Report info
+            # Informace o reportu
             report_info = f"""
-            <b>Generated:</b> {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}<br/>
-            <b>Location:</b> {self.config.weather.city_name}, {self.config.weather.region}<br/>
-            <b>Coordinates:</b> {self.config.weather.latitude:.4f}, {self.config.weather.longitude:.4f}<br/>
-            <b>Analysis Time:</b> {analysis.timestamp.strftime('%d/%m/%Y %H:%M:%S')}
+            <b>Vytvořeno:</b> {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}<br/>
+            <b>Lokalita:</b> {self.config.weather.city_name}, {self.config.weather.region}<br/>
+            <b>Souřadnice:</b> {self.config.weather.latitude:.4f}, {self.config.weather.longitude:.4f}<br/>
+            <b>Čas analýzy:</b> {analysis.timestamp.strftime('%d.%m.%Y %H:%M:%S')}
             """
             story.append(Paragraph(report_info, self.styles['Normal']))
-            story.append(Spacer(1, 20))
+            story.append(Spacer(1, 15))
             
-            # Storm Detection Summary
-            story.append(Paragraph("Storm Detection Summary", self.heading_style))
+            # Souhrn detekce bouřky
+            story.append(Paragraph("Souhrn detekce bouřky", self.heading_style))
             
             alert_color = colors.red if analysis.storm_detected else colors.green
             detection_text = f"""
-            <b>Storm Detected:</b> <font color="{alert_color}">{'YES' if analysis.storm_detected else 'NO'}</font><br/>
-            <b>Confidence Score:</b> {analysis.confidence_score:.1%}<br/>
-            <b>Alert Level:</b> {analysis.alert_level.value.upper()}<br/>
+            <b>Detekována bouřka:</b> <font color="{alert_color}">{'ANO' if analysis.storm_detected else 'NE'}</font><br/>
+            <b>Spolehlivost detekce:</b> {analysis.confidence_score:.1%}<br/>
+            <b>Úroveň varování:</b> {analysis.alert_level.value.upper()}<br/>
             """
             
             if analysis.predicted_arrival:
-                detection_text += f"<b>Predicted Arrival:</b> {analysis.predicted_arrival.strftime('%d/%m/%Y %H:%M')}<br/>"
+                detection_text += f"<b>Předpokládaný příchod:</b> {analysis.predicted_arrival.strftime('%d.%m.%Y %H:%M')}<br/>"
             if analysis.predicted_intensity:
-                detection_text += f"<b>Predicted Intensity:</b> {analysis.predicted_intensity}<br/>"
+                detection_text += f"<b>Předpokládaná intenzita:</b> {analysis.predicted_intensity}<br/>"
                 
             story.append(Paragraph(detection_text, self.styles['Normal']))
-            story.append(Spacer(1, 15))
+            story.append(Spacer(1, 10))
             
-            # Analysis Summary
-            story.append(Paragraph("Meteorological Analysis", self.heading_style))
-            story.append(Paragraph(analysis.analysis_summary, self.styles['Normal']))
-            story.append(Spacer(1, 15))
+            # Meteorologická analýza
+            story.append(Paragraph("Meteorologická analýza", self.heading_style))
+            analysis_summary = analysis.analysis_summary.replace('\n', '<br/>')
+            story.append(Paragraph(analysis_summary, self.styles['Normal']))
+            story.append(Spacer(1, 10))
             
-            # Recommendations
+            # Doporučení
             if analysis.recommendations:
-                story.append(Paragraph("Recommendations", self.heading_style))
+                story.append(Paragraph("Doporučení", self.heading_style))
                 recommendations_text = "<br/>".join([f"• {rec}" for rec in analysis.recommendations])
                 story.append(Paragraph(recommendations_text, self.styles['Normal']))
-                story.append(Spacer(1, 15))
+                story.append(Spacer(1, 10))
             
-            # Current Weather Data Table
-            story.append(Paragraph("Current Weather Conditions", self.heading_style))
+            # Tabulka aktuálního počasí
+            story.append(Paragraph("Aktuální povětrnostní podmínky", self.heading_style))
             
             table_data = self._create_weather_summary_table(weather_data)
             weather_table = Table(table_data, colWidths=[2*inch, 1.5*inch, 1.5*inch, 1.5*inch])
             weather_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
                 ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 12),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                ('FONTSIZE', (0, 0), (-1, 0), 11),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.lightblue),
                 ('GRID', (0, 0), (-1, -1), 1, colors.black)
             ]))
             story.append(weather_table)
-            story.append(Spacer(1, 20))
+            story.append(Spacer(1, 15))
             
-            # Add weather charts if enough data
+            # Graf vývoje počasí
             if len(weather_data) > 1:
-                story.append(Paragraph("Weather Trends", self.heading_style))
+                story.append(Paragraph("Graf vývoje počasí (24h)", self.heading_style))
                 
-                # Create charts
-                temp_chart = self._create_weather_chart(weather_data, "temperature")
-                if temp_chart and os.path.exists(temp_chart):
-                    story.append(Image(temp_chart, width=6*inch, height=3*inch))
-                    story.append(Spacer(1, 10))
-                
-                pressure_chart = self._create_weather_chart(weather_data, "pressure")
-                if pressure_chart and os.path.exists(pressure_chart):
-                    story.append(Image(pressure_chart, width=6*inch, height=3*inch))
+                combined_chart = self._create_weather_chart_cz(weather_data, analysis.timestamp)
+                if combined_chart and os.path.exists(combined_chart):
+                    story.append(Image(combined_chart, width=7*inch, height=3.75*inch))
                     story.append(Spacer(1, 10))
             
-            # Data Quality Assessment
-            story.append(Paragraph("Data Quality Assessment", self.heading_style))
+            # Posouzení kvality dat
+            story.append(Paragraph("Posouzení kvality dat", self.heading_style))
+            latest_data_time = max(d.timestamp for d in weather_data) if weather_data else datetime.now()
             quality_text = f"""
-            <b>Data Quality Score:</b> {analysis.data_quality_score:.1%}<br/>
-            <b>Number of Data Sources:</b> {len(weather_data)}<br/>
-            <b>Latest Data Age:</b> {(datetime.now() - max(data.timestamp for data in weather_data) if weather_data else datetime.now()).total_seconds() / 60:.1f} minutes
+            <b>Skóre kvality dat:</b> {analysis.data_quality_score:.1%}<br/>
+            <b>Počet zdrojů dat:</b> {len(set(d.source for d in weather_data))}<br/>
+            <b>Stáří posledních dat:</b> {(datetime.now() - latest_data_time).total_seconds() / 60:.1f} minut
             """
             story.append(Paragraph(quality_text, self.styles['Normal']))
             
-            # Footer
-            story.append(Spacer(1, 30))
+            # Patička
+            story.append(Spacer(1, 20))
             footer_text = """
-            <i>This report was automatically generated by the Clipron AI Weather Detection System.<br/>
-            For questions or technical support, please contact the system administrator.</i>
+            <i>Tento report byl automaticky vygenerován systémem Clipron AI Weather Detection.<br/>
+            V případě dotazů nebo technické podpory kontaktujte správce systému.</i>
             """
-            story.append(Paragraph(footer_text, self.styles['Normal']))
+            story.append(Paragraph(footer_text, self.styles['Italic']))
             
-            # Build PDF
+            # Sestavení PDF
             doc.build(story)
             
             logger.info(f"Storm report generated successfully: {filepath}")
@@ -271,14 +255,13 @@ class WeatherReportGenerator:
             logger.error(f"Error generating storm report: {e}")
             return None
         finally:
-            # Clean up chart files
-            for chart_type in ["temperature", "pressure", "humidity", "wind"]:
-                chart_files = [f for f in os.listdir(self.reports_dir) if f.startswith(f"{chart_type}_chart_")]
-                for chart_file in chart_files:
+            # Vyčištění dočasných souborů grafů
+            for f in os.listdir(self.reports_dir):
+                if f.startswith('combined_chart_') and f.endswith('.png'):
                     try:
-                        os.remove(os.path.join(self.reports_dir, chart_file))
-                    except:
-                        pass
+                        os.remove(os.path.join(self.reports_dir, f))
+                    except OSError as e:
+                        logger.warning(f"Could not remove temporary chart file {f}: {e}")
     
     def generate_daily_report(self, weather_data: List[WeatherData], analyses: List[StormAnalysis]) -> str:
         """Generate daily weather summary report."""

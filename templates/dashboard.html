@@ -61,7 +61,7 @@
         </div>
     </div>
     <div class="row">
-        <div class="col-lg-12">
+        <div class="col-lg-8">
             <div class="card">
                 <div class="card-header">
                     <div class="d-flex justify-content-between align-items-center">
@@ -81,6 +81,20 @@
                 </div>
                 <div class="card-body">
                     <canvas id="weatherChart"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card">
+                <div class="card-header">System Status 🖥️</div>
+                <div class="card-body" id="systemStatus">
+                    <p class="text-center">Loading system status...</p>
+                </div>
+            </div>
+            <div class="card mt-4">
+                <div class="card-header">Recent Emails 📧</div>
+                <div class="card-body" id="recentEmails">
+                    <p class="text-center">Loading email history...</p>
                 </div>
             </div>
         </div>
@@ -518,6 +532,8 @@
         loadWeatherAverages();
         loadChmiWarnings();
         loadLightningStats();
+        loadSystemStatus();
+        loadRecentEmails();
         updateLastUpdateTime();
     }
     
@@ -1081,6 +1097,82 @@
             })
             .catch(error => {
                 document.getElementById('chmiWarnings').innerHTML = '<div class="alert alert-danger mb-0"><strong>❌ Chyba při načítání varování</strong><br>Nepodařilo se načíst data z ČHMÚ.</div>';
+                console.error('Error:', error);
+            });
+    }
+
+    function loadSystemStatus() {
+        fetch('/api/system_status')
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('systemStatus');
+                if (data.error) {
+                    container.innerHTML = `<p class="text-center text-danger">${data.error}</p>`;
+                    return;
+                }
+                const tempClass = data.cpu_temp > 75 ? 'text-danger' : data.cpu_temp > 60 ? 'text-warning' : 'text-success';
+                const cpuClass = data.cpu_percent > 80 ? 'text-danger' : data.cpu_percent > 50 ? 'text-warning' : 'text-success';
+                const ramClass = data.ram_percent > 85 ? 'text-danger' : data.ram_percent > 70 ? 'text-warning' : 'text-success';
+                container.innerHTML = `
+                    <ul class="list-group list-group-flush">
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            CPU Teplota
+                            <span class="badge rounded-pill ${tempClass}">${data.cpu_temp?.toFixed(1) || 'N/A'}°C</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            CPU Využití
+                            <span class="badge rounded-pill ${cpuClass}">${data.cpu_percent?.toFixed(1) || 'N/A'}%</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            RAM Využití
+                            <span class="badge rounded-pill ${ramClass}">${data.ram_percent?.toFixed(1) || 'N/A'}%</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            Velikost DB
+                            <span class="badge bg-info rounded-pill">${data.database_size_mb?.toFixed(2) || 'N/A'} MB</span>
+                        </li>
+                    </ul>
+                `;
+            })
+            .catch(error => {
+                document.getElementById('systemStatus').innerHTML = '<p class="text-center text-danger">Error loading system status.</p>';
+                console.error('Error:', error);
+            });
+    }
+
+    function loadRecentEmails() {
+        fetch('/api/email_history')
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('recentEmails');
+                if (data.error) {
+                    container.innerHTML = `<p class="text-center text-danger">${data.error}</p>`;
+                    return;
+                }
+                if (data.length > 0) {
+                    let html = '<ul class="list-group list-group-flush">';
+                    data.slice(0, 3).forEach(email => {
+                        const isSuccess = email.sent_successfully;
+                        const statusIcon = isSuccess ? '✅' : '❌';
+                        const subject = email.subject.length > 30 ? email.subject.substring(0, 27) + '...' : email.subject;
+                        const timestamp = new Date(email.timestamp).toLocaleString('cs-CZ');
+                        html += `
+                            <li class="list-group-item">
+                                <div class="d-flex justify-content-between">
+                                    <span>${statusIcon} ${subject}</span>
+                                    <small class="text-muted">${timestamp}</small>
+                                </div>
+                            </li>
+                        `;
+                    });
+                    html += '</ul>';
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<p class="text-center">No recent emails.</p>';
+                }
+            })
+            .catch(error => {
+                document.getElementById('recentEmails').innerHTML = '<p class="text-center text-danger">Error loading email history.</p>';
                 console.error('Error:', error);
             });
     }

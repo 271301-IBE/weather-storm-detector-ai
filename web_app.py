@@ -800,6 +800,29 @@ def api_system_stats():
         logger.error(f"Error fetching system stats: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/system_status')
+@login_required
+def api_system_status():
+    """Get system status including CPU temp, usage, RAM, and DB size."""
+    try:
+        from cpu_monitor import get_system_stats
+        stats = get_system_stats()
+        
+        db_path = config.system.database_path
+        db_size = 0
+        if os.path.exists(db_path):
+            db_size = round(os.path.getsize(db_path) / (1024 * 1024), 2)
+            
+        return jsonify({
+            'cpu_temp': stats.get('temperature_c'),
+            'cpu_percent': stats.get('cpu_percent'),
+            'ram_percent': stats.get('memory_percent'),
+            'database_size_mb': db_size
+        })
+    except Exception as e:
+        logger.error(f"Error in api_system_status: {e}")
+        return jsonify({'error': 'Could not retrieve system status.'}), 500
+
 @app.route('/api/email_history')
 @login_required
 def api_email_history():

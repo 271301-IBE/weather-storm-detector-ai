@@ -115,13 +115,13 @@ def load_config() -> Config:
             email_delay_minutes=int(os.getenv("EMAIL_DELAY_MINUTES", "30"))
         ),
         system=SystemConfig(
-            monitoring_interval_minutes=int(os.getenv("MONITORING_INTERVAL_MINUTES", "15")),
-            deepseek_forecast_interval_hours=int(os.getenv("DEEPSEEK_FORECAST_INTERVAL_HOURS", "8")),
+            monitoring_interval_minutes=int(os.getenv("MONITORING_INTERVAL_MINUTES", "20")),
+            deepseek_forecast_interval_hours=int(os.getenv("DEEPSEEK_FORECAST_INTERVAL_HOURS", "12")),
             daily_summary_hour=int(os.getenv("DAILY_SUMMARY_HOUR", "9")),
             database_path=os.getenv("DATABASE_PATH", "./weather_data.db"),
-            local_forecast_interval_minutes=int(os.getenv("LOCAL_FORECAST_INTERVAL_MINUTES", "10")),
-            ensemble_forecast_interval_minutes=int(os.getenv("ENSEMBLE_FORECAST_INTERVAL_MINUTES", "30")),
-            max_cpu_usage_threshold=int(os.getenv("MAX_CPU_USAGE_THRESHOLD", "60"))
+            local_forecast_interval_minutes=int(os.getenv("LOCAL_FORECAST_INTERVAL_MINUTES", "15")),
+            ensemble_forecast_interval_minutes=int(os.getenv("ENSEMBLE_FORECAST_INTERVAL_MINUTES", "45")),
+            max_cpu_usage_threshold=int(os.getenv("MAX_CPU_USAGE_THRESHOLD", "75"))
         ),
         chmi=ChmiConfig(
             region_code=os.getenv("CHMI_REGION_CODE", "6203"),

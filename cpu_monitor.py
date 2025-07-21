@@ -36,10 +36,17 @@ def get_system_stats():
     # Get temperature if available (Raspberry Pi specific)
     temp = None
     try:
+        # More robust temperature checking for different systems
         if os.path.exists('/sys/class/thermal/thermal_zone0/temp'):
             with open('/sys/class/thermal/thermal_zone0/temp', 'r') as f:
                 temp = float(f.read().strip()) / 1000.0
-    except:
+        elif psutil.sensors_temperatures():
+            temps = psutil.sensors_temperatures()
+            if 'cpu_thermal' in temps:
+                temp = temps['cpu_thermal'][0].current
+            elif 'coretemp' in temps:
+                temp = temps['coretemp'][0].current
+    except Exception:
         pass
     
     return {
