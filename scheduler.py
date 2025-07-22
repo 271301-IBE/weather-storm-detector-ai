@@ -731,7 +731,7 @@ async def main():
         
         # Initialize database optimizer and create indexes
         db_optimizer = get_database_optimizer('weather_data.db')
-        optimization_results = db_optimizer.optimize_database(full=False)
+        optimization_results = db_optimizer.optimize_database(full_optimization=False)
         logger.info(f"Database optimization results: {optimization_results}")
         
         # Create and start monitoring system
