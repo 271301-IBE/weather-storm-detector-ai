@@ -320,15 +320,15 @@
         fetch(`/api/system_metrics_history?hours=${hours}`)
             .then(response => response.json())
             .then(data => {
-                if (data.error) {
-                    console.error('Error loading CPU chart:', data.error);
-                    return;
-                }
-                
                 const ctx = document.getElementById('cpuChart').getContext('2d');
-                
                 if (cpuChart) {
                     cpuChart.destroy();
+                }
+
+                if (data.error || !data.history || data.history.length === 0) {
+                    console.error('Error loading CPU chart:', data.error);
+                    ctx.canvas.parentElement.innerHTML = '<p class="text-muted text-center">CPU usage data not available</p>';
+                    return;
                 }
                 
                 const labels = data.history.map(item => {
@@ -369,6 +369,11 @@
             })
             .catch(error => {
                 console.error('Error loading CPU chart:', error);
+                const ctx = document.getElementById('cpuChart').getContext('2d');
+                if (cpuChart) {
+                    cpuChart.destroy();
+                }
+                ctx.canvas.parentElement.innerHTML = '<p class="text-muted text-center">CPU usage data not available</p>';
             });
     }
 
@@ -380,15 +385,15 @@
         fetch(`/api/system_metrics_history?hours=${hours}`)
             .then(response => response.json())
             .then(data => {
-                if (data.error) {
-                    console.error('Error loading memory chart:', data.error);
-                    return;
-                }
-                
                 const ctx = document.getElementById('memoryChart').getContext('2d');
-                
                 if (memoryChart) {
                     memoryChart.destroy();
+                }
+
+                if (data.error || !data.history || data.history.length === 0) {
+                    console.error('Error loading memory chart:', data.error);
+                    ctx.canvas.parentElement.innerHTML = '<p class="text-muted text-center">Memory usage data not available</p>';
+                    return;
                 }
                 
                 const labels = data.history.map(item => {
@@ -429,6 +434,11 @@
             })
             .catch(error => {
                 console.error('Error loading memory chart:', error);
+                const ctx = document.getElementById('memoryChart').getContext('2d');
+                if (memoryChart) {
+                    memoryChart.destroy();
+                }
+                ctx.canvas.parentElement.innerHTML = '<p class="text-muted text-center">Memory usage data not available</p>';
             });
     }
 
@@ -440,21 +450,16 @@
         fetch(`/api/system_metrics_history?hours=${hours}`)
             .then(response => response.json())
             .then(data => {
-                if (data.error) {
-                    console.error('Error loading temperature chart:', data.error);
-                    return;
-                }
-                
                 const ctx = document.getElementById('temperatureChart').getContext('2d');
-                
                 if (temperatureChart) {
                     temperatureChart.destroy();
                 }
-                
-                const labels = data.history.map(item => {
-                    const date = new Date(item.timestamp);
-                    return date.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' });
-                });
+
+                if (data.error || !data.history || data.history.length === 0) {
+                    console.error('Error loading temperature chart:', data.error);
+                    ctx.canvas.parentElement.innerHTML = '<p class="text-muted text-center">CPU temperature data not available</p>';
+                    return;
+                }
                 
                 const tempData = data.history.map(item => item.cpu_temperature).filter(temp => temp !== null);
                 const tempLabels = data.history.filter(item => item.cpu_temperature !== null).map(item => {
@@ -497,6 +502,11 @@
             })
             .catch(error => {
                 console.error('Error loading temperature chart:', error);
+                const ctx = document.getElementById('temperatureChart').getContext('2d');
+                if (temperatureChart) {
+                    temperatureChart.destroy();
+                }
+                ctx.canvas.parentElement.innerHTML = '<p class="text-muted text-center">CPU temperature data not available</p>';
             });
     }
 

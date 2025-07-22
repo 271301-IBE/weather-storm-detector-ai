@@ -59,8 +59,7 @@ class DatabaseOptimizer:
             
             # Enhanced forecasts indexes
             "CREATE INDEX IF NOT EXISTS idx_enhanced_timestamp ON enhanced_forecasts(timestamp)",
-            "CREATE INDEX IF NOT EXISTS idx_enhanced_method ON enhanced_forecasts(method)",
-            "CREATE INDEX IF NOT EXISTS idx_enhanced_confidence ON enhanced_forecasts(confidence_score)"
+            "CREATE INDEX IF NOT EXISTS idx_enhanced_method ON enhanced_forecasts(method)"
         ]
         
         try:
