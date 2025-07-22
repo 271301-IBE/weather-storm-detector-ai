@@ -28,6 +28,8 @@ from storage import WeatherDatabase
 from models import EmailNotification, WeatherForecast
 from chmi_warnings import ChmiWarningMonitor
 from lightning_monitor import LightningMonitor, LightningStrike
+from log_rotation import setup_weather_logging, get_log_rotator
+from database_optimizer import get_database_optimizer
 
 logger = logging.getLogger(__name__)
 
@@ -709,17 +711,9 @@ class WeatherMonitoringScheduler:
 
 async def main():
     """Main entry point for the weather monitoring system."""
-    # Set up logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler('weather_monitor.log'),
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
-    
-    logger = logging.getLogger(__name__)
+    # Setup logging with rotation
+    logger = setup_weather_logging('weather_monitor.log')
+    logger.info("Starting Weather Storm Detection System with log rotation")
     
     try:
         # Load configuration
@@ -734,6 +728,11 @@ async def main():
             raise ValueError("DeepSeek API key not configured")
         if not config.email.sender_email or not config.email.sender_password:
             raise ValueError("Email configuration incomplete")
+        
+        # Initialize database optimizer and create indexes
+        db_optimizer = get_database_optimizer('weather_data.db')
+        optimization_results = db_optimizer.optimize_database(full=False)
+        logger.info(f"Database optimization results: {optimization_results}")
         
         # Create and start monitoring system
         scheduler = WeatherMonitoringScheduler(config)

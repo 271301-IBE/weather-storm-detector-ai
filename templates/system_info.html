@@ -3,20 +3,105 @@
 {% block title %}Weather Storm Detection - System Info{% endblock %}
 
 {% block content %}
-<div class="row">
+<!-- Current System Metrics -->
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">Current System Metrics 📊</div>
+            <div class="card-body" id="currentMetrics">
+                <p class="text-center">Loading current metrics...</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">Database Health 🗄️</div>
+            <div class="card-body" id="databaseHealth">
+                <p class="text-center">Loading database info...</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">Log Statistics 📝</div>
+            <div class="card-body" id="logStats">
+                <p class="text-center">Loading log stats...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- System Metrics History Charts -->
+<div class="row mb-4">
     <div class="col-md-6">
         <div class="card">
-            <div class="card-header">Database Information 🗄️</div>
-            <div class="card-body" id="databaseInfo">
-                <p class="text-center">Loading database info...</p>
+            <div class="card-header">
+                CPU Usage History 🖥️
+                <div class="btn-group btn-group-sm float-end" role="group">
+                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="loadCpuChart(6)">6h</button>
+                    <button type="button" class="btn btn-outline-primary btn-sm active" onclick="loadCpuChart(24)">24h</button>
+                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="loadCpuChart(72)">3d</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <canvas id="cpuChart" width="400" height="200"></canvas>
             </div>
         </div>
     </div>
     <div class="col-md-6">
         <div class="card">
-            <div class="card-header">System Metrics 📈</div>
-            <div class="card-body" id="systemMetrics">
-                <p class="text-center">Loading system metrics...</p>
+            <div class="card-header">
+                Memory Usage History 💾
+                <div class="btn-group btn-group-sm float-end" role="group">
+                    <button type="button" class="btn btn-outline-success btn-sm" onclick="loadMemoryChart(6)">6h</button>
+                    <button type="button" class="btn btn-outline-success btn-sm active" onclick="loadMemoryChart(24)">24h</button>
+                    <button type="button" class="btn btn-outline-success btn-sm" onclick="loadMemoryChart(72)">3d</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <canvas id="memoryChart" width="400" height="200"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Temperature Chart (if available) -->
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                CPU Temperature History 🌡️
+                <div class="btn-group btn-group-sm float-end" role="group">
+                    <button type="button" class="btn btn-outline-danger btn-sm" onclick="loadTemperatureChart(6)">6h</button>
+                    <button type="button" class="btn btn-outline-danger btn-sm active" onclick="loadTemperatureChart(24)">24h</button>
+                    <button type="button" class="btn btn-outline-danger btn-sm" onclick="loadTemperatureChart(72)">3d</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <canvas id="temperatureChart" width="400" height="200"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Database Management -->
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">Database Management 🔧</div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-8" id="databaseTables">
+                        <p class="text-center">Loading database tables...</p>
+                    </div>
+                    <div class="col-md-4">
+                        <h6>Actions</h6>
+                        <button class="btn btn-primary btn-sm mb-2" onclick="optimizeDatabase(false)">Quick Optimize</button>
+                        <button class="btn btn-warning btn-sm mb-2" onclick="optimizeDatabase(true)">Full Optimize</button>
+                        <button class="btn btn-secondary btn-sm mb-2" onclick="forceLogRotation()">Rotate Logs</button>
+                        <div id="actionResults" class="mt-2"></div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -24,67 +109,417 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
+    let cpuChart, memoryChart, temperatureChart;
+    
     document.addEventListener('DOMContentLoaded', () => {
-        loadDatabaseInfo();
-        loadSystemMetrics();
-        setInterval(loadSystemMetrics, 5000); // Refresh system metrics every 5 seconds
+        loadCurrentMetrics();
+        loadDatabaseHealth();
+        loadLogStats();
+        loadCpuChart(24);
+        loadMemoryChart(24);
+        loadTemperatureChart(24);
+        
+        // Refresh current metrics every 30 seconds
+        setInterval(loadCurrentMetrics, 30000);
+        setInterval(loadLogStats, 60000);
     });
 
-    function loadDatabaseInfo() {
-        fetch('/api/database_size')
+    function loadCurrentMetrics() {
+        fetch('/api/system_metrics_current')
             .then(response => response.json())
             .then(data => {
-                const container = document.getElementById('databaseInfo');
+                const container = document.getElementById('currentMetrics');
                 if (data.error) {
                     container.innerHTML = `<p class="text-danger">Error: ${data.error}</p>`;
                 } else {
-                    container.innerHTML = `
-                        <ul class="list-group list-group-flush">
-                            <li class="list-group-item d-flex justify-content-between align-items-center">
-                                Database Size
-                                <span class="badge bg-primary rounded-pill">${data.database_size_mb} MB</span>
-                            </li>
-                        </ul>
-                    `;
-                }
-            })
-            .catch(error => {
-                console.error('Error loading database info:', error);
-                document.getElementById('databaseInfo').innerHTML = '<p class="text-danger">Error loading database info</p>';
-            });
-    }
-
-    function loadSystemMetrics() {
-        fetch('/api/system_metrics')
-            .then(response => response.json())
-            .then(data => {
-                const container = document.getElementById('systemMetrics');
-                if (data.error) {
-                    container.innerHTML = `<p class="text-danger">Error: ${data.error}</p>`;
-                } else {
+                    const tempDisplay = data.cpu_temperature ? `${data.cpu_temperature}°C` : 'N/A';
                     container.innerHTML = `
                         <ul class="list-group list-group-flush">
                             <li class="list-group-item d-flex justify-content-between align-items-center">
                                 CPU Usage
-                                <span class="badge bg-primary rounded-pill">${data.cpu_percent}%</span>
+                                <span class="badge bg-primary rounded-pill">${data.cpu_usage}%</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Memory Usage
+                                <span class="badge bg-success rounded-pill">${data.memory_usage}%</span>
                             </li>
                             <li class="list-group-item d-flex justify-content-between align-items-center">
                                 CPU Temperature
-                                <span class="badge bg-primary rounded-pill">${data.cpu_temp !== 'N/A' ? data.cpu_temp + '°C' : 'N/A'}</span>
+                                <span class="badge bg-danger rounded-pill">${tempDisplay}</span>
+                            </li>
+                            ${data.disk_usage ? `
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Disk Usage
+                                <span class="badge bg-warning rounded-pill">${data.disk_usage}%</span>
+                            </li>` : ''}
+                        </ul>
+                    `;
+                }
+            })
+            .catch(error => {
+                console.error('Error loading current metrics:', error);
+                document.getElementById('currentMetrics').innerHTML = '<p class="text-danger">Error loading metrics</p>';
+            });
+    }
+
+    function loadDatabaseHealth() {
+        fetch('/api/database_health')
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('databaseHealth');
+                if (data.error) {
+                    container.innerHTML = `<p class="text-danger">Error: ${data.error}</p>`;
+                } else {
+                    const health = data.health;
+                    const integrityBadge = health.integrity_check ? 'bg-success' : 'bg-danger';
+                    const integrityText = health.integrity_check ? 'OK' : 'Error';
+                    
+                    container.innerHTML = `
+                        <ul class="list-group list-group-flush">
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Database Size
+                                <span class="badge bg-primary rounded-pill">${health.file_size_mb} MB</span>
                             </li>
                             <li class="list-group-item d-flex justify-content-between align-items-center">
-                                RAM Used
-                                <span class="badge bg-primary rounded-pill">${data.ram_used} GB / ${data.ram_total} GB (${data.ram_percent}%)</span>
+                                Integrity Check
+                                <span class="badge ${integrityBadge} rounded-pill">${integrityText}</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Tables
+                                <span class="badge bg-info rounded-pill">${health.table_count}</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Indexes
+                                <span class="badge bg-secondary rounded-pill">${health.index_count}</span>
+                            </li>
+                        </ul>
+                    `;
+                    
+                    // Load table statistics
+                    loadDatabaseTables(data.table_stats);
+                }
+            })
+            .catch(error => {
+                console.error('Error loading database health:', error);
+                document.getElementById('databaseHealth').innerHTML = '<p class="text-danger">Error loading database info</p>';
+            });
+    }
+
+    function loadLogStats() {
+        fetch('/api/log_stats')
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('logStats');
+                if (data.error) {
+                    container.innerHTML = `<p class="text-danger">Error: ${data.error}</p>`;
+                } else {
+                    container.innerHTML = `
+                        <ul class="list-group list-group-flush">
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Current Log
+                                <span class="badge bg-primary rounded-pill">${data.current_log_size_mb} MB</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Total Size
+                                <span class="badge bg-secondary rounded-pill">${data.total_log_size_mb} MB</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Backup Files
+                                <span class="badge bg-info rounded-pill">${data.backup_files}</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Compressed
+                                <span class="badge bg-success rounded-pill">${data.compressed_files}</span>
                             </li>
                         </ul>
                     `;
                 }
             })
             .catch(error => {
-                console.error('Error loading system metrics:', error);
-                document.getElementById('systemMetrics').innerHTML = '<p class="text-danger">Error loading system metrics</p>';
+                console.error('Error loading log stats:', error);
+                document.getElementById('logStats').innerHTML = '<p class="text-danger">Error loading log stats</p>';
             });
+    }
+
+    function loadDatabaseTables(tableStats) {
+        const container = document.getElementById('databaseTables');
+        if (!tableStats) {
+            container.innerHTML = '<p class="text-muted">No table statistics available</p>';
+            return;
+        }
+        
+        let html = '<h6>Database Tables</h6><div class="table-responsive"><table class="table table-sm"><thead><tr><th>Table</th><th>Rows</th><th>Size Est.</th><th>Indexes</th></tr></thead><tbody>';
+        
+        for (const [tableName, stats] of Object.entries(tableStats)) {
+            const sizeKB = Math.round(stats.size_estimate / 1024);
+            html += `
+                <tr>
+                    <td>${tableName}</td>
+                    <td>${stats.row_count.toLocaleString()}</td>
+                    <td>${sizeKB} KB</td>
+                    <td>${stats.indexes.length}</td>
+                </tr>
+            `;
+        }
+        
+        html += '</tbody></table></div>';
+        container.innerHTML = html;
+    }
+
+    function loadCpuChart(hours) {
+        // Update active button
+        document.querySelectorAll('.btn-outline-primary').forEach(btn => btn.classList.remove('active'));
+        event.target.classList.add('active');
+        
+        fetch(`/api/system_metrics_history?hours=${hours}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    console.error('Error loading CPU chart:', data.error);
+                    return;
+                }
+                
+                const ctx = document.getElementById('cpuChart').getContext('2d');
+                
+                if (cpuChart) {
+                    cpuChart.destroy();
+                }
+                
+                const labels = data.history.map(item => {
+                    const date = new Date(item.timestamp);
+                    return date.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' });
+                });
+                
+                const cpuData = data.history.map(item => item.cpu_usage);
+                
+                cpuChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'CPU Usage (%)',
+                            data: cpuData,
+                            borderColor: 'rgb(54, 162, 235)',
+                            backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                            tension: 0.1,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                max: 100
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                display: false
+                            }
+                        }
+                    }
+                });
+            })
+            .catch(error => {
+                console.error('Error loading CPU chart:', error);
+            });
+    }
+
+    function loadMemoryChart(hours) {
+        // Update active button
+        document.querySelectorAll('.btn-outline-success').forEach(btn => btn.classList.remove('active'));
+        event.target.classList.add('active');
+        
+        fetch(`/api/system_metrics_history?hours=${hours}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    console.error('Error loading memory chart:', data.error);
+                    return;
+                }
+                
+                const ctx = document.getElementById('memoryChart').getContext('2d');
+                
+                if (memoryChart) {
+                    memoryChart.destroy();
+                }
+                
+                const labels = data.history.map(item => {
+                    const date = new Date(item.timestamp);
+                    return date.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' });
+                });
+                
+                const memoryData = data.history.map(item => item.memory_usage);
+                
+                memoryChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Memory Usage (%)',
+                            data: memoryData,
+                            borderColor: 'rgb(75, 192, 192)',
+                            backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                            tension: 0.1,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                max: 100
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                display: false
+                            }
+                        }
+                    }
+                });
+            })
+            .catch(error => {
+                console.error('Error loading memory chart:', error);
+            });
+    }
+
+    function loadTemperatureChart(hours) {
+        // Update active button
+        document.querySelectorAll('.btn-outline-danger').forEach(btn => btn.classList.remove('active'));
+        event.target.classList.add('active');
+        
+        fetch(`/api/system_metrics_history?hours=${hours}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    console.error('Error loading temperature chart:', data.error);
+                    return;
+                }
+                
+                const ctx = document.getElementById('temperatureChart').getContext('2d');
+                
+                if (temperatureChart) {
+                    temperatureChart.destroy();
+                }
+                
+                const labels = data.history.map(item => {
+                    const date = new Date(item.timestamp);
+                    return date.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' });
+                });
+                
+                const tempData = data.history.map(item => item.cpu_temperature).filter(temp => temp !== null);
+                const tempLabels = data.history.filter(item => item.cpu_temperature !== null).map(item => {
+                    const date = new Date(item.timestamp);
+                    return date.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' });
+                });
+                
+                if (tempData.length === 0) {
+                    ctx.canvas.parentElement.innerHTML = '<p class="text-muted text-center">CPU temperature data not available</p>';
+                    return;
+                }
+                
+                temperatureChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: tempLabels,
+                        datasets: [{
+                            label: 'CPU Temperature (°C)',
+                            data: tempData,
+                            borderColor: 'rgb(255, 99, 132)',
+                            backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                            tension: 0.1,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            y: {
+                                beginAtZero: false
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                display: false
+                            }
+                        }
+                    }
+                });
+            })
+            .catch(error => {
+                console.error('Error loading temperature chart:', error);
+            });
+    }
+
+    function optimizeDatabase(full) {
+        const resultsDiv = document.getElementById('actionResults');
+        resultsDiv.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"></div> Optimizing...';
+        
+        fetch('/api/optimize_database', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ full: full })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const results = data.results;
+                let html = '<div class="alert alert-success alert-sm">Optimization completed:</div><ul class="list-unstyled small">';
+                
+                if (results.indexes_created) html += '<li>✅ Indexes created</li>';
+                if (results.database_analyzed) html += '<li>✅ Database analyzed</li>';
+                if (results.database_vacuumed) html += '<li>✅ Database vacuumed</li>';
+                
+                html += '</ul>';
+                resultsDiv.innerHTML = html;
+                
+                // Refresh database health
+                setTimeout(() => {
+                    loadDatabaseHealth();
+                    resultsDiv.innerHTML = '';
+                }, 3000);
+            } else {
+                resultsDiv.innerHTML = `<div class="alert alert-danger alert-sm">Error: ${data.error}</div>`;
+            }
+        })
+        .catch(error => {
+            console.error('Error optimizing database:', error);
+            resultsDiv.innerHTML = '<div class="alert alert-danger alert-sm">Optimization failed</div>';
+        });
+    }
+
+    function forceLogRotation() {
+        const resultsDiv = document.getElementById('actionResults');
+        resultsDiv.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"></div> Rotating logs...';
+        
+        fetch('/api/force_log_rotation', {
+            method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                resultsDiv.innerHTML = '<div class="alert alert-success alert-sm">Log rotation completed</div>';
+                
+                // Refresh log stats
+                setTimeout(() => {
+                    loadLogStats();
+                    resultsDiv.innerHTML = '';
+                }, 2000);
+            } else {
+                resultsDiv.innerHTML = `<div class="alert alert-danger alert-sm">Error: ${data.error}</div>`;
+            }
+        })
+        .catch(error => {
+            console.error('Error rotating logs:', error);
+            resultsDiv.innerHTML = '<div class="alert alert-danger alert-sm">Log rotation failed</div>';
+        });
     }
 </script>
 {% endblock %}

@@ -17,6 +17,9 @@ import psutil
 
 from config import load_config
 from models import WeatherForecast
+from system_monitor import get_system_monitor, start_system_monitoring
+from log_rotation import get_log_rotator
+from database_optimizer import get_database_optimizer
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -1378,8 +1381,119 @@ def api_forecast_comparison():
         logger.error(f"Error generating forecast comparison: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/system_metrics_history')
+@login_required
+def api_system_metrics_history():
+    """Get system metrics history for charts."""
+    try:
+        hours = request.args.get('hours', 24, type=int)
+        system_monitor = get_system_monitor()
+        
+        history = system_monitor.get_metrics_history(hours)
+        summary = system_monitor.get_metrics_summary(hours)
+        
+        return jsonify({
+            'history': history,
+            'summary': summary,
+            'period_hours': hours,
+            'data_points': len(history)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting system metrics history: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/system_metrics_current')
+@login_required
+def api_system_metrics_current():
+    """Get current system metrics."""
+    try:
+        system_monitor = get_system_monitor()
+        current_metrics = system_monitor.get_current_metrics()
+        
+        return jsonify(current_metrics)
+        
+    except Exception as e:
+        logger.error(f"Error getting current system metrics: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/log_stats')
+@login_required
+def api_log_stats():
+    """Get log file statistics."""
+    try:
+        log_rotator = get_log_rotator('weather_monitor.log')
+        stats = log_rotator.get_log_stats()
+        
+        return jsonify(stats)
+        
+    except Exception as e:
+        logger.error(f"Error getting log stats: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/database_health')
+@login_required
+def api_database_health():
+    """Get database health and optimization status."""
+    try:
+        db_optimizer = get_database_optimizer('weather_data.db')
+        health = db_optimizer.check_database_health()
+        table_stats = db_optimizer.get_table_stats()
+        index_info = db_optimizer.get_index_usage()
+        
+        return jsonify({
+            'health': health,
+            'table_stats': table_stats,
+            'index_info': index_info
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting database health: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/optimize_database', methods=['POST'])
+@login_required
+def api_optimize_database():
+    """Trigger database optimization."""
+    try:
+        full_optimization = request.json.get('full', False) if request.is_json else False
+        
+        db_optimizer = get_database_optimizer('weather_data.db')
+        results = db_optimizer.optimize_database(full_optimization)
+        
+        return jsonify({
+            'success': True,
+            'results': results,
+            'full_optimization': full_optimization
+        })
+        
+    except Exception as e:
+        logger.error(f"Error optimizing database: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/force_log_rotation', methods=['POST'])
+@login_required
+def api_force_log_rotation():
+    """Force log rotation."""
+    try:
+        log_rotator = get_log_rotator('weather_monitor.log')
+        log_rotator.force_rotation()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Log rotation completed'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error forcing log rotation: {e}")
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     # Create templates directory if it doesn't exist
     Path('templates').mkdir(exist_ok=True)
+    
+    # Start system monitoring
+    start_system_monitoring('weather_data.db', interval=60)
+    logger.info("System monitoring started")
     
     app.run(host='0.0.0.0', port=5000, debug=True, ssl_context=('cert.pem', 'key.pem'))
