@@ -36,17 +36,17 @@ class DatabaseOptimizer:
             # Storm analysis indexes
             "CREATE INDEX IF NOT EXISTS idx_storm_timestamp ON storm_analysis(timestamp)",
             "CREATE INDEX IF NOT EXISTS idx_storm_confidence ON storm_analysis(confidence_score)",
-            "CREATE INDEX IF NOT EXISTS idx_storm_severity ON storm_analysis(severity_level)",
+            "CREATE INDEX IF NOT EXISTS idx_storm_alert_level ON storm_analysis(alert_level)",
             
             # Email notifications indexes
             "CREATE INDEX IF NOT EXISTS idx_email_timestamp ON email_notifications(timestamp)",
-            "CREATE INDEX IF NOT EXISTS idx_email_type ON email_notifications(notification_type)",
-            "CREATE INDEX IF NOT EXISTS idx_email_status ON email_notifications(status)",
+            "CREATE INDEX IF NOT EXISTS idx_email_type ON email_notifications(message_type)",
+            "CREATE INDEX IF NOT EXISTS idx_email_success ON email_notifications(sent_successfully)",
             
             # System status indexes
             "CREATE INDEX IF NOT EXISTS idx_system_timestamp ON system_status(timestamp)",
-            "CREATE INDEX IF NOT EXISTS idx_system_cpu ON system_status(cpu_usage)",
-            "CREATE INDEX IF NOT EXISTS idx_system_memory ON system_status(memory_usage)",
+            "CREATE INDEX IF NOT EXISTS idx_system_component ON system_status(component)",
+            "CREATE INDEX IF NOT EXISTS idx_system_status ON system_status(status)",
             
             # Weather condition cache indexes
             "CREATE INDEX IF NOT EXISTS idx_cache_timestamp ON weather_condition_cache(timestamp)",
