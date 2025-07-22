@@ -31,6 +31,10 @@ app = Flask(__name__, static_url_path='/static')
 config = load_config()
 app.secret_key = config.webapp.secret_key
 
+# Initialize database first
+from storage import WeatherDatabase
+db = WeatherDatabase(config)
+
 # Simple authentication
 USERNAME = config.webapp.username
 PASSWORD = config.webapp.password
@@ -128,8 +132,6 @@ def logout():
 @login_required
 def dashboard():
     """Main dashboard page."""
-    from storage import WeatherDatabase
-    db = WeatherDatabase(config)
     
     # Fetch the latest forecasts for each method
     latest_ensemble = db.get_latest_forecast_by_method('ensemble')
