@@ -44,7 +44,7 @@ class DatabaseOptimizer:
             "CREATE INDEX IF NOT EXISTS idx_email_success ON email_notifications(sent_successfully)",
             
             # System status indexes
-            "CREATE INDEX IF NOT EXISTS idx_system_timestamp ON system_status(created_at)",
+            "CREATE INDEX IF NOT EXISTS idx_system_timestamp ON system_status(timestamp)",
             "CREATE INDEX IF NOT EXISTS idx_system_component ON system_status(component)",
             "CREATE INDEX IF NOT EXISTS idx_system_status ON system_status(status)",
             
@@ -55,13 +55,11 @@ class DatabaseOptimizer:
             "CREATE INDEX IF NOT EXISTS idx_patterns_recorded_at ON storm_patterns(recorded_at)",
             
             # Weather forecasts indexes
-            "CREATE INDEX IF NOT EXISTS idx_forecast_timestamp ON weather_forecasts(created_at)",
-            "CREATE INDEX IF NOT EXISTS idx_forecast_date ON weather_forecasts(forecast_date)",
+            "CREATE INDEX IF NOT EXISTS idx_forecast_timestamp ON weather_forecasts(timestamp)",
             "CREATE INDEX IF NOT EXISTS idx_forecast_method ON weather_forecasts(method)",
             
             # Enhanced forecasts indexes
-            "CREATE INDEX IF NOT EXISTS idx_enhanced_timestamp ON enhanced_forecasts(created_at)",
-            "CREATE INDEX IF NOT EXISTS idx_enhanced_date ON enhanced_forecasts(forecast_date)",
+            "CREATE INDEX IF NOT EXISTS idx_enhanced_timestamp ON enhanced_forecasts(timestamp)",
             "CREATE INDEX IF NOT EXISTS idx_enhanced_confidence ON enhanced_forecasts(confidence_score)"
         ]
         
