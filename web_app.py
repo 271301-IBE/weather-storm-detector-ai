@@ -1417,6 +1417,19 @@ def api_system_metrics_current():
         logger.error(f"Error getting current system metrics: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/weather_processes')
+@login_required
+def api_weather_processes():
+    """Get running weather-related processes."""
+    try:
+        system_monitor = get_system_monitor()
+        processes = system_monitor.check_weather_processes()
+        return jsonify(processes)
+    except Exception as e:
+        logger.error(f"Error getting weather processes: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/log_stats')
 @login_required
 def api_log_stats():

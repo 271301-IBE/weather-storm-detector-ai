@@ -1,9 +1,3 @@
-{% extends "base.html" %}
-
-{% block title %}Weather Storm Detection - System Info{% endblock %}
-
-{% block content %}
-<!-- Current System Metrics -->
 <div class="row mb-4">
     <div class="col-md-4">
         <div class="card">
@@ -24,7 +18,7 @@
     <div class="col-md-4">
         <div class="card">
             <div class="card-header">Log Statistics 📝</div>
-            <div class="card-body" id="logStats">
+            <div class.card-body" id="logStats">
                 <p class="text-center">Loading log stats...</p>
             </div>
         </div>
@@ -84,9 +78,9 @@
     </div>
 </div>
 
-<!-- Database Management -->
+<!-- Database Management and Processes -->
 <div class="row mb-4">
-    <div class="col-md-12">
+    <div class="col-md-8">
         <div class="card">
             <div class="card-header">Database Management 🔧</div>
             <div class="card-body">
@@ -105,6 +99,14 @@
             </div>
         </div>
     </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">Weather Processes 🌤️</div>
+            <div class="card-body" id="weatherProcesses">
+                <p class="text-center">Loading processes...</p>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
@@ -117,6 +119,7 @@
         loadCurrentMetrics();
         loadDatabaseHealth();
         loadLogStats();
+        loadWeatherProcesses();
         loadCpuChart(24);
         loadMemoryChart(24);
         loadTemperatureChart(24);
@@ -124,6 +127,7 @@
         // Refresh current metrics every 30 seconds
         setInterval(loadCurrentMetrics, 30000);
         setInterval(loadLogStats, 60000);
+        setInterval(loadWeatherProcesses, 60000);
     });
 
     function loadCurrentMetrics() {
@@ -135,6 +139,7 @@
                     container.innerHTML = `<p class="text-danger">Error: ${data.error}</p>`;
                 } else {
                     const tempDisplay = data.cpu_temperature ? `${data.cpu_temperature}°C` : 'N/A';
+                    const loadAvgDisplay = data.load_avg ? `${data.load_avg[0].toFixed(2)}, ${data.load_avg[1].toFixed(2)}, ${data.load_avg[2].toFixed(2)}` : 'N/A';
                     container.innerHTML = `
                         <ul class="list-group list-group-flush">
                             <li class="list-group-item d-flex justify-content-between align-items-center">
@@ -154,6 +159,10 @@
                                 Disk Usage
                                 <span class="badge bg-warning rounded-pill">${data.disk_usage}%</span>
                             </li>` : ''}
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Load Average
+                                <span class="badge bg-info rounded-pill">${loadAvgDisplay}</span>
+                            </li>
                         </ul>
                     `;
                 }
@@ -240,6 +249,35 @@
             .catch(error => {
                 console.error('Error loading log stats:', error);
                 document.getElementById('logStats').innerHTML = '<p class="text-danger">Error loading log stats</p>';
+            });
+    }
+
+    function loadWeatherProcesses() {
+        fetch('/api/weather_processes')
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('weatherProcesses');
+                if (data.error) {
+                    container.innerHTML = `<p class="text-danger">Error: ${data.error}</p>`;
+                } else if (data.length === 0) {
+                    container.innerHTML = '<p class="text-muted">No weather-related processes found</p>';
+                } else {
+                    let html = '<ul class="list-group list-group-flush">';
+                    data.forEach(proc => {
+                        html += `
+                            <li class="list-group-item">
+                                <strong>${proc.name}</strong> (PID: ${proc.pid})<br>
+                                <small>CPU: ${proc.cpu_percent.toFixed(1)}% | MEM: ${proc.memory_percent.toFixed(1)}%</small>
+                            </li>
+                        `;
+                    });
+                    html += '</ul>';
+                    container.innerHTML = html;
+                }
+            })
+            .catch(error => {
+                console.error('Error loading weather processes:', error);
+                document.getElementById('weatherProcesses').innerHTML = '<p class="text-danger">Error loading processes</p>';
             });
     }
 

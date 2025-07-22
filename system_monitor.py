@@ -8,6 +8,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
+import os
 
 @dataclass
 class SystemMetrics:
@@ -19,6 +20,7 @@ class SystemMetrics:
     disk_usage: Optional[float] = None
     network_bytes_sent: Optional[int] = None
     network_bytes_recv: Optional[int] = None
+    load_avg: Optional[tuple] = None
 
 class SystemMonitor:
     """System monitor for tracking hardware metrics."""
@@ -53,6 +55,9 @@ class SystemMonitor:
                         disk_usage REAL,
                         network_bytes_sent INTEGER,
                         network_bytes_recv INTEGER,
+                        load_avg_1m REAL,
+                        load_avg_5m REAL,
+                        load_avg_15m REAL,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
@@ -124,6 +129,9 @@ class SystemMonitor:
             network_sent = network.bytes_sent
             network_recv = network.bytes_recv
             
+            # Load average
+            load_avg = os.getloadavg() if hasattr(os, 'getloadavg') else None
+            
             return SystemMetrics(
                 timestamp=datetime.now(),
                 cpu_usage=cpu_usage,
@@ -131,7 +139,8 @@ class SystemMonitor:
                 cpu_temperature=cpu_temp,
                 disk_usage=disk_usage,
                 network_bytes_sent=network_sent,
-                network_bytes_recv=network_recv
+                network_bytes_recv=network_recv,
+                load_avg=load_avg
             )
             
         except Exception as e:
@@ -148,11 +157,15 @@ class SystemMonitor:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
+                
+                load_avg = metrics.load_avg or (None, None, None)
+                
                 cursor.execute("""
                     INSERT INTO system_metrics 
                     (timestamp, cpu_usage, memory_usage, cpu_temperature, 
-                     disk_usage, network_bytes_sent, network_bytes_recv)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                     disk_usage, network_bytes_sent, network_bytes_recv,
+                     load_avg_1m, load_avg_5m, load_avg_15m)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     metrics.timestamp,
                     metrics.cpu_usage,
@@ -160,7 +173,10 @@ class SystemMonitor:
                     metrics.cpu_temperature,
                     metrics.disk_usage,
                     metrics.network_bytes_sent,
-                    metrics.network_bytes_recv
+                    metrics.network_bytes_recv,
+                    load_avg[0],
+                    load_avg[1],
+                    load_avg[2]
                 ))
                 conn.commit()
                 
@@ -177,7 +193,8 @@ class SystemMonitor:
                 
                 cursor.execute("""
                     SELECT timestamp, cpu_usage, memory_usage, cpu_temperature,
-                           disk_usage, network_bytes_sent, network_bytes_recv
+                           disk_usage, network_bytes_sent, network_bytes_recv,
+                           load_avg_1m, load_avg_5m, load_avg_15m
                     FROM system_metrics 
                     WHERE timestamp >= ?
                     ORDER BY timestamp ASC
@@ -194,7 +211,8 @@ class SystemMonitor:
                         'cpu_temperature': row[3],
                         'disk_usage': row[4],
                         'network_bytes_sent': row[5],
-                        'network_bytes_recv': row[6]
+                        'network_bytes_recv': row[6],
+                        'load_avg': (row[7], row[8], row[9])
                     })
                 
                 return metrics
@@ -213,7 +231,8 @@ class SystemMonitor:
             'cpu_temperature': metrics.cpu_temperature,
             'disk_usage': metrics.disk_usage,
             'network_bytes_sent': metrics.network_bytes_sent,
-            'network_bytes_recv': metrics.network_bytes_recv
+            'network_bytes_recv': metrics.network_bytes_recv,
+            'load_avg': metrics.load_avg
         }
     
     def get_metrics_summary(self, hours: int = 24) -> Dict[str, Any]:
@@ -254,6 +273,28 @@ class SystemMonitor:
         
         return summary
     
+    def check_weather_processes(self) -> List[Dict[str, Any]]:
+        """Check running weather-related processes."""
+        weather_processes = []
+        try:
+            for proc in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent', 'cmdline']):
+                try:
+                    cmdline = ' '.join(proc.info['cmdline']) if proc.info['cmdline'] else ''
+                    if any(keyword in cmdline.lower() for keyword in ['weather', 'storm', 'scheduler', 'python3']):
+                        if 'weather' in cmdline.lower() or 'storm' in cmdline.lower() or 'scheduler' in cmdline.lower():
+                            weather_processes.append({
+                                'pid': proc.info['pid'],
+                                'name': proc.info['name'],
+                                'cpu_percent': proc.info['cpu_percent'],
+                                'memory_percent': proc.info['memory_percent'],
+                                'cmdline': cmdline[:80] + '...' if len(cmdline) > 80 else cmdline
+                            })
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+        except Exception as e:
+            self.logger.error(f"Error checking weather processes: {e}")
+        return weather_processes
+
     def cleanup_old_metrics(self, days: int = 30):
         """Remove old metrics data."""
         try:
