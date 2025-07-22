@@ -56,10 +56,10 @@ class DatabaseOptimizer:
             
             # Weather forecasts indexes
             "CREATE INDEX IF NOT EXISTS idx_forecast_timestamp ON weather_forecasts(timestamp)",
-            "CREATE INDEX IF NOT EXISTS idx_forecast_method ON weather_forecasts(method)",
             
             # Enhanced forecasts indexes
             "CREATE INDEX IF NOT EXISTS idx_enhanced_timestamp ON enhanced_forecasts(timestamp)",
+            "CREATE INDEX IF NOT EXISTS idx_enhanced_method ON enhanced_forecasts(method)",
             "CREATE INDEX IF NOT EXISTS idx_enhanced_confidence ON enhanced_forecasts(confidence_score)"
         ]
         
