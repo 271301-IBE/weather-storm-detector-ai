@@ -1203,29 +1203,11 @@ def api_enhanced_forecast():
         ai_forecast = format_forecast_data(latest_ai)
 
         result = {
-            'ensemble': {
-                'forecast': ensemble_forecast,
-                'method': latest_ensemble.get('metadata', {}).get('primary_method', 'ensemble') if latest_ensemble else 'N/A',
-                'confidence': round(latest_ensemble.get('confidence', {}).get('ensemble', 0.5) * 100, 0) if latest_ensemble else 0,
-                'generated_at': latest_ensemble.get('timestamp') if latest_ensemble else None,
-                'data_points_used': len(ensemble_forecast)
-            },
-            'physics': {
-                'forecast': physics_forecast,
-                'method': latest_physics.get('metadata', {}).get('primary_method', 'physics') if latest_physics else 'N/A',
-                'confidence': round(latest_physics.get('confidence', {}).get('physics', 0.6) * 100, 0) if latest_physics else 0,
-                'generated_at': latest_physics.get('timestamp') if latest_physics else None,
-                'data_points_used': len(physics_forecast)
-            },
-            'ai': {
-                'forecast': ai_forecast,
-                'method': latest_ai.get('metadata', {}).get('primary_method', 'ai') if latest_ai else 'N/A',
-                'confidence': round(latest_ai.get('confidence', {}).get('ai', 0.7) * 100, 0) if latest_ai else 0,
-                'generated_at': latest_ai.get('timestamp') if latest_ai else None,
-                'data_points_used': len(ai_forecast)
-            },
+            'ensemble': ensemble_forecast,
+            'physics': physics_forecast,
+            'ai': ai_forecast,
             'generated_at': datetime.now().isoformat(), # Overall generation time
-            'data_points_used': max(len(ensemble_forecast), len(physics_forecast), len(ai_forecast))
+            'data_points_used': max(len(ensemble_forecast['forecast']) if ensemble_forecast else 0, len(physics_forecast['forecast']) if physics_forecast else 0, len(ai_forecast['forecast']) if ai_forecast else 0)
         }
         
         logger.info(f"Returning enhanced forecast data for ensemble ({len(ensemble_forecast)}), physics ({len(physics_forecast)}), and AI ({len(ai_forecast)})")
