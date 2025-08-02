@@ -275,7 +275,7 @@ class EmailNotifier:
             
         return notification
     
-    def send_chmi_warning(self, warnings: List[ChmiWarning]) -> ChmiWarningNotification:
+    async def send_chmi_warning(self, warnings: List[ChmiWarning]) -> ChmiWarningNotification:
         """Send ČHMÚ warning email - jen pro bouřky/srážky."""
         if not warnings:
             raise ValueError("No warnings provided")

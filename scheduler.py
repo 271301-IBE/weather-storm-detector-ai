@@ -276,7 +276,7 @@ class WeatherMonitoringScheduler:
                 
                 if not recent_storm_alert:
                     # Send standalone ČHMÚ notification email
-                    notification = self.email_notifier.send_chmi_warning(new_warnings)
+                    notification = await self.email_notifier.send_chmi_warning(new_warnings)
                     
                     if notification.sent_successfully:
                         logger.warning(f"STANDALONE ČHMÚ WARNING EMAIL SENT: {len(new_warnings)} warning(s) for {self.config.weather.city_name}")
