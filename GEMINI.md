@@ -21,6 +21,7 @@ This project is a comprehensive weather monitoring and storm detection system fo
 *   **Detailed PDF Reports:** Generates comprehensive weather analysis reports.
 *   **Web Dashboard:** A Flask-based web application provides a user interface for monitoring weather data, AI analysis, and system status.
 *   **Lightning Detection:** Integrates with Blitzortung.org for real-time lightning data.
+*   **Dark Mode:** The web interface includes a dark mode option for better readability in low-light environments.
 
 ## Building and Running
 
@@ -77,3 +78,21 @@ To stop only the main monitoring system, use the `stop.sh` script.
 *   **Modularity:** The project is well-structured, with different modules for data fetching, AI analysis, email notifications, and other functionalities.
 *   **Web Interface:** The web interface is built with Flask and provides a simple dashboard for monitoring the system. It includes API endpoints for fetching data and a basic authentication system.
 *   **Testing:** The project includes a number of test files (e.g., `test_system.py`, `test_combined_system.py`), which suggests that testing is an important part of the development process.
+
+## Recent Changes and Optimizations
+
+*   **Performance Optimization:**
+    *   Removed lightning stats from the main dashboard to improve loading times.
+    *   Optimized the "System Info" page to prevent automatic loading of database statistics, reducing CPU load and overheating on Raspberry Pi.
+*   **Forecast Display:**
+    *   Fixed a bug that caused missing "Confidence" and "Last updated" information in the "Next 6 Hours Forecast" section.
+    *   Corrected the logic in the "Local Physics" forecast to generate dynamic values for each hour, instead of repeating the same values.
+*   **Email Notifications:**
+    *   Fixed a `NameError` in `email_notifier.py` by adding a missing `asyncio` import.
+    *   Resolved a `SyntaxError: 'await' outside async function` by converting the `send_chmi_warning` function to an `async` function.
+*   **AI Analysis:**
+    *   Addressed an `invalid_request_error` by reducing the amount of data sent to the DeepSeek API, preventing context length issues.
+*   **Database:**
+    *   Fixed a "cannot VACUUM from within a transaction" error by ensuring the `VACUUM` command is executed outside of any active transactions.
+*   **User Interface:**
+    *   Added a dark mode feature to the web interface for improved usability in low-light conditions.
