@@ -95,10 +95,36 @@
         .dark-mode .table-striped>tbody>tr:nth-of-type(odd) {
             background-color: rgba(255, 255, 255, 0.05);
         }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .sidebar {
+                left: -250px;
+                transition: left 0.3s;
+            }
+            .sidebar.active {
+                left: 0;
+            }
+            .content {
+                margin-left: 0;
+            }
+            .navbar-toggler {
+                display: block;
+            }
+        }
     </style>
     {% block head %}{% endblock %}
 </head>
 <body>
+    <nav class="navbar navbar-light bg-light d-md-none">
+        <div class="container-fluid">
+            <button class="navbar-toggler" type="button">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <a class="navbar-brand" href="#">🌩️ Weather AI</a>
+        </div>
+    </nav>
+
     <div class="sidebar">
         <h4 class="text-center mb-4">🌩️ Weather AI</h4>
         <ul class="nav flex-column">
@@ -156,6 +182,10 @@
             } else {
                 disableDarkMode();
             }
+        });
+
+        document.querySelector('.navbar-toggler').addEventListener('click', () => {
+            document.querySelector('.sidebar').classList.toggle('active');
         });
     </script>
     {% block scripts %}{% endblock %}
