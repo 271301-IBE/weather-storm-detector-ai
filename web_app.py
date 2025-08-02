@@ -163,9 +163,9 @@ def dashboard():
             
         return {
             'forecast': formatted_data,
-            'method': forecast.primary_method.value,
-            'confidence': round(forecast.method_confidences.get(forecast.primary_method.value, 0) * 100, 0),
-            'generated_at': forecast.timestamp.isoformat()
+            'method': forecast.primary_method.value if forecast.primary_method else 'N/A',
+            'confidence': round(forecast.method_confidences.get(forecast.primary_method.value, 0) * 100, 0) if forecast.method_confidences and forecast.primary_method else 0,
+            'generated_at': forecast.timestamp.isoformat() if forecast.timestamp else None
         }
 
     # Prepare data for rendering

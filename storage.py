@@ -400,10 +400,11 @@ class WeatherDatabase:
                              (cutoff_time.isoformat(),))
                 forecast_deleted = cursor.rowcount
                 
-                # Vacuum database to reclaim space
+                conn.commit()
+
+                # Vacuum database to reclaim space (outside of transaction)
                 cursor.execute("VACUUM")
                 
-                conn.commit()
                 logger.info(f"Cleaned up old data: {weather_deleted} weather records, {email_deleted} emails, {analysis_deleted} analyses, {forecast_deleted} forecasts")
                 
         except Exception as e:

@@ -43,16 +43,15 @@ class DeepSeekAnalyzer:
     def _prepare_weather_context(self, weather_data: List[WeatherData], historical_patterns: List = None, chmi_warnings: List[ChmiWarning] = None, lightning_activity: Dict[str, Any] = None) -> str:
         """Prepare weather data context for AI analysis, limiting size."""
         
-        # Limit weather_data to the most recent 24 hours or a reasonable number of entries
-        # Assuming weather_data is sorted by timestamp (most recent first)
+        # Limit weather_data to the most recent 12 hours or a reasonable number of entries
         limited_weather_data = []
         if weather_data:
-            # Take data from the last 24 hours, or up to 50 entries if older data is needed
-            time_limit = datetime.now() - timedelta(hours=24)
+            # Take data from the last 12 hours, or up to 30 entries if older data is needed
+            time_limit = datetime.now() - timedelta(hours=12)
             for data in weather_data:
                 if data.timestamp >= time_limit:
                     limited_weather_data.append(data)
-                if len(limited_weather_data) >= 50: # Cap at 50 entries to prevent excessive size
+                if len(limited_weather_data) >= 30: # Cap at 30 entries to prevent excessive size
                     break
         
         context = {
@@ -91,7 +90,7 @@ class DeepSeekAnalyzer:
         # Add ČHMÚ warnings if available
         if chmi_warnings:
             # Limit to most recent/relevant warnings if there are many
-            for warning in chmi_warnings[:5]: # Limit to top 5 warnings
+            for warning in chmi_warnings[:3]: # Limit to top 3 warnings
                 warning_data = {
                     "id": warning.identifier,
                     "event": warning.event,
@@ -111,8 +110,8 @@ class DeepSeekAnalyzer:
 
         # Summarize historical storm patterns if available
         if historical_patterns:
-            # Only include a summary of the most recent 5 patterns
-            for i, pattern_data_list in enumerate(historical_patterns[:5]):
+            # Only include a summary of the most recent 3 patterns
+            for i, pattern_data_list in enumerate(historical_patterns[:3]):
                 if pattern_data_list:
                     # Take the first (most recent) data point from the pattern for summary
                     first_data_point = pattern_data_list[0]
@@ -537,13 +536,15 @@ class StormDetectionEngine:
         if not analysis.storm_detected:
             return False
             
-        if analysis.confidence_score < self.config.ai.storm_confidence_threshold:
-            logger.info(f"Storm detected but confidence too low: {analysis.confidence_score:.3f} < {self.config.ai.storm_confidence_threshold}")
-            return False
-            
+        if analysis.confidence_score >= self.config.ai.storm_confidence_threshold:
+            logger.info(f"Storm detected with high confidence: {analysis.confidence_score:.3f} >= {self.config.ai.storm_confidence_threshold}")
+            return True
+
         if analysis.alert_level in [AlertLevel.HIGH, AlertLevel.CRITICAL]:
+            logger.info(f"Storm detected with high alert level: {analysis.alert_level}")
             return True
             
+        logger.info(f"Storm detected but confidence too low: {analysis.confidence_score:.3f} < {self.config.ai.storm_confidence_threshold} and alert level is {analysis.alert_level}")
         return False
 
 class DeepSeekPredictor:
@@ -854,19 +855,30 @@ class LocalForecastGenerator:
             predicted_humidity = max(0.0, min(100.0, predicted_humidity))
             predicted_pressure = max(900.0, min(1100.0, predicted_pressure)) # Typical pressure range
 
-            # For other metrics, use the average from recent data
+            # For other metrics, use a mix of trend and latest data
+            predicted_wind_speed = latest_data.wind_speed + (calculate_trend([d.wind_speed for d in recent_data]) * i)
+            predicted_precipitation = latest_data.precipitation + (calculate_trend([d.precipitation for d in recent_data]) * i)
+            predicted_precipitation_probability = latest_data.precipitation_probability + (calculate_trend([d.precipitation_probability for d in recent_data if d.precipitation_probability is not None]) * i)
+            predicted_cloud_cover = latest_data.cloud_cover + (calculate_trend([d.cloud_cover for d in recent_data]) * i)
+
+            # Clamp values
+            predicted_wind_speed = max(0, predicted_wind_speed)
+            predicted_precipitation = max(0, predicted_precipitation)
+            predicted_precipitation_probability = max(0, min(100, predicted_precipitation_probability))
+            predicted_cloud_cover = max(0, min(100, predicted_cloud_cover))
+
             forecast_data.append(PredictedWeatherData(
                 timestamp=predicted_timestamp,
                 temperature=predicted_temperature,
                 humidity=predicted_humidity,
                 pressure=predicted_pressure,
-                wind_speed=avg_wind_speed,
-                wind_direction=avg_wind_direction,
-                precipitation=avg_precipitation,
-                precipitation_probability=avg_precipitation_probability,
+                wind_speed=predicted_wind_speed,
+                wind_direction=avg_wind_direction, # Keep avg for direction
+                precipitation=predicted_precipitation,
+                precipitation_probability=predicted_precipitation_probability,
                 condition=most_frequent_condition,
-                cloud_cover=avg_cloud_cover,
-                visibility=avg_visibility,
+                cloud_cover=predicted_cloud_cover,
+                visibility=avg_visibility, # Keep avg for visibility
                 description=f"Forecast for hour {i}" # Generic description
             ))
         return WeatherForecast(timestamp=datetime.now(), forecast_data=forecast_data)

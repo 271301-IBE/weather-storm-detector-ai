@@ -330,7 +330,11 @@ class EmailNotifier:
             
             # Run AI analysis with ČHMÚ warnings as context
             ai_engine = StormDetectionEngine(self.config)
-            ai_analysis_result = asyncio.run(ai_engine.analyze_storm_potential(current_weather_data, chmi_warnings=storm_warnings))
+            try:
+                loop = asyncio.get_running_loop()
+                ai_analysis_result = await ai_engine.analyze_storm_potential(current_weather_data, chmi_warnings=storm_warnings)
+            except RuntimeError:  # No running loop
+                ai_analysis_result = asyncio.run(ai_engine.analyze_storm_potential(current_weather_data, chmi_warnings=storm_warnings))
 
             msg = self._create_chmi_warning_email(storm_warnings, ai_analysis=ai_analysis_result)
             

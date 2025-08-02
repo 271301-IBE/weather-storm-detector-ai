@@ -92,7 +92,7 @@
             <div class="card-body">
                 <div class="row">
                     <div class="col-md-8" id="databaseTables">
-                        <p class="text-center">Loading database tables...</p>
+                        <button class="btn btn-info btn-sm mb-2" onclick="loadDatabaseTables()">Load Table Stats</button>
                     </div>
                     <div class="col-md-4">
                         <h6>Actions</h6>
@@ -211,9 +211,6 @@
                             </li>
                         </ul>
                     `;
-                    
-                    // Load table statistics
-                    loadDatabaseTables(data.table_stats);
                 }
             })
             .catch(error => {
