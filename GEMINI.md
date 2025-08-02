@@ -23,6 +23,10 @@ This project is a comprehensive weather monitoring and storm detection system fo
 *   **Lightning Detection:** Integrates with Blitzortung.org for real-time lightning data.
 *   **Dark Mode:** The web interface includes a dark mode option for better readability in low-light environments.
 
+## Workflow
+
+After every successful code modification, the changes should be pushed to the GitHub repository.
+
 ## Building and Running
 
 The project is primarily run using shell scripts that handle environment setup, process management, and execution of the main Python scripts.
@@ -96,3 +100,4 @@ To stop only the main monitoring system, use the `stop.sh` script.
     *   Fixed a "cannot VACUUM from within a transaction" error by ensuring the `VACUUM` command is executed outside of any active transactions.
 *   **User Interface:**
     *   Added a dark mode feature to the web interface for improved usability in low-light conditions.
+    *   Implemented a responsive design for mobile devices, including a collapsible sidebar and a hamburger menu.
