@@ -145,9 +145,10 @@ class WeatherDatabase:
         conn = sqlite3.connect(self.db_path)
         try:
             # Optimize database connection
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA synchronous=NORMAL")
-            conn.execute("PRAGMA cache_size=10000")
+            conn.execute("PRAGMA journal_mode=MEMORY")  # In-memory journal reduces disk I/O
+            conn.execute("PRAGMA synchronous=OFF")      # Faster writes, acceptable risk on SD cards
+            conn.execute("PRAGMA mmap_size=300000000")  # Enable 300 MB memory map for reads
+            conn.execute("PRAGMA cache_size=20000")     # Larger page cache for frequent queries
             conn.execute("PRAGMA temp_store=MEMORY")
             yield conn
         finally:
