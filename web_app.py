@@ -1207,7 +1207,7 @@ def api_enhanced_forecast():
             'physics': physics_forecast,
             'ai': ai_forecast,
             'generated_at': datetime.now().isoformat(), # Overall generation time
-            'data_points_used': max(len(ensemble_forecast['forecast']) if ensemble_forecast else 0, len(physics_forecast['forecast']) if physics_forecast else 0, len(ai_forecast['forecast']) if ai_forecast else 0)
+            'data_points_used': max(len(ensemble_forecast) if ensemble_forecast else 0, len(physics_forecast) if physics_forecast else 0, len(ai_forecast) if ai_forecast else 0)
         }
         
         logger.info(f"Returning enhanced forecast data for ensemble ({len(ensemble_forecast)}), physics ({len(physics_forecast)}), and AI ({len(ai_forecast)})")
