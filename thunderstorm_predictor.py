@@ -16,11 +16,10 @@ class ThunderstormPredictor:
     def get_db_connection(self):
         """Get database connection with timeout and WAL mode."""
         conn = sqlite3.connect(self.db_path, timeout=10.0)
--        conn.execute("PRAGMA journal_mode=WAL")
-+        conn.execute("PRAGMA journal_mode=MEMORY")  # Reduce SD-card writes
-+        conn.execute("PRAGMA synchronous=OFF")
-+        conn.execute("PRAGMA mmap_size=300000000")
-+        conn.execute("PRAGMA cache_size=20000")
+        conn.execute("PRAGMA journal_mode=MEMORY")  # Reduce SD-card writes
+        conn.execute("PRAGMA synchronous=OFF")
+        conn.execute("PRAGMA mmap_size=300000000")
+        conn.execute("PRAGMA cache_size=20000")
         return conn
 
     def fetch_recent_weather_data(self):

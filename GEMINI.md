@@ -101,3 +101,5 @@ To stop only the main monitoring system, use the `stop.sh` script.
 *   **User Interface:**
     *   Added a dark mode feature to the web interface for improved usability in low-light conditions.
     *   Implemented a responsive design for mobile devices, including a collapsible sidebar and a hamburger menu.
+*   **Thunderstorm Predictor:**
+    *   Fixed an `IndentationError` in `thunderstorm_predictor.py` caused by invalid characters in the `get_db_connection` method.
