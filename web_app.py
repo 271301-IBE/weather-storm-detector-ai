@@ -856,18 +856,32 @@ def api_system_stats():
 def api_system_status():
     """Get system status including CPU temp, usage, RAM, and DB size."""
     try:
-        from cpu_monitor import get_system_stats
-        stats = get_system_stats()
-        
+        # Local lightweight stats without external cpu_monitor dependency
+        cpu_percent = psutil.cpu_percent(interval=0.5)
+        ram_info = psutil.virtual_memory()
+        ram_percent = ram_info.percent
+
+        # Try to get temperature (Linux specific, may not exist)
+        cpu_temp = None
+        try:
+            if hasattr(psutil, "sensors_temperatures"):
+                temps = psutil.sensors_temperatures()
+                if "cpu_thermal" in temps and temps["cpu_thermal"]:
+                    cpu_temp = temps["cpu_thermal"][0].current
+                elif "coretemp" in temps and temps["coretemp"]:
+                    cpu_temp = temps["coretemp"][0].current
+        except Exception:
+            cpu_temp = None
+
         db_path = config.system.database_path
         db_size = 0
         if os.path.exists(db_path):
             db_size = round(os.path.getsize(db_path) / (1024 * 1024), 2)
             
         return jsonify({
-            'cpu_temp': stats.get('temperature_c'),
-            'cpu_percent': stats.get('cpu_percent'),
-            'ram_percent': stats.get('memory_percent'),
+            'cpu_temp': cpu_temp if cpu_temp is not None else 'N/A',
+            'cpu_percent': cpu_percent,
+            'ram_percent': ram_percent,
             'database_size_mb': db_size
         })
     except Exception as e:
