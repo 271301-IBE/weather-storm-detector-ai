@@ -31,9 +31,36 @@ app = Flask(__name__, static_url_path='/static')
 config = load_config()
 app.secret_key = config.webapp.secret_key
 
+# Lightweight security headers suitable for local network
+@app.after_request
+def add_security_headers(resp):
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    resp.headers.setdefault("Referrer-Policy", "no-referrer")
+    return resp
+
 # Initialize database first
 from storage import WeatherDatabase
 db = WeatherDatabase(config)
+
+# Simple asset cache-busting helper using file mtime
+def asset_url(filename: str) -> str:
+    """
+    Build a static file URL with a cache-busting query param based on file mtime.
+    Usage in templates: {{ asset_url('enhanced_forecast.js') }}
+    """
+    try:
+        static_folder = Path(app.root_path) / "static"
+        file_path = static_folder / filename
+        if file_path.exists():
+            v = int(file_path.stat().st_mtime)
+            return url_for('static', filename=filename) + f'?v={v}'
+    except Exception:
+        pass
+    return url_for('static', filename=filename)
+
+# Expose helper to Jinja templates
+app.jinja_env.globals['asset_url'] = asset_url
 
 # Simple authentication
 USERNAME = config.webapp.username
