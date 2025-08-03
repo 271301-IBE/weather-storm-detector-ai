@@ -614,36 +614,48 @@ class WeatherDatabase:
             return []
     
     def store_enhanced_forecast(self, forecast, method: str) -> bool:
-        """Store enhanced forecast with method tracking."""
-        try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
+        """Store enhanced forecast with method tracking. Includes retry logic for locked DB."""
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                with self.get_connection() as conn:
+                    cursor = conn.cursor()
                 
-                forecast_dict = forecast.to_dict()
+                    forecast_dict = forecast.to_dict()
                 
-                cursor.execute("""
-                    INSERT INTO enhanced_forecasts 
-                    (timestamp, method, forecast_data_json, confidence_data, metadata)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (
-                    forecast.timestamp.isoformat(),
-                    method,
-                    json.dumps(forecast_dict),
-                    json.dumps(forecast.method_confidences) if hasattr(forecast, 'method_confidences') else None,
-                    json.dumps({
-                        'primary_method': forecast.primary_method.value if hasattr(forecast, 'primary_method') else method,
-                        'data_sources': forecast.data_sources if hasattr(forecast, 'data_sources') else [],
-                        'ensemble_weight': forecast.ensemble_weight if hasattr(forecast, 'ensemble_weight') else None
-                    })
-                ))
+                    cursor.execute("""
+                        INSERT INTO enhanced_forecasts 
+                        (timestamp, method, forecast_data_json, confidence_data, metadata)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (
+                        forecast.timestamp.isoformat(),
+                        method,
+                        json.dumps(forecast_dict),
+                        json.dumps(forecast.method_confidences) if hasattr(forecast, 'method_confidences') else None,
+                        json.dumps({
+                            'primary_method': forecast.primary_method.value if hasattr(forecast, 'primary_method') else method,
+                            'data_sources': forecast.data_sources if hasattr(forecast, 'data_sources') else [],
+                            'ensemble_weight': forecast.ensemble_weight if hasattr(forecast, 'ensemble_weight') else None
+                        })
+                    ))
                 
-                conn.commit()
-                logger.debug(f"Stored enhanced forecast using method: {method}")
-                return True
-                
-        except Exception as e:
-            logger.error(f"Error storing enhanced forecast: {e}")
-            return False
+                    conn.commit()
+                    logger.debug(f"Stored enhanced forecast using method: {method}")
+                    return True
+            except sqlite3.OperationalError as e:
+                if "database is locked" in str(e):
+                    wait = 0.1 * (2 ** attempt)
+                    logger.warning(f"Database locked, retrying in {wait:.2f}s (attempt {attempt+1}/{max_retries})")
+                    time.sleep(wait)
+                    continue
+                else:
+                    logger.error(f"SQLite operational error: {e}")
+                    break
+            except Exception as e:
+                logger.error(f"Error storing enhanced forecast: {e}")
+                break
+        
+        return False
     
     def get_latest_forecast_by_method(self, method: str):
         """Get latest forecast by specific method."""
