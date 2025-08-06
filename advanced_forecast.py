@@ -549,6 +549,7 @@ class AdvancedForecastGenerator:
     
     def _generate_fallback_forecast(self, method: ForecastMethod) -> EnhancedWeatherForecast:
         """Generate a basic fallback forecast when no data is available."""
+        logger.warning(f"Generating fallback forecast for method: {method.value}")
         forecast_data = []
         
         # Get current time for realistic Czech Republic weather
@@ -617,22 +618,41 @@ class AdvancedForecastGenerator:
 
     async def generate_physics_forecast(self, weather_data: List[WeatherData]) -> EnhancedWeatherForecast:
         """Generate forecast using atmospheric physics models."""
-        if not weather_data:
-            logger.warning("No weather data available for physics forecast, generating fallback")
-            return self._generate_fallback_forecast(ForecastMethod.LOCAL_PHYSICS)
+        logger.info("Generating physics-based forecast...")
         
-        # Sort data by timestamp
+        if not weather_data:
+            logger.warning("No weather data provided for physics forecast, generating fallback.")
+            return self._generate_fallback_forecast(ForecastMethod.LOCAL_PHYSICS)
+
+        # Sort and filter data for valid points
         sorted_data = sorted(weather_data, key=lambda x: x.timestamp)
-        latest_data = sorted_data[-1]
+        
+        timestamps = []
+        temperatures = []
+        pressures = []
+        humidities = []
+
+        for d in sorted_data:
+            if d.temperature is not None and d.pressure is not None and d.humidity is not None:
+                timestamps.append(d.timestamp)
+                temperatures.append(d.temperature)
+                pressures.append(d.pressure)
+                humidities.append(d.humidity)
+
+        if len(timestamps) < 6:
+            logger.warning(f"Insufficient valid data points ({len(timestamps)}) for physics forecast, generating fallback.")
+            return self._generate_fallback_forecast(ForecastMethod.LOCAL_PHYSICS)
+
+        latest_data = sorted([d for d in sorted_data if d.temperature is not None][-1:])
+        if not latest_data:
+            logger.warning("Could not determine latest data point after filtering, generating fallback.")
+            return self._generate_fallback_forecast(ForecastMethod.LOCAL_PHYSICS)
+        latest_data = latest_data[0]
+
+        logger.info(f"Latest data point for physics forecast: {latest_data.timestamp}")
         
         forecast_data = []
         overall_confidence = 0.0
-        
-        # Prepare historical data for trend analysis
-        timestamps = [d.timestamp for d in sorted_data]
-        temperatures = [d.temperature for d in sorted_data]
-        pressures = [d.pressure for d in sorted_data]
-        humidities = [d.humidity for d in sorted_data]
         
         # Calculate pressure tendency
         pressure_history = [(d.timestamp, d.pressure) for d in sorted_data]
@@ -749,13 +769,23 @@ class AdvancedForecastGenerator:
     
     async def generate_ai_forecast(self, weather_data: List[WeatherData]) -> Optional[EnhancedWeatherForecast]:
         """Generate AI-powered forecast using DeepSeek."""
+        logger.info("Generating AI-powered forecast...")
+        
         if not weather_data:
-            logger.warning("No weather data available for AI forecast, generating fallback")
+            logger.warning("No weather data provided for AI forecast, generating fallback.")
+            return self._generate_fallback_forecast(ForecastMethod.AI_DEEPSEEK)
+
+        # Filter for valid data points
+        valid_data = [d for d in weather_data if d.temperature is not None and d.pressure is not None and d.humidity is not None]
+
+        if len(valid_data) < 6:
+            logger.warning(f"Insufficient valid data points ({len(valid_data)}) for AI forecast, generating fallback.")
             return self._generate_fallback_forecast(ForecastMethod.AI_DEEPSEEK)
         
         try:
             # Prepare context for AI
-            context = self._prepare_ai_context(weather_data)
+            context = self._prepare_ai_context(valid_data)
+            logger.info(f"AI context prepared with {len(valid_data)} data points.")
             
             prompt = f"""You are a professional meteorologist. Analyze the weather data and create a precise 6-hour forecast.
 
@@ -937,6 +967,7 @@ Requirements:
     
     async def generate_ensemble_forecast(self, weather_data: List[WeatherData]) -> EnhancedWeatherForecast:
         """Generate ensemble forecast combining multiple methods."""
+        logger.info("Generating ensemble forecast...")
         
         # Generate forecasts from different methods
         physics_forecast = await self.generate_physics_forecast(weather_data)
@@ -944,8 +975,10 @@ Requirements:
         
         # Ensure we have at least fallback forecasts
         if not physics_forecast:
+            logger.warning("Physics forecast is missing, using fallback.")
             physics_forecast = self._generate_fallback_forecast(ForecastMethod.LOCAL_PHYSICS)
         if not ai_forecast:
+            logger.warning("AI forecast is missing, using fallback.")
             ai_forecast = self._generate_fallback_forecast(ForecastMethod.AI_DEEPSEEK)
         
         # Train and use statistical predictor if enough historical data
