@@ -94,11 +94,7 @@ class StdevFunc:
             return None
         return (self.S / (self.k - 1)) ** 0.5
 
-def get_db_connection():
-    """Get database connection."""
-    conn = sqlite3.connect('./weather_data.db')
-    conn.create_aggregate("STDDEV", 1, StdevFunc)
-    return conn
+
 
 def save_subscription(subscription):
     """Save a push notification subscription."""
@@ -297,8 +293,8 @@ def subscribe():
 def api_current_weather():
     """Get current weather data."""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
         
         # Get latest weather data from all three sources
         cursor.execute("""
@@ -328,8 +324,8 @@ def api_current_weather():
 def api_recent_analysis():
     """Get recent AI analysis results."""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
         
         cursor.execute("""
             SELECT * FROM storm_analysis 
@@ -532,8 +528,8 @@ def api_storm_event():
 def api_storm_learning_data():
     """Get historical storm events for machine learning analysis."""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
         
         cursor.execute("""
             SELECT timestamp, event_type, weather_data_json, chmi_warnings_json, ai_confidence
@@ -574,8 +570,8 @@ def api_storm_learning_data():
 def api_lightning_current():
     """Get current lightning activity data."""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
         
         # Get lightning activity summary for the last hour
         one_hour_ago = (datetime.now() - timedelta(hours=1)).isoformat()
@@ -679,8 +675,8 @@ def api_lightning_strikes():
 def api_lightning_dashboard_stats():
     """Get lightning detection statistics for the dashboard."""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
         
         # Get statistics for different time periods
         stats = {}
@@ -706,8 +702,8 @@ def api_lightning_dashboard_stats():
 def api_lightning_stats():
     """Get lightning detection statistics."""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
         
         # Get statistics for different time periods
         stats = {}
@@ -766,8 +762,8 @@ def api_lightning_stats():
 def api_system_stats():
     """Get system statistics."""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
         
         stats = {}
         
@@ -893,8 +889,8 @@ def api_system_status():
 def api_email_history():
     """Get email notification history."""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
         
         cursor.execute("""
             SELECT timestamp, recipient, subject, message_type, sent_successfully, error_message
@@ -924,8 +920,8 @@ def api_email_history():
 def api_usage_stats():
     """Get API usage statistics for all weather sources."""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
         
         # API call counts by source (last 24 hours)
         cursor.execute("""
@@ -1002,8 +998,8 @@ def api_usage_stats():
 def api_weather_averages():
     """Get average weather data from all API sources."""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
         
         # Get latest data from each source
         cursor.execute("""
@@ -1116,8 +1112,8 @@ def api_chmi_warnings():
 def api_next_storm_prediction():
     """Get the latest thunderstorm prediction."""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
         
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS thunderstorm_predictions (
@@ -1262,8 +1258,8 @@ def api_enhanced_forecast():
 def api_forecast_accuracy():
     """Get forecast accuracy statistics."""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
         
         # Create accuracy tracking table if it doesn't exist
         cursor.execute("""
@@ -1412,7 +1408,7 @@ def api_system_metrics_history():
     """Get system metrics history for charts."""
     try:
         hours = request.args.get('hours', 24, type=int)
-        system_monitor = get_system_monitor()
+        system_monitor = get_system_monitor(config)
         
         history = system_monitor.get_metrics_history(hours)
         summary = system_monitor.get_metrics_summary(hours)
@@ -1433,7 +1429,7 @@ def api_system_metrics_history():
 def api_system_metrics_current():
     """Get current system metrics."""
     try:
-        system_monitor = get_system_monitor()
+        system_monitor = get_system_monitor(config)
         current_metrics = system_monitor.get_current_metrics()
         
         return jsonify(current_metrics)
@@ -1447,7 +1443,7 @@ def api_system_metrics_current():
 def api_weather_processes():
     """Get running weather-related processes."""
     try:
-        system_monitor = get_system_monitor()
+        system_monitor = get_system_monitor(config)
         processes = system_monitor.check_weather_processes()
         return jsonify(processes)
     except Exception as e:
@@ -1460,7 +1456,7 @@ def api_weather_processes():
 def api_log_stats():
     """Get log file statistics."""
     try:
-        log_rotator = get_log_rotator('weather_monitor.log')
+        log_rotator = get_log_rotator(config)
         stats = log_rotator.get_log_stats()
         
         return jsonify(stats)
@@ -1474,7 +1470,7 @@ def api_log_stats():
 def api_database_health():
     """Get database health and optimization status."""
     try:
-        db_optimizer = get_database_optimizer('weather_data.db')
+        db_optimizer = get_database_optimizer(config)
         health = db_optimizer.check_database_health()
         table_stats = db_optimizer.get_table_stats()
         index_info = db_optimizer.get_index_usage()
@@ -1487,7 +1483,7 @@ def api_database_health():
         
     except Exception as e:
         logger.error(f"Error getting database health: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Database inaccessible'}), 500
 
 @app.route('/api/optimize_database', methods=['POST'])
 @login_required
@@ -1496,7 +1492,7 @@ def api_optimize_database():
     try:
         full_optimization = request.json.get('full', False) if request.is_json else False
         
-        db_optimizer = get_database_optimizer('weather_data.db')
+        db_optimizer = get_database_optimizer(config)
         results = db_optimizer.optimize_database(full_optimization)
         
         return jsonify({
@@ -1514,7 +1510,7 @@ def api_optimize_database():
 def api_force_log_rotation():
     """Force log rotation."""
     try:
-        log_rotator = get_log_rotator('weather_monitor.log')
+        log_rotator = get_log_rotator(config)
         log_rotator.force_rotation()
         
         return jsonify({
