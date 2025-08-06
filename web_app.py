@@ -295,25 +295,23 @@ def api_current_weather():
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
-        
-        # Get latest weather data from all three sources
-        cursor.execute("""
-            SELECT * FROM weather_data 
-            ORDER BY created_at DESC 
-            LIMIT 3
-        """
-)
-        
-        rows = cursor.fetchall()
-        columns = [description[0] for description in cursor.description]
-        
-        weather_data = []
-        for row in rows:
-            data = dict(zip(columns, row))
-            weather_data.append(data)
-        
-        conn.close()
-        return jsonify(weather_data)
+            
+            # Get latest weather data from all three sources
+            cursor.execute("""
+                SELECT * FROM weather_data 
+                ORDER BY created_at DESC 
+                LIMIT 3
+            """ )
+            
+            rows = cursor.fetchall()
+            columns = [description[0] for description in cursor.description]
+            
+            weather_data = []
+            for row in rows:
+                data = dict(zip(columns, row))
+                weather_data.append(data)
+            
+            return jsonify(weather_data)
         
     except Exception as e:
         logger.error(f"Error fetching current weather: {e}")
@@ -326,30 +324,28 @@ def api_recent_analysis():
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT * FROM storm_analysis 
-            ORDER BY timestamp DESC 
-            LIMIT 10
-        """
-)
-        
-        rows = cursor.fetchall()
-        columns = [description[0] for description in cursor.description]
-        
-        analysis_data = []
-        for row in rows:
-            data = dict(zip(columns, row))
-            # Parse JSON fields
-            if data.get('recommendations'):
-                try:
-                    data['recommendations'] = json.loads(data['recommendations'])
-                except:
-                    data['recommendations'] = []
-            analysis_data.append(data)
-        
-        conn.close()
-        return jsonify(analysis_data)
+            
+            cursor.execute("""
+                SELECT * FROM storm_analysis 
+                ORDER BY timestamp DESC 
+                LIMIT 10
+            """ )
+            
+            rows = cursor.fetchall()
+            columns = [description[0] for description in cursor.description]
+            
+            analysis_data = []
+            for row in rows:
+                data = dict(zip(columns, row))
+                # Parse JSON fields
+                if data.get('recommendations'):
+                    try:
+                        data['recommendations'] = json.loads(data['recommendations'])
+                    except:
+                        data['recommendations'] = []
+                analysis_data.append(data)
+            
+            return jsonify(analysis_data)
         
     except Exception as e:
         logger.error(f"Error fetching analysis data: {e}")
@@ -362,69 +358,68 @@ def api_weather_history():
     try:
         hours = request.args.get('hours', 72, type=int)
         
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Get weather data
-        cursor.execute("""
-            SELECT timestamp, temperature, humidity, pressure, wind_speed, precipitation, source
-            FROM weather_data 
-            WHERE datetime(timestamp) > datetime('now', '-{} hours')
-            ORDER BY timestamp
-        """.format(hours))
-        
-        rows = cursor.fetchall()
-        columns = [description[0] for description in cursor.description]
-        
-        history_data = []
-        for row in rows:
-            data = dict(zip(columns, row))
-            data['timestamp'] = datetime.fromisoformat(data['timestamp']).timestamp() * 1000
-            history_data.append(data)
-        
-        # Get CHMI warnings/alerts for the same period
-        try:
-            from chmi_warnings import ChmiWarningMonitor
-            chmi_monitor = ChmiWarningMonitor(config)
-            warnings = chmi_monitor.get_all_warnings_for_period(hours=hours)
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
             
-            chmi_alerts = []
-            for warning in warnings:
-                # Ensure description_text exists
-                description = getattr(warning, 'description_text', None) or getattr(warning, 'detailed_text', '')
+            # Get weather data
+            cursor.execute("""
+                SELECT timestamp, temperature, humidity, pressure, wind_speed, precipitation, source
+                FROM weather_data 
+                WHERE datetime(timestamp) > datetime('now', '-{} hours')
+                ORDER BY timestamp
+            """.format(hours))
+            
+            rows = cursor.fetchall()
+            columns = [description[0] for description in cursor.description]
+            
+            history_data = []
+            for row in rows:
+                data = dict(zip(columns, row))
+                data['timestamp'] = datetime.fromisoformat(data['timestamp']).timestamp() * 1000
+                history_data.append(data)
+            
+            # Get CHMI warnings/alerts for the same period
+            try:
+                from chmi_warnings import ChmiWarningMonitor
+                chmi_monitor = ChmiWarningMonitor(config)
+                warnings = chmi_monitor.get_all_warnings_for_period(hours=hours)
                 
-                alert_data = {
-                    'id': warning.identifier,
-                    'event': warning.event,
-                    'color': warning.color,
-                    'start_time': warning.time_start_iso,
-                    'end_time': warning.time_end_iso,
-                    'description': description,
-                    'urgency': warning.urgency
-                }
-                if warning.time_start_iso:
-                    try:
-                        start_dt = datetime.fromisoformat(warning.time_start_iso.replace('Z', '+00:00'))
-                        alert_data['start_timestamp'] = start_dt.timestamp() * 1000
-                    except:
-                        pass
-                if warning.time_end_iso:
-                    try:
-                        end_dt = datetime.fromisoformat(warning.time_end_iso.replace('Z', '+00:00'))
-                        alert_data['end_timestamp'] = end_dt.timestamp() * 1000
-                    except:
-                        pass
-                chmi_alerts.append(alert_data)
-                
-        except Exception as e:
-            logger.warning(f"Could not fetch CHMI alerts: {e}")
-            chmi_alerts = []
-        
-        conn.close()
-        return jsonify({
-            'weather_data': history_data,
-            'chmi_alerts': chmi_alerts
-        })
+                chmi_alerts = []
+                for warning in warnings:
+                    # Ensure description_text exists
+                    description = getattr(warning, 'description_text', None) or getattr(warning, 'detailed_text', '')
+                    
+                    alert_data = {
+                        'id': warning.identifier,
+                        'event': warning.event,
+                        'color': warning.color,
+                        'start_time': warning.time_start_iso,
+                        'end_time': warning.time_end_iso,
+                        'description': description,
+                        'urgency': warning.urgency
+                    }
+                    if warning.time_start_iso:
+                        try:
+                            start_dt = datetime.fromisoformat(warning.time_start_iso.replace('Z', '+00:00'))
+                            alert_data['start_timestamp'] = start_dt.timestamp() * 1000
+                        except:
+                            pass
+                    if warning.time_end_iso:
+                        try:
+                            end_dt = datetime.fromisoformat(warning.time_end_iso.replace('Z', '+00:00'))
+                            alert_data['end_timestamp'] = end_dt.timestamp() * 1000
+                        except:
+                            pass
+                    chmi_alerts.append(alert_data)
+                    
+            except Exception as e:
+                logger.warning(f"Could not fetch CHMI alerts: {e}")
+                chmi_alerts = []
+            
+            return jsonify({
+                'weather_data': history_data,
+                'chmi_alerts': chmi_alerts
+            })
         
     except Exception as e:
         logger.error(f"Error fetching weather history: {e}")
@@ -439,83 +434,82 @@ def api_storm_event():
         event_type = data.get('type', 'storm_now')  # 'storm_now', 'rain_now', 'no_storm'
         user_timestamp = datetime.now().isoformat()
         
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Create table if it doesn't exist
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS user_storm_events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT NOT NULL,
-                event_type TEXT NOT NULL,
-                weather_data_json TEXT,
-                chmi_warnings_json TEXT,
-                ai_confidence REAL,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        # Get current weather data
-        cursor.execute("""
-            SELECT temperature, humidity, pressure, wind_speed, precipitation, 
-                   precipitation_probability, condition, description
-            FROM weather_data 
-            ORDER BY timestamp DESC 
-            LIMIT 3
-        """)
-        
-        weather_rows = cursor.fetchall()
-        weather_data = []
-        for row in weather_rows:
-            weather_data.append({
-                'temperature': row[0],
-                'humidity': row[1], 
-                'pressure': row[2],
-                'wind_speed': row[3],
-                'precipitation': row[4],
-                'precipitation_probability': row[5],
-                'condition': row[6],
-                'description': row[7]
-            })
-        
-        # Get current AI analysis confidence
-        cursor.execute("""
-            SELECT confidence_score FROM storm_analysis 
-            ORDER BY timestamp DESC 
-            LIMIT 1
-        """)
-        ai_row = cursor.fetchone()
-        ai_confidence = ai_row[0] if ai_row else None
-        
-        # Get current CHMI warnings
-        try:
-            from chmi_warnings import ChmiWarningMonitor
-            chmi_monitor = ChmiWarningMonitor(config)
-            warnings = chmi_monitor.get_storm_warnings()
-            chmi_data = [{
-                'event': w.event,
-                'color': w.color,
-                'description': w.description_text
-            } for w in warnings]
-        except:
-            chmi_data = []
-        
-        # Store the event
-        cursor.execute("""
-            INSERT INTO user_storm_events 
-            (timestamp, event_type, weather_data_json, chmi_warnings_json, ai_confidence)
-            VALUES (?, ?, ?, ?, ?)
-        """, (
-            user_timestamp,
-            event_type,
-            json.dumps(weather_data),
-            json.dumps(chmi_data),
-            ai_confidence
-        ))
-        
-        conn.commit()
-        conn.close()
-        
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Create table if it doesn't exist
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS user_storm_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    weather_data_json TEXT,
+                    chmi_warnings_json TEXT,
+                    ai_confidence REAL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            # Get current weather data
+            cursor.execute("""
+                SELECT temperature, humidity, pressure, wind_speed, precipitation, 
+                       precipitation_probability, condition, description
+                FROM weather_data 
+                ORDER BY timestamp DESC 
+                LIMIT 3
+            """)
+            
+            weather_rows = cursor.fetchall()
+            weather_data = []
+            for row in weather_rows:
+                weather_data.append({
+                    'temperature': row[0],
+                    'humidity': row[1], 
+                    'pressure': row[2],
+                    'wind_speed': row[3],
+                    'precipitation': row[4],
+                    'precipitation_probability': row[5],
+                    'condition': row[6],
+                    'description': row[7]
+                })
+            
+            # Get current AI analysis confidence
+            cursor.execute("""
+                SELECT confidence_score FROM storm_analysis 
+                ORDER BY timestamp DESC 
+                LIMIT 1
+            """)
+            ai_row = cursor.fetchone()
+            ai_confidence = ai_row[0] if ai_row else None
+            
+            # Get current CHMI warnings
+            try:
+                from chmi_warnings import ChmiWarningMonitor
+                chmi_monitor = ChmiWarningMonitor(config)
+                warnings = chmi_monitor.get_storm_warnings()
+                chmi_data = [{
+                    'event': w.event,
+                    'color': w.color,
+                    'description': w.description_text
+                } for w in warnings]
+            except:
+                chmi_data = []
+            
+            # Store the event
+            cursor.execute("""
+                INSERT INTO user_storm_events 
+                (timestamp, event_type, weather_data_json, chmi_warnings_json, ai_confidence)
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                user_timestamp,
+                event_type,
+                json.dumps(weather_data),
+                json.dumps(chmi_data),
+                ai_confidence
+            ))
+            
+            conn.commit()
+            
         logger.info(f"User reported storm event: {event_type} at {user_timestamp}")
         return jsonify({'success': True, 'timestamp': user_timestamp})
         
@@ -530,35 +524,34 @@ def api_storm_learning_data():
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT timestamp, event_type, weather_data_json, chmi_warnings_json, ai_confidence
-            FROM user_storm_events 
-            ORDER BY timestamp DESC 
-            LIMIT 100
-        """)
-        
-        rows = cursor.fetchall()
-        events = []
-        
-        for row in rows:
-            try:
-                weather_data = json.loads(row[2]) if row[2] else []
-                chmi_data = json.loads(row[3]) if row[3] else []
-            except:
-                weather_data = []
-                chmi_data = []
-                
-            events.append({
-                'timestamp': row[0],
-                'event_type': row[1],
-                'weather_data': weather_data,
-                'chmi_warnings': chmi_data,
-                'ai_confidence': row[4]
-            })
-        
-        conn.close()
-        return jsonify(events)
+            
+            cursor.execute("""
+                SELECT timestamp, event_type, weather_data_json, chmi_warnings_json, ai_confidence
+                FROM user_storm_events 
+                ORDER BY timestamp DESC 
+                LIMIT 100
+            """)
+            
+            rows = cursor.fetchall()
+            events = []
+            
+            for row in rows:
+                try:
+                    weather_data = json.loads(row[2]) if row[2] else []
+                    chmi_data = json.loads(row[3]) if row[3] else []
+                except:
+                    weather_data = []
+                    chmi_data = []
+                    
+                events.append({
+                    'timestamp': row[0],
+                    'event_type': row[1],
+                    'weather_data': weather_data,
+                    'chmi_warnings': chmi_data,
+                    'ai_confidence': row[4]
+                })
+            
+            return jsonify(events)
         
     except Exception as e:
         logger.error(f"Error fetching learning data: {e}")
@@ -572,44 +565,43 @@ def api_lightning_current():
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
-        
-        # Get lightning activity summary for the last hour
-        one_hour_ago = (datetime.now() - timedelta(hours=1)).isoformat()
-        
-        cursor.execute("""
-            SELECT COUNT(*) as total_strikes,
-                   COUNT(CASE WHEN is_in_czech_region = 1 THEN 1 END) as czech_strikes,
-                   COUNT(CASE WHEN distance_from_brno <= 50 THEN 1 END) as nearby_strikes,
-                   MIN(distance_from_brno) as closest_distance,
-                   AVG(distance_from_brno) as average_distance
-            FROM lightning_strikes 
-            WHERE timestamp > ?
-        """, (one_hour_ago,))
-        
-        row = cursor.fetchone()
-        conn.close()
-        
-        activity = {
-            'period_hours': 1,
-            'total_strikes': row[0] or 0,
-            'czech_strikes': row[1] or 0,
-            'nearby_strikes': row[2] or 0,
-            'closest_distance_km': row[3],
-            'average_distance_km': row[4],
-            'last_updated': datetime.now().isoformat(),
-            'threat_level': 'NONE'
-        }
-        
-        # Assess threat level
-        if activity['closest_distance_km']:
-            if activity['closest_distance_km'] <= 20:
-                activity['threat_level'] = 'HIGH'
-            elif activity['closest_distance_km'] <= 50 or activity['czech_strikes'] >= 3:
-                activity['threat_level'] = 'MEDIUM'
-            elif activity['czech_strikes'] > 0:
-                activity['threat_level'] = 'LOW'
-        
-        return jsonify(activity)
+            
+            # Get lightning activity summary for the last hour
+            one_hour_ago = (datetime.now() - timedelta(hours=1)).isoformat()
+            
+            cursor.execute("""
+                SELECT COUNT(*) as total_strikes,
+                       COUNT(CASE WHEN is_in_czech_region = 1 THEN 1 END) as czech_strikes,
+                       COUNT(CASE WHEN distance_from_brno <= 50 THEN 1 END) as nearby_strikes,
+                       MIN(distance_from_brno) as closest_distance,
+                       AVG(distance_from_brno) as average_distance
+                FROM lightning_strikes 
+                WHERE timestamp > ?
+            """, (one_hour_ago,))
+            
+            row = cursor.fetchone()
+            
+            activity = {
+                'period_hours': 1,
+                'total_strikes': row[0] or 0,
+                'czech_strikes': row[1] or 0,
+                'nearby_strikes': row[2] or 0,
+                'closest_distance_km': row[3],
+                'average_distance_km': row[4],
+                'last_updated': datetime.now().isoformat(),
+                'threat_level': 'NONE'
+            }
+            
+            # Assess threat level
+            if activity['closest_distance_km']:
+                if activity['closest_distance_km'] <= 20:
+                    activity['threat_level'] = 'HIGH'
+                elif activity['closest_distance_km'] <= 50 or activity['czech_strikes'] >= 3:
+                    activity['threat_level'] = 'MEDIUM'
+                elif activity['czech_strikes'] > 0:
+                    activity['threat_level'] = 'LOW'
+            
+            return jsonify(activity)
         
     except Exception as e:
         logger.error(f"Error fetching current lightning activity: {e}")
@@ -623,48 +615,47 @@ def api_lightning_strikes():
         hours = int(request.args.get('hours', 3))  # Default to last 3 hours
         limit = int(request.args.get('limit', 500))  # Limit for performance
         
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        cutoff_time = (datetime.now() - timedelta(hours=hours)).isoformat()
-        
-        # Approximate bounding box for Europe
-        # Latitude: 35°N to 72°N
-        # Longitude: -10°W to 35°E
-        min_lat, max_lat = 35.0, 72.0
-        min_lon, max_lon = -10.0, 35.0
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            cutoff_time = (datetime.now() - timedelta(hours=hours)).isoformat()
+            
+            # Approximate bounding box for Europe
+            # Latitude: 35°N to 72°N
+            # Longitude: -10°W to 35°E
+            min_lat, max_lat = 35.0, 72.0
+            min_lon, max_lon = -10.0, 35.0
 
-        cursor.execute("""
-            SELECT timestamp, latitude, longitude, distance_from_brno, is_in_czech_region
-            FROM lightning_strikes 
-            WHERE timestamp > ?
-            AND latitude BETWEEN ? AND ?
-            AND longitude BETWEEN ? AND ?
-            ORDER BY timestamp DESC
-            LIMIT ?
-        """, (cutoff_time, min_lat, max_lat, min_lon, max_lon, limit))
-        
-        strikes = []
-        for row in cursor.fetchall():
-            strikes.append({
-                'timestamp': row[0],
-                'latitude': row[1],
-                'longitude': row[2],
-                'distance_from_brno': row[3],
-                'is_in_czech_region': row[4],
-                'age_minutes': max(0, (datetime.now() - datetime.fromisoformat(row[0])).total_seconds() / 60)
+            cursor.execute("""
+                SELECT timestamp, latitude, longitude, distance_from_brno, is_in_czech_region
+                FROM lightning_strikes 
+                WHERE timestamp > ?
+                AND latitude BETWEEN ? AND ?
+                AND longitude BETWEEN ? AND ?
+                ORDER BY timestamp DESC
+                LIMIT ?
+            """, (cutoff_time, min_lat, max_lat, min_lon, max_lon, limit))
+            
+            strikes = []
+            for row in cursor.fetchall():
+                strikes.append({
+                    'timestamp': row[0],
+                    'latitude': row[1],
+                    'longitude': row[2],
+                    'distance_from_brno': row[3],
+                    'is_in_czech_region': row[4],
+                    'age_minutes': max(0, (datetime.now() - datetime.fromisoformat(row[0])).total_seconds() / 60)
+                })
+            
+            return jsonify({
+                'strikes': strikes,
+                'total_count': len(strikes),
+                'hours_requested': hours,
+                'brno_coordinates': {
+                    'latitude': config.weather.latitude,
+                    'longitude': config.weather.longitude
+                }
             })
-        
-        conn.close()
-        return jsonify({
-            'strikes': strikes,
-            'total_count': len(strikes),
-            'hours_requested': hours,
-            'brno_coordinates': {
-                'latitude': config.weather.latitude,
-                'longitude': config.weather.longitude
-            }
-        })
         
     except Exception as e:
         logger.error(f"Error fetching lightning strikes: {e}")
@@ -677,21 +668,20 @@ def api_lightning_dashboard_stats():
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
-        
-        # Get statistics for different time periods
-        stats = {}
-        
-        cursor.execute("SELECT COUNT(*) as total FROM lightning_strikes")
-        stats['total_strikes'] = cursor.fetchone()[0] or 0
+            
+            # Get statistics for different time periods
+            stats = {}
+            
+            cursor.execute("SELECT COUNT(*) as total FROM lightning_strikes")
+            stats['total_strikes'] = cursor.fetchone()[0] or 0
 
-        cursor.execute("SELECT COUNT(*) as czech FROM lightning_strikes WHERE is_in_czech_region = 1")
-        stats['czech_strikes'] = cursor.fetchone()[0] or 0
+            cursor.execute("SELECT COUNT(*) as czech FROM lightning_strikes WHERE is_in_czech_region = 1")
+            stats['czech_strikes'] = cursor.fetchone()[0] or 0
 
-        cursor.execute("SELECT COUNT(*) as nearby FROM lightning_strikes WHERE distance_from_brno <= 50")
-        stats['nearby_strikes'] = cursor.fetchone()[0] or 0
-        
-        conn.close()
-        return jsonify(stats)
+            cursor.execute("SELECT COUNT(*) as nearby FROM lightning_strikes WHERE distance_from_brno <= 50")
+            stats['nearby_strikes'] = cursor.fetchone()[0] or 0
+            
+            return jsonify(stats)
         
     except Exception as e:
         logger.error(f"Error fetching lightning statistics: {e}")
@@ -704,54 +694,53 @@ def api_lightning_stats():
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
-        
-        # Get statistics for different time periods
-        stats = {}
-        
-        for period, hours in [('1h', 1), ('6h', 6), ('24h', 24), ('7d', 168)]:
-            cutoff_time = (datetime.now() - timedelta(hours=hours)).isoformat()
             
+            # Get statistics for different time periods
+            stats = {}
+            
+            for period, hours in [('1h', 1), ('6h', 6), ('24h', 24), ('7d', 168)]:
+                cutoff_time = (datetime.now() - timedelta(hours=hours)).isoformat()
+                
+                cursor.execute("""
+                    SELECT COUNT(*) as total,
+                           COUNT(CASE WHEN is_in_czech_region = 1 THEN 1 END) as czech,
+                           COUNT(CASE WHEN distance_from_brno <= 50 THEN 1 END) as nearby,
+                           MIN(distance_from_brno) as closest
+                    FROM lightning_strikes 
+                    WHERE timestamp > ?
+                """, (cutoff_time,))
+                
+                row = cursor.fetchone()
+                stats[period] = {
+                    'total_strikes': row[0] or 0,
+                    'czech_strikes': row[1] or 0,
+                    'nearby_strikes': row[2] or 0,
+                    'closest_distance_km': row[3]
+                }
+            
+            # Get hourly distribution for the last 24 hours
             cursor.execute("""
-                SELECT COUNT(*) as total,
-                       COUNT(CASE WHEN is_in_czech_region = 1 THEN 1 END) as czech,
-                       COUNT(CASE WHEN distance_from_brno <= 50 THEN 1 END) as nearby,
-                       MIN(distance_from_brno) as closest
-                FROM lightning_strikes 
-                WHERE timestamp > ?
-            """, (cutoff_time,))
+                SELECT hour_timestamp, total_strikes, czech_region_strikes, nearby_strikes
+                FROM lightning_activity_summary 
+                WHERE hour_timestamp > ?
+                ORDER BY hour_timestamp DESC
+            """, ((datetime.now() - timedelta(hours=24)).isoformat(),))
             
-            row = cursor.fetchone()
-            stats[period] = {
-                'total_strikes': row[0] or 0,
-                'czech_strikes': row[1] or 0,
-                'nearby_strikes': row[2] or 0,
-                'closest_distance_km': row[3]
-            }
-        
-        # Get hourly distribution for the last 24 hours
-        cursor.execute("""
-            SELECT hour_timestamp, total_strikes, czech_region_strikes, nearby_strikes
-            FROM lightning_activity_summary 
-            WHERE hour_timestamp > ?
-            ORDER BY hour_timestamp DESC
-        """, ((datetime.now() - timedelta(hours=24)).isoformat(),))
-        
-        hourly_data = []
-        for row in cursor.fetchall():
-            hourly_data.append({
-                'hour': row[0],
-                'total': row[1],
-                'czech': row[2],
-                'nearby': row[3]
+            hourly_data = []
+            for row in cursor.fetchall():
+                hourly_data.append({
+                    'hour': row[0],
+                    'total': row[1],
+                    'czech': row[2],
+                    'nearby': row[3]
+                })
+            
+            return jsonify({
+                'periods': stats,
+                'hourly_distribution': hourly_data,
+                'system_status': 'active',
+                'last_updated': datetime.now().isoformat()
             })
-        
-        conn.close()
-        return jsonify({
-            'periods': stats,
-            'hourly_distribution': hourly_data,
-            'system_status': 'active',
-            'last_updated': datetime.now().isoformat()
-        })
         
     except Exception as e:
         logger.error(f"Error fetching lightning statistics: {e}")
@@ -764,84 +753,75 @@ def api_system_stats():
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
-        
-        stats = {}
-        
-        # Weather data count (last 24h)
-        cursor.execute("""
-            SELECT COUNT(*) FROM weather_data 
-            WHERE datetime(timestamp) > datetime('now', '-24 hours')
-        """
-)
-        stats['weather_data_24h'] = cursor.fetchone()[0]
-        
-        # AI analysis count (last 24h)
-        cursor.execute("""
-            SELECT COUNT(*) FROM storm_analysis 
-            WHERE datetime(timestamp) > datetime('now', '-24 hours')
-        """
-)
-        stats['ai_analysis_24h'] = cursor.fetchone()[0]
-        
-        # Email notifications count (last 24h)
-        cursor.execute("""
-            SELECT COUNT(*) FROM email_notifications 
-            WHERE datetime(timestamp) > datetime('now', '-24 hours')
-        """
-)
-        stats['emails_24h'] = cursor.fetchone()[0]
-        
-        # Storm detections (last 7 days)
-        cursor.execute("""
-            SELECT COUNT(*) FROM storm_analysis 
-            WHERE datetime(timestamp) > datetime('now', '-7 days')
-            AND storm_detected = 1
-        """
-)
-        stats['storms_detected_7d'] = cursor.fetchone()[0]
-        
-        # High confidence predictions (last 7 days)
-        cursor.execute("""
-            SELECT COUNT(*) FROM storm_analysis 
-            WHERE datetime(timestamp) > datetime('now', '-7 days')
-            AND confidence_score > 0.8
-        """
-)
-        stats['high_confidence_7d'] = cursor.fetchone()[0]
-        
-        # Average confidence score (last 7 days)
-        cursor.execute("""
-            SELECT AVG(confidence_score) FROM storm_analysis 
-            WHERE datetime(timestamp) > datetime('now', '-7 days')
-        """
-)
-        avg_confidence = cursor.fetchone()[0]
-        stats['avg_confidence_7d'] = round(avg_confidence * 100, 1) if avg_confidence else 0
-        
-        # Cache efficiency
-        cursor.execute("""
-            SELECT COUNT(*) FROM weather_condition_cache 
-            WHERE expires_at > datetime('now')
-        """
-)
-        stats['active_cache_entries'] = cursor.fetchone()[0]
-        
-        # Database size estimation
-        cursor.execute("SELECT COUNT(*) FROM weather_data")
-        stats['total_weather_records'] = cursor.fetchone()[0]
-        
-        cursor.execute("SELECT COUNT(*) FROM storm_analysis")
-        stats['total_analysis_records'] = cursor.fetchone()[0]
-        
-        conn.close()
-        
-        # Estimate API costs (rough calculation)
-        # DeepSeek: ~$0.001 per analysis
-        # Weather APIs: free tier usage
-        stats['estimated_ai_cost_24h'] = round(stats['ai_analysis_24h'] * 0.001, 3)
-        stats['estimated_ai_cost_7d'] = round(stats['ai_analysis_24h'] * 7 * 0.001, 2)
-        
-        return jsonify(stats)
+            
+            stats = {}
+            
+            # Weather data count (last 24h)
+            cursor.execute("""
+                SELECT COUNT(*) FROM weather_data 
+                WHERE datetime(timestamp) > datetime('now', '-24 hours')
+            """ )
+            stats['weather_data_24h'] = cursor.fetchone()[0]
+            
+            # AI analysis count (last 24h)
+            cursor.execute("""
+                SELECT COUNT(*) FROM storm_analysis 
+                WHERE datetime(timestamp) > datetime('now', '-24 hours')
+            """ )
+            stats['ai_analysis_24h'] = cursor.fetchone()[0]
+            
+            # Email notifications count (last 24h)
+            cursor.execute("""
+                SELECT COUNT(*) FROM email_notifications 
+                WHERE datetime(timestamp) > datetime('now', '-24 hours')
+            """ )
+            stats['emails_24h'] = cursor.fetchone()[0]
+            
+            # Storm detections (last 7 days)
+            cursor.execute("""
+                SELECT COUNT(*) FROM storm_analysis 
+                WHERE datetime(timestamp) > datetime('now', '-7 days')
+                AND storm_detected = 1
+            """ )
+            stats['storms_detected_7d'] = cursor.fetchone()[0]
+            
+            # High confidence predictions (last 7 days)
+            cursor.execute("""
+                SELECT COUNT(*) FROM storm_analysis 
+                WHERE datetime(timestamp) > datetime('now', '-7 days')
+                AND confidence_score > 0.8
+            """ )
+            stats['high_confidence_7d'] = cursor.fetchone()[0]
+            
+            # Average confidence score (last 7 days)
+            cursor.execute("""
+                SELECT AVG(confidence_score) FROM storm_analysis 
+                WHERE datetime(timestamp) > datetime('now', '-7 days')
+            """ )
+            avg_confidence = cursor.fetchone()[0]
+            stats['avg_confidence_7d'] = round(avg_confidence * 100, 1) if avg_confidence else 0
+            
+            # Cache efficiency
+            cursor.execute("""
+                SELECT COUNT(*) FROM weather_condition_cache 
+                WHERE expires_at > datetime('now')
+            """ )
+            stats['active_cache_entries'] = cursor.fetchone()[0]
+            
+            # Database size estimation
+            cursor.execute("SELECT COUNT(*) FROM weather_data")
+            stats['total_weather_records'] = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM storm_analysis")
+            stats['total_analysis_records'] = cursor.fetchone()[0]
+            
+            # Estimate API costs (rough calculation)
+            # DeepSeek: ~$0.001 per analysis
+            # Weather APIs: free tier usage
+            stats['estimated_ai_cost_24h'] = round(stats['ai_analysis_24h'] * 0.001, 3)
+            stats['estimated_ai_cost_7d'] = round(stats['ai_analysis_24h'] * 7 * 0.001, 2)
+            
+            return jsonify(stats)
         
     except Exception as e:
         logger.error(f"Error fetching system stats: {e}")
@@ -891,25 +871,23 @@ def api_email_history():
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT timestamp, recipient, subject, message_type, sent_successfully, error_message
-            FROM email_notifications 
-            ORDER BY timestamp DESC 
-            LIMIT 20
-        """
-)
-        
-        rows = cursor.fetchall()
-        columns = [description[0] for description in cursor.description]
-        
-        email_data = []
-        for row in rows:
-            data = dict(zip(columns, row))
-            email_data.append(data)
-        
-        conn.close()
-        return jsonify(email_data)
+            
+            cursor.execute("""
+                SELECT timestamp, recipient, subject, message_type, sent_successfully, error_message
+                FROM email_notifications 
+                ORDER BY timestamp DESC 
+                LIMIT 20
+            """ )
+            
+            rows = cursor.fetchall()
+            columns = [description[0] for description in cursor.description]
+            
+            email_data = []
+            for row in rows:
+                data = dict(zip(columns, row))
+                email_data.append(data)
+            
+            return jsonify(email_data)
         
     except Exception as e:
         logger.error(f"Error fetching email history: {e}")
@@ -917,77 +895,71 @@ def api_email_history():
 
 @app.route('/api/api_usage_stats')
 @login_required
-def api_usage_stats():
+def api_api_usage_stats():
     """Get API usage statistics for all weather sources."""
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
-        
-        # API call counts by source (last 24 hours)
-        cursor.execute("""
-            SELECT source, COUNT(*) as call_count
-            FROM weather_data 
-            WHERE datetime(timestamp) > datetime('now', '-24 hours')
-            GROUP BY source
-            ORDER BY call_count DESC
-        """
-)
-        
-        api_usage_24h = {}
-        rows = cursor.fetchall()
-        for source, count in rows:
-            api_usage_24h[source] = count
-        
-        # API call counts by source (last 7 days)
-        cursor.execute("""
-            SELECT source, COUNT(*) as call_count
-            FROM weather_data 
-            WHERE datetime(timestamp) > datetime('now', '-7 days')
-            GROUP BY source
-            ORDER BY call_count DESC
-        """
-)
-        
-        api_usage_7d = {}
-        rows = cursor.fetchall()
-        for source, count in rows:
-            api_usage_7d[source] = count
-        
-        # Total API calls by source (all time)
-        cursor.execute("""
-            SELECT source, COUNT(*) as call_count
-            FROM weather_data 
-            GROUP BY source
-            ORDER BY call_count DESC
-        """
-)
-        
-        api_usage_total = {}
-        rows = cursor.fetchall()
-        for source, count in rows:
-            api_usage_total[source] = count
-        
-        # Latest data timestamp for each API
-        cursor.execute("""
-            SELECT source, MAX(timestamp) as last_update
-            FROM weather_data 
-            GROUP BY source
-        """
-)
-        
-        api_last_update = {}
-        rows = cursor.fetchall()
-        for source, timestamp in rows:
-            api_last_update[source] = timestamp
             
-        conn.close()
-        
-        return jsonify({
-            'usage_24h': api_usage_24h,
-            'usage_7d': api_usage_7d, 
-            'usage_total': api_usage_total,
-            'last_updates': api_last_update
-        })
+            # API call counts by source (last 24 hours)
+            cursor.execute("""
+                SELECT source, COUNT(*) as call_count
+                FROM weather_data 
+                WHERE datetime(timestamp) > datetime('now', '-24 hours')
+                GROUP BY source
+                ORDER BY call_count DESC
+            """ )
+            
+            api_usage_24h = {}
+            rows = cursor.fetchall()
+            for source, count in rows:
+                api_usage_24h[source] = count
+            
+            # API call counts by source (last 7 days)
+            cursor.execute("""
+                SELECT source, COUNT(*) as call_count
+                FROM weather_data 
+                WHERE datetime(timestamp) > datetime('now', '-7 days')
+                GROUP BY source
+                ORDER BY call_count DESC
+            """ )
+            
+            api_usage_7d = {}
+            rows = cursor.fetchall()
+            for source, count in rows:
+                api_usage_7d[source] = count
+            
+            # Total API calls by source (all time)
+            cursor.execute("""
+                SELECT source, COUNT(*) as call_count
+                FROM weather_data 
+                GROUP BY source
+                ORDER BY call_count DESC
+            """ )
+            
+            api_usage_total = {}
+            rows = cursor.fetchall()
+            for source, count in rows:
+                api_usage_total[source] = count
+            
+            # Latest data timestamp for each API
+            cursor.execute("""
+                SELECT source, MAX(timestamp) as last_update
+                FROM weather_data 
+                GROUP BY source
+            """ )
+            
+            api_last_update = {}
+            rows = cursor.fetchall()
+            for source, timestamp in rows:
+                api_last_update[source] = timestamp
+                
+            return jsonify({
+                'usage_24h': api_usage_24h,
+                'usage_7d': api_usage_7d, 
+                'usage_total': api_usage_total,
+                'last_updates': api_last_update
+            })
         
     except Exception as e:
         logger.error(f"Error fetching API usage stats: {e}")
@@ -1000,44 +972,42 @@ def api_weather_averages():
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
-        
-        # Get latest data from each source
-        cursor.execute("""
-            SELECT 
-                AVG(temperature) as avg_temp,
-                AVG(humidity) as avg_humidity,
-                AVG(pressure) as avg_pressure,
-                AVG(wind_speed) as avg_wind_speed,
-                AVG(precipitation_probability) as avg_precip_prob,
-                AVG(precipitation) as avg_precipitation,
-                COUNT(DISTINCT source) as source_count
-            FROM weather_data w1
-            WHERE w1.timestamp = (
-                SELECT MAX(timestamp) 
-                FROM weather_data w2 
-                WHERE w2.source = w1.source
-            )
-        """
-)
-        
-        result = cursor.fetchone()
-        if result:
-            avg_temp, avg_humidity, avg_pressure, avg_wind_speed, avg_precip_prob, avg_precipitation, source_count = result
             
-            averages = {
-                'temperature': round(avg_temp, 1) if avg_temp is not None else None,
-                'humidity': round(avg_humidity, 1) if avg_humidity is not None else None,
-                'pressure': round(avg_pressure, 1) if avg_pressure is not None else None,
-                'wind_speed': round(avg_wind_speed, 1) if avg_wind_speed is not None else None,
-                'precipitation_probability': round(avg_precip_prob, 1) if avg_precip_prob is not None else None,
-                'precipitation': round(avg_precipitation, 1) if avg_precipitation is not None else None,
-                'source_count': source_count or 0
-            }
-        else:
-            averages = {}
+            # Get latest data from each source
+            cursor.execute("""
+                SELECT 
+                    AVG(temperature) as avg_temp,
+                    AVG(humidity) as avg_humidity,
+                    AVG(pressure) as avg_pressure,
+                    AVG(wind_speed) as avg_wind_speed,
+                    AVG(precipitation_probability) as avg_precip_prob,
+                    AVG(precipitation) as avg_precipitation,
+                    COUNT(DISTINCT source) as source_count
+                FROM weather_data w1
+                WHERE w1.timestamp = (
+                    SELECT MAX(timestamp) 
+                    FROM weather_data w2 
+                    WHERE w2.source = w1.source
+                )
+            """ )
             
-        conn.close()
-        return jsonify(averages)
+            result = cursor.fetchone()
+            if result:
+                avg_temp, avg_humidity, avg_pressure, avg_wind_speed, avg_precip_prob, avg_precipitation, source_count = result
+                
+                averages = {
+                    'temperature': round(avg_temp, 1) if avg_temp is not None else None,
+                    'humidity': round(avg_humidity, 1) if avg_humidity is not None else None,
+                    'pressure': round(avg_pressure, 1) if avg_pressure is not None else None,
+                    'wind_speed': round(avg_wind_speed, 1) if avg_wind_speed is not None else None,
+                    'precipitation_probability': round(avg_precip_prob, 1) if avg_precip_prob is not None else None,
+                    'precipitation': round(avg_precipitation, 1) if avg_precipitation is not None else None,
+                    'source_count': source_count or 0
+                }
+            else:
+                averages = {}
+                
+            return jsonify(averages)
         
     except Exception as e:
         logger.error(f"Error fetching weather averages: {e}")
@@ -1114,34 +1084,33 @@ def api_next_storm_prediction():
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
-        
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS thunderstorm_predictions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                prediction_timestamp TEXT NOT NULL,
-                confidence REAL NOT NULL,
-                created_at TEXT NOT NULL
-            )
-        """)
+            
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS thunderstorm_predictions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    prediction_timestamp TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+            """)
 
-        cursor.execute("""
-            SELECT prediction_timestamp, confidence 
-            FROM thunderstorm_predictions 
-            ORDER BY created_at DESC 
-            LIMIT 1
-        """)
-        
-        row = cursor.fetchone()
-        conn.close()
-        
-        if row:
-            prediction = {
-                'prediction_timestamp': row[0],
-                'confidence': row[1]
-            }
-            return jsonify(prediction)
-        else:
-            return jsonify({'error': 'No prediction available'}), 404
+            cursor.execute("""
+                SELECT prediction_timestamp, confidence 
+                FROM thunderstorm_predictions 
+                ORDER BY created_at DESC 
+                LIMIT 1
+            """)
+            
+            row = cursor.fetchone()
+            
+            if row:
+                prediction = {
+                    'prediction_timestamp': row[0],
+                    'confidence': row[1]
+                }
+                return jsonify(prediction)
+            else:
+                return jsonify({'error': 'No prediction available'}), 404
             
     except Exception as e:
         # This can happen if the table doesn't exist yet
@@ -1171,84 +1140,81 @@ def api_enhanced_forecast():
     try:
         logger.info("Enhanced forecast endpoint called")
         
-        # Direct database query to avoid deserialization issues
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Get latest forecasts for each method
-        forecasts = {}
-        for method in ['ensemble', 'physics', 'ai']:
-            cursor.execute("""
-                SELECT timestamp, forecast_data_json, confidence_data, metadata
-                FROM enhanced_forecasts
-                WHERE method = ?
-                ORDER BY timestamp DESC
-                LIMIT 1
-            """, (method,))
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
             
-            row = cursor.fetchone()
-            if row:
-                try:
-                    forecast_data = json.loads(row[1])
-                    confidence_data = json.loads(row[2]) if row[2] else {}
-                    metadata = json.loads(row[3]) if row[3] else {}
-                    
-                    forecasts[method] = {
-                        'timestamp': row[0],
-                        'data': forecast_data.get('forecast_data', []),
-                        'confidence': confidence_data,
-                        'metadata': metadata
-                    }
-                except Exception as e:
-                    logger.warning(f"Error parsing {method} forecast: {e}")
+            # Get latest forecasts for each method
+            forecasts = {}
+            for method in ['ensemble', 'physics', 'ai']:
+                cursor.execute("""
+                    SELECT timestamp, forecast_data_json, confidence_data, metadata
+                    FROM enhanced_forecasts
+                    WHERE method = ?
+                    ORDER BY timestamp DESC
+                    LIMIT 1
+                """, (method,))
+                
+                row = cursor.fetchone()
+                if row:
+                    try:
+                        forecast_data = json.loads(row[1])
+                        confidence_data = json.loads(row[2]) if row[2] else {}
+                        metadata = json.loads(row[3]) if row[3] else {}
+                        
+                        forecasts[method] = {
+                            'timestamp': row[0],
+                            'data': forecast_data.get('forecast_data', []),
+                            'confidence': confidence_data,
+                            'metadata': metadata
+                        }
+                    except Exception as e:
+                        logger.warning(f"Error parsing {method} forecast: {e}")
+                        forecasts[method] = None
+                else:
                     forecasts[method] = None
-            else:
-                forecasts[method] = None
-        
-        conn.close()
-        
-        # Get the best available forecast
-        latest_ensemble = forecasts.get('ensemble')
-        latest_physics = forecasts.get('physics') 
-        latest_ai = forecasts.get('ai')
+            
+            # Get the best available forecast
+            latest_ensemble = forecasts.get('ensemble')
+            latest_physics = forecasts.get('physics') 
+            latest_ai = forecasts.get('ai')
 
-        def format_forecast_data(forecast_dict):
-            if not forecast_dict or not forecast_dict.get('data'):
-                return []
-            formatted = []
-            for i, item in enumerate(forecast_dict['data']):
-                formatted.append({
-                    'hour': i + 1,
-                    'timestamp': item.get('timestamp', ''),
-                    'temperature': round(float(item.get('temperature', 0)), 1),
-                    'humidity': round(float(item.get('humidity', 0)), 0),
-                    'pressure': round(float(item.get('pressure', 1013)), 0),
-                    'wind_speed': round(float(item.get('wind_speed', 0)), 1),
-                    'precipitation': round(float(item.get('precipitation', 0)), 1),
-                    'precipitation_probability': round(float(item.get('precipitation_probability', 0)), 0) if item.get('precipitation_probability') is not None else 0,
-                    'condition': item.get('condition', 'clear'),
-                    'cloud_cover': round(float(item.get('cloud_cover', 0)), 1),
-                    'visibility': round(float(item.get('visibility', 10)), 1),
-                    'description': item.get('description', ''),
-                    'confidence': round(float(item.get('metadata', {}).get('confidence', 0.5)) * 100, 0),
-                    'confidence_level': item.get('metadata', {}).get('confidence_level', 'unknown')
-                })
-            return formatted
+            def format_forecast_data(forecast_dict):
+                if not forecast_dict or not forecast_dict.get('data'):
+                    return []
+                formatted = []
+                for i, item in enumerate(forecast_dict['data']):
+                    formatted.append({
+                        'hour': i + 1,
+                        'timestamp': item.get('timestamp', ''),
+                        'temperature': round(float(item.get('temperature', 0)), 1),
+                        'humidity': round(float(item.get('humidity', 0)), 0),
+                        'pressure': round(float(item.get('pressure', 1013)), 0),
+                        'wind_speed': round(float(item.get('wind_speed', 0)), 1),
+                        'precipitation': round(float(item.get('precipitation', 0)), 1),
+                        'precipitation_probability': round(float(item.get('precipitation_probability', 0)), 0) if item.get('precipitation_probability') is not None else 0,
+                        'condition': item.get('condition', 'clear'),
+                        'cloud_cover': round(float(item.get('cloud_cover', 0)), 1),
+                        'visibility': round(float(item.get('visibility', 10)), 1),
+                        'description': item.get('description', ''),
+                        'confidence': round(float(item.get('metadata', {}).get('confidence', 0.5)) * 100, 0),
+                        'confidence_level': item.get('metadata', {}).get('confidence_level', 'unknown')
+                    })
+                return formatted
 
-        ensemble_forecast = format_forecast_data(latest_ensemble)
-        physics_forecast = format_forecast_data(latest_physics)
-        ai_forecast = format_forecast_data(latest_ai)
+            ensemble_forecast = format_forecast_data(latest_ensemble)
+            physics_forecast = format_forecast_data(latest_physics)
+            ai_forecast = format_forecast_data(latest_ai)
 
-        result = {
-            'ensemble': ensemble_forecast,
-            'physics': physics_forecast,
-            'ai': ai_forecast,
-            'generated_at': datetime.now().isoformat(), # Overall generation time
-            'data_points_used': max(len(ensemble_forecast) if ensemble_forecast else 0, len(physics_forecast) if physics_forecast else 0, len(ai_forecast) if ai_forecast else 0)
-        }
-        
-        logger.info(f"Returning enhanced forecast data for ensemble ({len(ensemble_forecast)}), physics ({len(physics_forecast)}), and AI ({len(ai_forecast)})")
-        return jsonify(result)
+            result = {
+                'ensemble': ensemble_forecast,
+                'physics': physics_forecast,
+                'ai': ai_forecast,
+                'generated_at': datetime.now().isoformat(), # Overall generation time
+                'data_points_used': max(len(ensemble_forecast) if ensemble_forecast else 0, len(physics_forecast) if physics_forecast else 0, len(ai_forecast) if ai_forecast else 0)
+            }
+            
+            logger.info(f"Returning enhanced forecast data for ensemble ({len(ensemble_forecast)}), physics ({len(physics_forecast)}), and AI ({len(ai_forecast)})")
+            return jsonify(result)
         
     except Exception as e:
         logger.error(f"Error getting enhanced forecast: {e}")
@@ -1260,60 +1226,58 @@ def api_forecast_accuracy():
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
-        
-        # Create accuracy tracking table if it doesn't exist
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS forecast_accuracy (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                forecast_method TEXT NOT NULL,
-                prediction_time TEXT NOT NULL,
-                actual_time TEXT NOT NULL,
-                parameter TEXT NOT NULL,
-                predicted_value REAL NOT NULL,
-                actual_value REAL NOT NULL,
-                error_abs REAL NOT NULL,
-                error_relative REAL NOT NULL,
-                created_at TEXT NOT NULL
-            )
-        """)
-        
-        # Get accuracy stats for the last 30 days
-        thirty_days_ago = (datetime.now() - timedelta(days=30)).isoformat()
-        
-        cursor.execute("""
-            SELECT 
-                forecast_method,
-                parameter,
-                COUNT(*) as prediction_count,
-                AVG(error_abs) as mean_absolute_error,
-                AVG(error_relative) as mean_relative_error,
-                STDDEV(error_abs) as std_absolute_error
-            FROM forecast_accuracy 
-            WHERE created_at > ?
-            GROUP BY forecast_method, parameter
-        """, (thirty_days_ago,))
-        
-        accuracy_stats = {}
-        for row in cursor.fetchall():
-            method, param, count, mae, mre, std = row
-            if method not in accuracy_stats:
-                accuracy_stats[method] = {}
             
-            accuracy_stats[method][param] = {
-                'prediction_count': count,
-                'mean_absolute_error': round(mae, 2) if mae else 0,
-                'mean_relative_error': round(mre * 100, 1) if mre else 0,  # Convert to percentage
-                'std_absolute_error': round(std, 2) if std else 0,
-                'accuracy_score': max(0, 100 - (mre * 100)) if mre else 50  # Simple accuracy score
-            }
-        
-        conn.close()
-        
-        return jsonify({
-            'accuracy_stats': accuracy_stats,
-            'period_days': 30,
-            'last_updated': datetime.now().isoformat()
-        })
+            # Create accuracy tracking table if it doesn't exist
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS forecast_accuracy (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    forecast_method TEXT NOT NULL,
+                    prediction_time TEXT NOT NULL,
+                    actual_time TEXT NOT NULL,
+                    parameter TEXT NOT NULL,
+                    predicted_value REAL NOT NULL,
+                    actual_value REAL NOT NULL,
+                    error_abs REAL NOT NULL,
+                    error_relative REAL NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+            """)
+            
+            # Get accuracy stats for the last 30 days
+            thirty_days_ago = (datetime.now() - timedelta(days=30)).isoformat()
+            
+            cursor.execute("""
+                SELECT 
+                    forecast_method,
+                    parameter,
+                    COUNT(*) as prediction_count,
+                    AVG(error_abs) as mean_absolute_error,
+                    AVG(error_relative) as mean_relative_error,
+                    STDDEV(error_abs) as std_absolute_error
+                FROM forecast_accuracy 
+                WHERE created_at > ?
+                GROUP BY forecast_method, parameter
+            """, (thirty_days_ago,))
+            
+            accuracy_stats = {}
+            for row in cursor.fetchall():
+                method, param, count, mae, mre, std = row
+                if method not in accuracy_stats:
+                    accuracy_stats[method] = {}
+                
+                accuracy_stats[method][param] = {
+                    'prediction_count': count,
+                    'mean_absolute_error': round(mae, 2) if mae else 0,
+                    'mean_relative_error': round(mre * 100, 1) if mre else 0,  # Convert to percentage
+                    'std_absolute_error': round(std, 2) if std else 0,
+                    'accuracy_score': max(0, 100 - (mre * 100)) if mre else 50  # Simple accuracy score
+                }
+            
+            return jsonify({
+                'accuracy_stats': accuracy_stats,
+                'period_days': 30,
+                'last_updated': datetime.now().isoformat()
+            })
         
     except Exception as e:
         logger.error(f"Error fetching forecast accuracy: {e}")

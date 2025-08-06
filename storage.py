@@ -13,6 +13,27 @@ from config import Config
 
 logger = logging.getLogger(__name__)
 
+
+class StdevFunc:
+    def __init__(self):
+        self.M = 0.0
+        self.S = 0.0
+        self.k = 0
+
+    def step(self, value):
+        if value is None:
+            return
+        t = value - self.M
+        self.k += 1
+        self.M += t / self.k
+        self.S += t * (value - self.M)
+
+    def finalize(self):
+        if self.k < 2:
+            return None
+        return (self.S / (self.k - 1)) ** 0.5
+
+
 class WeatherDatabase:
     """SQLite database for weather data storage."""
     
@@ -145,9 +166,11 @@ class WeatherDatabase:
         """Get database connection with WAL mode enabled for better concurrency."""
         conn = sqlite3.connect(self.db_path, timeout=10)
         try:
+            conn.row_factory = sqlite3.Row
             # Use WAL mode for better concurrency and set a busy timeout
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA busy_timeout = 5000")  # Wait 5 seconds if locked
+            conn.create_aggregate("STDDEV", 1, StdevFunc)
             yield conn
         finally:
             conn.close()
