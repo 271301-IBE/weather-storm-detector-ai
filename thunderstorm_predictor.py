@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 import logging
 import pandas as pd
 from config import load_config
+from storage import WeatherDatabase
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -13,25 +14,15 @@ class ThunderstormPredictor:
         self.config = config
         self.db_path = self.config.system.database_path
 
-    def get_db_connection(self):
-        """Get database connection with timeout and WAL mode."""
-        conn = sqlite3.connect(self.db_path, timeout=10.0)
-        conn.execute("PRAGMA journal_mode=MEMORY")  # Reduce SD-card writes
-        conn.execute("PRAGMA synchronous=OFF")
-        conn.execute("PRAGMA mmap_size=300000000")
-        conn.execute("PRAGMA cache_size=20000")
-        return conn
-
     def fetch_recent_weather_data(self):
         """Fetch weather data from the last 2 hours."""
         try:
-            conn = self.get_db_connection()
-            two_hours_ago = datetime.now() - timedelta(hours=2)
-            query = f"SELECT * FROM weather_data WHERE timestamp >= '{two_hours_ago.isoformat()}' ORDER BY timestamp ASC"
-            df = pd.read_sql_query(query, conn)
-            conn.close()
-            logger.info(f"Fetched {len(df)} records from the last 2 hours.")
-            return df
+            with WeatherDatabase(self.config).get_connection() as conn:
+                two_hours_ago = datetime.now() - timedelta(hours=2)
+                query = f"SELECT * FROM weather_data WHERE timestamp >= '{two_hours_ago.isoformat()}' ORDER BY timestamp ASC"
+                df = pd.read_sql_query(query, conn)
+                logger.info(f"Fetched {len(df)} records from the last 2 hours.")
+                return df
         except Exception as e:
             logger.error(f"Error fetching recent weather data: {e}")
             return pd.DataFrame()
@@ -87,28 +78,27 @@ class ThunderstormPredictor:
             return
 
         try:
-            conn = self.get_db_connection()
-            cursor = conn.cursor()
+            with WeatherDatabase(self.config).get_connection() as conn:
+                cursor = conn.cursor()
 
-            # Create table if it doesn't exist
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS thunderstorm_predictions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    prediction_timestamp TEXT NOT NULL,
-                    confidence REAL NOT NULL,
-                    created_at TEXT NOT NULL
-                )
-            """)
+                # Create table if it doesn't exist
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS thunderstorm_predictions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        prediction_timestamp TEXT NOT NULL,
+                        confidence REAL NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                """)
 
-            # Insert new prediction
-            cursor.execute("""
-                INSERT INTO thunderstorm_predictions (prediction_timestamp, confidence, created_at)
-                VALUES (?, ?, ?)
-            """, (predicted_time.isoformat(), confidence, datetime.now().isoformat()))
+                # Insert new prediction
+                cursor.execute("""
+                    INSERT INTO thunderstorm_predictions (prediction_timestamp, confidence, created_at)
+                    VALUES (?, ?, ?)
+                """, (predicted_time.isoformat(), confidence, datetime.now().isoformat()))
 
-            conn.commit()
-            conn.close()
-            logger.info(f"Stored prediction: {predicted_time} with confidence {confidence:.2f}")
+                conn.commit()
+                logger.info(f"Stored prediction: {predicted_time} with confidence {confidence:.2f}")
         except Exception as e:
             logger.error(f"Error storing prediction: {e}")
 

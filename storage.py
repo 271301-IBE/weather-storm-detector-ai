@@ -142,15 +142,12 @@ class WeatherDatabase:
     
     @contextmanager
     def get_connection(self):
-        """Get database connection with automatic close and optimization."""
-        conn = sqlite3.connect(self.db_path)
+        """Get database connection with WAL mode enabled for better concurrency."""
+        conn = sqlite3.connect(self.db_path, timeout=10)
         try:
-            # Optimize database connection
-            conn.execute("PRAGMA journal_mode=MEMORY")  # In-memory journal reduces disk I/O
-            conn.execute("PRAGMA synchronous=OFF")      # Faster writes, acceptable risk on SD cards
-            conn.execute("PRAGMA mmap_size=300000000")  # Enable 300 MB memory map for reads
-            conn.execute("PRAGMA cache_size=20000")     # Larger page cache for frequent queries
-            conn.execute("PRAGMA temp_store=MEMORY")
+            # Use WAL mode for better concurrency and set a busy timeout
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout = 5000")  # Wait 5 seconds if locked
             yield conn
         finally:
             conn.close()
@@ -374,7 +371,7 @@ class WeatherDatabase:
             return None
     
     def cleanup_old_data(self, days_to_keep: int = 30):
-        """Remove old data beyond retention period."""
+        """Remove old data beyond retention period and vacuum the database."""
         try:
             cutoff_time = datetime.now() - timedelta(days=days_to_keep)
             analysis_cutoff = datetime.now() - timedelta(days=90)
@@ -382,32 +379,29 @@ class WeatherDatabase:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
-                # Clean up weather data (keep only recent data)
-                cursor.execute("DELETE FROM weather_data WHERE timestamp < ?", 
-                             (cutoff_time.isoformat(),))
+                # Clean up weather data
+                cursor.execute("DELETE FROM weather_data WHERE timestamp < ?", (cutoff_time.isoformat(),))
                 weather_deleted = cursor.rowcount
                 
                 # Clean up email notifications
-                cursor.execute("DELETE FROM email_notifications WHERE timestamp < ?", 
-                             (cutoff_time.isoformat(),))
+                cursor.execute("DELETE FROM email_notifications WHERE timestamp < ?", (cutoff_time.isoformat(),))
                 email_deleted = cursor.rowcount
                 
-                # Clean up storm analysis (keep longer)
-                cursor.execute("DELETE FROM storm_analysis WHERE timestamp < ?", 
-                             (analysis_cutoff.isoformat(),))
+                # Clean up storm analysis
+                cursor.execute("DELETE FROM storm_analysis WHERE timestamp < ?", (analysis_cutoff.isoformat(),))
                 analysis_deleted = cursor.rowcount
                 
                 # Clean up old forecast data
-                cursor.execute("DELETE FROM enhanced_forecasts WHERE timestamp < ?", 
-                             (cutoff_time.isoformat(),))
+                cursor.execute("DELETE FROM enhanced_forecasts WHERE timestamp < ?", (cutoff_time.isoformat(),))
                 forecast_deleted = cursor.rowcount
                 
                 conn.commit()
+                logger.info(f"Cleaned up old data: {weather_deleted} weather, {email_deleted} emails, {analysis_deleted} analyses, {forecast_deleted} forecasts")
 
-                # Vacuum database to reclaim space (outside of transaction)
-                cursor.execute("VACUUM")
-                
-                logger.info(f"Cleaned up old data: {weather_deleted} weather records, {email_deleted} emails, {analysis_deleted} analyses, {forecast_deleted} forecasts")
+            # Vacuum database to reclaim space (run outside of a transaction)
+            with self.get_connection() as conn:
+                conn.execute("VACUUM")
+                logger.info("Database vacuumed successfully.")
                 
         except Exception as e:
             logger.error(f"Error cleaning up old data: {e}")
@@ -615,46 +609,36 @@ class WeatherDatabase:
             return []
     
     def store_enhanced_forecast(self, forecast, method: str) -> bool:
-        """Store enhanced forecast with method tracking. Includes retry logic for locked DB."""
-        max_retries = 5
-        for attempt in range(max_retries):
-            try:
-                with self.get_connection() as conn:
-                    cursor = conn.cursor()
-                
-                    forecast_dict = forecast.to_dict()
-                
-                    cursor.execute("""
-                        INSERT INTO enhanced_forecasts 
-                        (timestamp, method, forecast_data_json, confidence_data, metadata)
-                        VALUES (?, ?, ?, ?, ?)
-                    """, (
-                        forecast.timestamp.isoformat(),
-                        method,
-                        json.dumps(forecast_dict),
-                        json.dumps(forecast.method_confidences) if hasattr(forecast, 'method_confidences') else None,
-                        json.dumps({
-                            'primary_method': forecast.primary_method.value if hasattr(forecast, 'primary_method') else method,
-                            'data_sources': forecast.data_sources if hasattr(forecast, 'data_sources') else [],
-                            'ensemble_weight': forecast.ensemble_weight if hasattr(forecast, 'ensemble_weight') else None
-                        })
-                    ))
-                
-                    conn.commit()
-                    logger.debug(f"Stored enhanced forecast using method: {method}")
-                    return True
-            except sqlite3.OperationalError as e:
-                if "database is locked" in str(e):
-                    wait = 0.1 * (2 ** attempt)
-                    logger.warning(f"Database locked, retrying in {wait:.2f}s (attempt {attempt+1}/{max_retries})")
-                    time.sleep(wait)
-                    continue
-                else:
-                    logger.error(f"SQLite operational error: {e}")
-                    break
-            except Exception as e:
-                logger.error(f"Error storing enhanced forecast: {e}")
-                break
+        """Store enhanced forecast with method tracking."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+            
+                forecast_dict = forecast.to_dict()
+            
+                cursor.execute("""
+                    INSERT INTO enhanced_forecasts 
+                    (timestamp, method, forecast_data_json, confidence_data, metadata)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (
+                    forecast.timestamp.isoformat(),
+                    method,
+                    json.dumps(forecast_dict),
+                    json.dumps(forecast.method_confidences) if hasattr(forecast, 'method_confidences') else None,
+                    json.dumps({
+                        'primary_method': forecast.primary_method.value if hasattr(forecast, 'primary_method') else method,
+                        'data_sources': forecast.data_sources if hasattr(forecast, 'data_sources') else [],
+                        'ensemble_weight': forecast.ensemble_weight if hasattr(forecast, 'ensemble_weight') else None
+                    })
+                ))
+            
+                conn.commit()
+                logger.debug(f"Stored enhanced forecast using method: {method}")
+                return True
+        except sqlite3.OperationalError as e:
+            logger.error(f"SQLite operational error while storing enhanced forecast: {e}")
+        except Exception as e:
+            logger.error(f"Error storing enhanced forecast: {e}")
         
         return False
     
