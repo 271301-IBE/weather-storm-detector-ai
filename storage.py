@@ -162,18 +162,26 @@ class WeatherDatabase:
             logger.info("Database initialized successfully")
     
     @contextmanager
-    def get_connection(self):
-        """Get database connection with WAL mode enabled for better concurrency."""
-        conn = sqlite3.connect(self.db_path, timeout=10)
+    def get_connection(self, read_only=False):
+        """
+        Get a database connection with WAL mode and appropriate locking.
+        :param read_only: If True, opens the connection in read-only mode.
+        """
+        db_uri = f"file:{self.db_path}{'?mode=ro' if read_only else ''}"
         try:
+            conn = sqlite3.connect(db_uri, uri=True, timeout=10)
             conn.row_factory = sqlite3.Row
-            # Use WAL mode for better concurrency and set a busy timeout
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA busy_timeout = 5000")  # Wait 5 seconds if locked
+            if not read_only:
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA busy_timeout = 5000")  # 5 seconds
             conn.create_aggregate("STDDEV", 1, StdevFunc)
             yield conn
+        except sqlite3.OperationalError as e:
+            logger.error(f"Database connection error to {self.db_path}: {e}")
+            raise
         finally:
-            conn.close()
+            if 'conn' in locals() and conn:
+                conn.close()
     
     def store_weather_data(self, weather_data: WeatherData) -> bool:
         """Store weather data in database."""

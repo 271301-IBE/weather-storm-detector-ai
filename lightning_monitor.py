@@ -10,6 +10,8 @@ import json
 import re
 import logging
 import math
+import sqlite3
+import time
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List, Callable
 from dataclasses import dataclass
@@ -314,34 +316,29 @@ class LightningMonitor:
         
         for attempt in range(max_retries):
             try:
-                # Use a separate connection with timeout
-                import sqlite3
-                conn = sqlite3.connect(self.database.db_path, timeout=5.0)
-                conn.execute("PRAGMA journal_mode=WAL")  # Use WAL mode for better concurrency
-                cursor = conn.cursor()
-                
-                data = strike.to_dict()
-                
-                cursor.execute("""
-                    INSERT INTO lightning_strikes 
-                    (timestamp, timestamp_ns, latitude, longitude, distance_from_brno, 
-                     is_in_czech_region, raw_data)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    data['timestamp'], data['timestamp_ns'], data['latitude'],
-                    data['longitude'], data['distance_from_brno'], 
-                    data['is_in_czech_region'], data['raw_data']
-                ))
-                
-                conn.commit()
-                conn.close()
-                return True
+                with self.database.get_connection() as conn:
+                    cursor = conn.cursor()
+                    
+                    data = strike.to_dict()
+                    
+                    cursor.execute("""
+                        INSERT INTO lightning_strikes 
+                        (timestamp, timestamp_ns, latitude, longitude, distance_from_brno, 
+                         is_in_czech_region, raw_data)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        data['timestamp'], data['timestamp_ns'], data['latitude'],
+                        data['longitude'], data['distance_from_brno'], 
+                        data['is_in_czech_region'], data['raw_data']
+                    ))
+                    
+                    conn.commit()
+                    return True
                 
             except sqlite3.OperationalError as e:
                 if "database is locked" in str(e) and attempt < max_retries - 1:
                     delay = base_delay * (2 ** attempt)  # Exponential backoff
-                    logger.debug(f"Database locked, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})")
-                    import time
+                    logger.warning(f"Database locked, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})")
                     time.sleep(delay)
                     continue
                 else:
@@ -362,53 +359,48 @@ class LightningMonitor:
             try:
                 hour_timestamp = strike.timestamp.replace(minute=0, second=0, microsecond=0)
                 
-                # Use a separate connection with timeout
-                import sqlite3
-                conn = sqlite3.connect(self.database.db_path, timeout=5.0)
-                conn.execute("PRAGMA journal_mode=WAL")
-                cursor = conn.cursor()
-                
-                # Update or insert hourly summary
-                cursor.execute("""
-                    INSERT OR IGNORE INTO lightning_activity_summary 
-                    (hour_timestamp, total_strikes, czech_region_strikes, nearby_strikes, 
-                     closest_strike_distance, average_distance)
-                    VALUES (?, 0, 0, 0, 999999, 0)
-                """, (hour_timestamp.isoformat(),))
-                
-                # Update statistics
-                is_nearby = strike.distance_from_brno <= self.alert_radius_km
-                is_czech = strike.is_in_czech_region
-                
-                cursor.execute("""
-                    UPDATE lightning_activity_summary 
-                    SET total_strikes = total_strikes + 1,
-                        czech_region_strikes = czech_region_strikes + ?,
-                        nearby_strikes = nearby_strikes + ?,
-                        closest_strike_distance = MIN(closest_strike_distance, ?),
-                        average_distance = (
-                            SELECT AVG(distance_from_brno) FROM lightning_strikes 
-                            WHERE timestamp BETWEEN ? AND ?
-                        )
-                    WHERE hour_timestamp = ?
-                """, (
-                    1 if is_czech else 0,
-                    1 if is_nearby else 0,
-                    strike.distance_from_brno,
-                    hour_timestamp.isoformat(),
-                    (hour_timestamp + timedelta(hours=1)).isoformat(),
-                    hour_timestamp.isoformat()
-                ))
-                
-                conn.commit()
-                conn.close()
-                return  # Success, exit retry loop
+                with self.database.get_connection() as conn:
+                    cursor = conn.cursor()
+                    
+                    # Update or insert hourly summary
+                    cursor.execute("""
+                        INSERT OR IGNORE INTO lightning_activity_summary 
+                        (hour_timestamp, total_strikes, czech_region_strikes, nearby_strikes, 
+                         closest_strike_distance, average_distance)
+                        VALUES (?, 0, 0, 0, 999999, 0)
+                    """, (hour_timestamp.isoformat(),))
+                    
+                    # Update statistics
+                    is_nearby = strike.distance_from_brno <= self.alert_radius_km
+                    is_czech = strike.is_in_czech_region
+                    
+                    cursor.execute("""
+                        UPDATE lightning_activity_summary 
+                        SET total_strikes = total_strikes + 1,
+                            czech_region_strikes = czech_region_strikes + ?,
+                            nearby_strikes = nearby_strikes + ?,
+                            closest_strike_distance = MIN(closest_strike_distance, ?),
+                            average_distance = (
+                                SELECT AVG(distance_from_brno) FROM lightning_strikes 
+                                WHERE timestamp BETWEEN ? AND ?
+                            )
+                        WHERE hour_timestamp = ?
+                    """, (
+                        1 if is_czech else 0,
+                        1 if is_nearby else 0,
+                        strike.distance_from_brno,
+                        hour_timestamp.isoformat(),
+                        (hour_timestamp + timedelta(hours=1)).isoformat(),
+                        hour_timestamp.isoformat()
+                    ))
+                    
+                    conn.commit()
+                    return  # Success, exit retry loop
                 
             except sqlite3.OperationalError as e:
                 if "database is locked" in str(e) and attempt < max_retries - 1:
                     delay = base_delay * (2 ** attempt)
-                    logger.debug(f"Database locked during summary update, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})")
-                    import time
+                    logger.warning(f"Database locked during summary update, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})")
                     time.sleep(delay)
                     continue
                 else:
@@ -469,6 +461,9 @@ class LightningMonitor:
                             if lightning_strike.is_in_czech_region:
                                 logger.info(f"⚡ Czech strike #{self.czech_strikes}: {lightning_strike.distance_from_brno:.1f}km from Brno")
                         
+                        # Add a small delay to prevent overwhelming the database
+                        await asyncio.sleep(0.05) # 50ms delay between processing messages
+                        
             except websockets.exceptions.ConnectionClosed:
                 consecutive_failures += 1
                 logger.warning(f"Connection lost (failure {consecutive_failures}/{max_failures})")
@@ -504,27 +499,23 @@ class LightningMonitor:
         try:
             cutoff_time = datetime.now() - timedelta(hours=hours)
             
-            # Use a separate connection with timeout
-            import sqlite3
-            conn = sqlite3.connect(self.database.db_path, timeout=5.0)
-            conn.execute("PRAGMA journal_mode=WAL")
-            cursor = conn.cursor()
-            
-            # Get strike counts
-            cursor.execute("""
-                SELECT 
-                    COUNT(*) as total_strikes,
-                    COUNT(CASE WHEN is_in_czech_region = 1 THEN 1 END) as czech_strikes,
-                    COUNT(CASE WHEN distance_from_brno <= ? THEN 1 END) as nearby_strikes,
-                    MIN(distance_from_brno) as closest_distance,
-                    AVG(distance_from_brno) as average_distance
-                FROM lightning_strikes 
-                WHERE timestamp > ?
-            """, (self.alert_radius_km, cutoff_time.isoformat()))
-            
-            row = cursor.fetchone()
-            conn.close()
-            
+            with self.database.get_connection(read_only=True) as conn:
+                cursor = conn.cursor()
+                
+                # Get strike counts
+                cursor.execute("""
+                    SELECT 
+                        COUNT(*) as total_strikes,
+                        COUNT(CASE WHEN is_in_czech_region = 1 THEN 1 END) as czech_strikes,
+                        COUNT(CASE WHEN distance_from_brno <= ? THEN 1 END) as nearby_strikes,
+                        MIN(distance_from_brno) as closest_distance,
+                        AVG(distance_from_brn) as average_distance
+                    FROM lightning_strikes 
+                    WHERE timestamp > ?
+                """, (self.alert_radius_km, cutoff_time.isoformat()))
+                
+                row = cursor.fetchone()
+                
             return {
                 'period_hours': hours,
                 'total_strikes': row[0] or 0,
