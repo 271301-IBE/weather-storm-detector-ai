@@ -16,8 +16,19 @@
     <div class="col-md-4">
         <div class="card">
             <div class="card-header">Database Health 🗄️</div>
-            <div class="card-body" id="databaseHealth">
-                <p class="text-center">Loading database info...</p>
+            <div class="card-body">
+                <h5 class="card-title">Database Health</h5>
+                <div id="db-health-error" class="alert alert-danger d-none" role="alert">
+                    Database inaccessible. Please check the backend logs.
+                </div>
+                <ul class="list-group list-group-flush" id="db-health-list">
+                    <li class="list-group-item">File Exists: <span id="db-file-exists"></span></li>
+                    <li class="list-group-item">File Size: <span id="db-file-size"></span> MB</li>
+                    <li class="list-group-item">Integrity Check: <span id="db-integrity-check"></span></li>
+                    <li class="list-group-item">Foreign Key Check: <span id="db-fk-check"></span></li>
+                    <li class="list-group-item">Table Count: <span id="db-table-count"></span></li>
+                    <li class="list-group-item">Index Count: <span id="db-index-count"></span></li>
+                </ul>
             </div>
         </div>
     </div>
