@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 import os
+from storage import WeatherDatabase
 
 @dataclass
 class SystemMetrics:
@@ -25,15 +26,15 @@ class SystemMetrics:
 class SystemMonitor:
     """System monitor for tracking hardware metrics."""
     
-    def __init__(self, db_path: str = 'weather_data.db', collection_interval: int = 60):
+    def __init__(self, config, collection_interval: int = 60):
         """
         Initialize system monitor.
         
         Args:
-            db_path: Path to SQLite database
+            config: Configuration object
             collection_interval: Interval in seconds between metric collections
         """
-        self.db_path = db_path
+        self.config = config
         self.collection_interval = collection_interval
         self.logger = logging.getLogger(__name__)
         self.running = False
@@ -43,7 +44,7 @@ class SystemMonitor:
     def _init_database(self):
         """Initialize system metrics table."""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with WeatherDatabase(self.config).get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS system_metrics (
@@ -155,7 +156,7 @@ class SystemMonitor:
     def store_metrics(self, metrics: SystemMetrics):
         """Store metrics in database."""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with WeatherDatabase(self.config).get_connection() as conn:
                 cursor = conn.cursor()
                 
                 load_avg = metrics.load_avg or (None, None, None)
@@ -186,7 +187,7 @@ class SystemMonitor:
     def get_metrics_history(self, hours: int = 24) -> List[Dict[str, Any]]:
         """Get system metrics history."""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with WeatherDatabase(self.config).get_connection() as conn:
                 cursor = conn.cursor()
                 
                 since_time = datetime.now() - timedelta(hours=hours)
@@ -298,7 +299,7 @@ class SystemMonitor:
     def cleanup_old_metrics(self, days: int = 30):
         """Remove old metrics data."""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with WeatherDatabase(self.config).get_connection() as conn:
                 cursor = conn.cursor()
                 
                 cutoff_time = datetime.now() - timedelta(days=days)
@@ -371,16 +372,16 @@ class SystemMonitor:
 # Global system monitor instance
 _system_monitor = None
 
-def get_system_monitor(db_path: str = 'weather_data.db') -> SystemMonitor:
+def get_system_monitor(config) -> SystemMonitor:
     """Get global system monitor instance."""
     global _system_monitor
     if _system_monitor is None:
-        _system_monitor = SystemMonitor(db_path)
+        _system_monitor = SystemMonitor(config)
     return _system_monitor
 
-def start_system_monitoring(db_path: str = 'weather_data.db', interval: int = 60):
+def start_system_monitoring(config, interval: int = 60):
     """Start system monitoring."""
-    monitor = get_system_monitor(db_path)
+    monitor = get_system_monitor(config)
     monitor.collection_interval = interval
     monitor.start_monitoring()
 

@@ -5,18 +5,19 @@ import logging
 from typing import List, Dict, Any
 from pathlib import Path
 import time
+from storage import WeatherDatabase
 
 class DatabaseOptimizer:
     """Database optimizer for weather monitoring system."""
     
-    def __init__(self, db_path: str = 'weather_data.db'):
+    def __init__(self, config):
         """
         Initialize database optimizer.
         
         Args:
-            db_path: Path to SQLite database
+            config: Configuration object
         """
-        self.db_path = db_path
+        self.config = config
         self.logger = logging.getLogger(__name__)
     
     def create_indexes(self) -> bool:
@@ -63,7 +64,7 @@ class DatabaseOptimizer:
         ]
         
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with WeatherDatabase(self.config).get_connection() as conn:
                 cursor = conn.cursor()
                 
                 for index_sql in indexes:
@@ -90,7 +91,7 @@ class DatabaseOptimizer:
             True if successful, False otherwise
         """
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with WeatherDatabase(self.config).get_connection() as conn:
                 cursor = conn.cursor()
                 
                 start_time = time.time()
@@ -112,16 +113,17 @@ class DatabaseOptimizer:
             True if successful, False otherwise
         """
         try:
+            db_path = self.config.system.database_path
             # Get database size before vacuum
-            db_size_before = Path(self.db_path).stat().st_size if Path(self.db_path).exists() else 0
+            db_size_before = Path(db_path).stat().st_size if Path(db_path).exists() else 0
             
-            with sqlite3.connect(self.db_path) as conn:
+            with WeatherDatabase(self.config).get_connection() as conn:
                 start_time = time.time()
                 conn.execute("VACUUM")
                 execution_time = time.time() - start_time
                 
                 # Get database size after vacuum
-                db_size_after = Path(self.db_path).stat().st_size
+                db_size_after = Path(db_path).stat().st_size
                 space_saved = db_size_before - db_size_after
                 
                 self.logger.info(
@@ -144,7 +146,7 @@ class DatabaseOptimizer:
         stats = {}
         
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with WeatherDatabase(self.config).get_connection() as conn:
                 cursor = conn.cursor()
                 
                 # Get all table names
@@ -194,7 +196,7 @@ class DatabaseOptimizer:
         index_info = []
         
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with WeatherDatabase(self.config).get_connection() as conn:
                 cursor = conn.cursor()
                 
                 # Get all indexes
@@ -270,14 +272,15 @@ class DatabaseOptimizer:
         }
         
         try:
+            db_path = self.config.system.database_path
             # Check if file exists
-            if Path(self.db_path).exists():
+            if Path(db_path).exists():
                 health['file_exists'] = True
                 health['file_size_mb'] = round(
-                    Path(self.db_path).stat().st_size / (1024 * 1024), 2
+                    Path(db_path).stat().st_size / (1024 * 1024), 2
                 )
             
-            with sqlite3.connect(self.db_path) as conn:
+            with WeatherDatabase(self.config).get_connection() as conn:
                 cursor = conn.cursor()
                 
                 # Integrity check
@@ -307,28 +310,28 @@ class DatabaseOptimizer:
         
         return health
 
-def optimize_weather_database(db_path: str = 'weather_data.db', full: bool = False) -> Dict[str, bool]:
+def optimize_weather_database(config, full: bool = False) -> Dict[str, bool]:
     """
     Convenience function to optimize weather database.
     
     Args:
-        db_path: Path to database
+        config: Configuration object
         full: Whether to perform full optimization
         
     Returns:
         Optimization results
     """
-    optimizer = DatabaseOptimizer(db_path)
+    optimizer = DatabaseOptimizer(config)
     return optimizer.optimize_database(full)
 
-def get_database_optimizer(db_path: str = 'weather_data.db') -> DatabaseOptimizer:
+def get_database_optimizer(config) -> DatabaseOptimizer:
     """
     Get a database optimizer instance.
     
     Args:
-        db_path: Path to database
+        config: Configuration object
         
     Returns:
         DatabaseOptimizer instance
     """
-    return DatabaseOptimizer(db_path)
+    return DatabaseOptimizer(config)
