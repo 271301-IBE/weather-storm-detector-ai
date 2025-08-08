@@ -128,9 +128,10 @@ class ThunderstormPredictor:
         # Resample to 10-minute cadence for smoother slope estimation (numeric only)
         df_10 = df.resample('10T').mean().ffill()
 
-        # Last 60 and 30 minutes windows
-        last_60 = df_10.last('60T')
-        last_30 = df_10.last('30T')
+        # Last 60 and 30 minutes windows (avoid deprecated .last)
+        end_ts = df_10.index[-1]
+        last_60 = df_10.loc[df_10.index >= end_ts - pd.Timedelta(minutes=60)]
+        last_30 = df_10.loc[df_10.index >= end_ts - pd.Timedelta(minutes=30)]
         if last_30.empty or last_60.empty or len(last_30) < 2 or len(last_60) < 2:
             return None, 0.0
 
