@@ -21,6 +21,8 @@ class WeatherDataFetcher:
         self.session: Optional[aiohttp.ClientSession] = None
         self._response_cache = {}  # Simple response cache
         self._cache_ttl = 300  # 5 minutes cache TTL
+        # Per-source rate-limit cooldowns (epoch seconds)
+        self._rate_limit_until: Dict[str, float] = {}
         
     async def __aenter__(self):
         """Async context manager entry."""
@@ -55,6 +57,14 @@ class WeatherDataFetcher:
             if (datetime.now() - cached_time).total_seconds() < self._cache_ttl:
                 logger.debug(f"Using cached data for {source_name}")
                 return cached_data
+
+        # Respect per-source rate limit cooldown
+        now_ts = time.time()
+        until_ts = self._rate_limit_until.get(source_name)
+        if until_ts and now_ts < until_ts:
+            remaining = int(until_ts - now_ts)
+            logger.warning(f"{source_name} temporarily rate-limited, skipping fetch for {remaining}s")
+            return None
         
         for attempt in range(self.config.weather.api_retry_attempts):
             try:
@@ -66,6 +76,23 @@ class WeatherDataFetcher:
                         # Clean old cache entries
                         self._clean_cache()
                         return data
+                    elif response.status == 429:
+                        # Handle rate limiting with Retry-After when provided
+                        retry_after = response.headers.get('Retry-After')
+                        try:
+                            cooldown = int(retry_after) if retry_after else 600  # default 10 min
+                        except Exception:
+                            cooldown = 600
+                        self._rate_limit_until[source_name] = time.time() + cooldown
+                        logger.error(f"{source_name} API error: 429 (rate limited). Cooldown {cooldown}s applied")
+                        return None
+                    elif 500 <= response.status < 600:
+                        # Transient server errors: retry
+                        logger.warning(f"{source_name} API server error {response.status} on attempt {attempt+1}")
+                        if attempt < self.config.weather.api_retry_attempts - 1:
+                            await asyncio.sleep(min(8, 2 ** attempt))
+                            continue
+                        return None
                     else:
                         logger.error(f"{source_name} API error: {response.status}")
                         return None
@@ -261,11 +288,12 @@ class WeatherDataFetcher:
     
     async def fetch_all_data(self) -> List[WeatherData]:
         """Fetch data from all available APIs concurrently."""
-        tasks = [
-            self.fetch_openweather_data(),
-            self.fetch_visual_crossing_data(),
-            self.fetch_tomorrow_io_data()
-        ]
+        tasks = []
+        # Always try OpenWeather and Visual Crossing
+        tasks.append(self.fetch_openweather_data())
+        tasks.append(self.fetch_visual_crossing_data())
+        # Tomorrow.io may be rate-limited; fetcher will skip if cooldown active
+        tasks.append(self.fetch_tomorrow_io_data())
         
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
@@ -276,7 +304,7 @@ class WeatherDataFetcher:
             elif isinstance(result, Exception):
                 logger.error(f"API fetch error: {result}")
         
-        logger.info(f"Successfully fetched data from {len(weather_data)} APIs (OpenWeather, Visual Crossing, Tomorrow.io)")
+        logger.info(f"Successfully fetched data from {len(weather_data)} APIs (some sources may be rate-limited)")
         return weather_data
 
 class WeatherDataCollector:
