@@ -1085,6 +1085,7 @@ def telegram_webhook(token: str):
     Security: We use the bot token as the path secret. Telegram will POST updates here if configured.
     """
     try:
+        logger.info("Telegram webhook hit")
         if token != (config.telegram.bot_token or ''):
             return jsonify({'error': 'unauthorized'}), 403
         data = request.get_json(force=True, silent=True) or {}
@@ -1092,6 +1093,7 @@ def telegram_webhook(token: str):
         message = message_obj.get('text', '')
         chat = (message_obj.get('chat') or {})
         chat_id = str(chat.get('id')) if chat.get('id') is not None else None
+        logger.info(f"Telegram update: chat_id={chat_id} text={message!r}")
         if not message:
             return jsonify({'ok': True})
         cmd = message.strip().lower()
@@ -1101,6 +1103,7 @@ def telegram_webhook(token: str):
                 # Build comprehensive summary
                 from telegram_notifier import TelegramNotifier
                 notifier = TelegramNotifier(config)
+                logger.info(f"Handling /weather for chat_id={chat_id}")
 
                 # Current conditions (latest)
                 with db.get_connection(read_only=True) as conn:
@@ -1119,6 +1122,7 @@ def telegram_webhook(token: str):
                             f"Press {row[3]:.0f} hPa, Wind {row[4]:.1f} m/s, Precip {row[5]:.1f} mm"
                             if row[1] is not None else f"Now: {row[6] or ''}"
                         )
+                        logger.debug(f"/weather current row: ts={row[0]} temp={row[1]} hum={row[2]} press={row[3]} wind={row[4]} precip={row[5]}")
 
                 # Next predicted storm
                 try:
@@ -1137,6 +1141,7 @@ def telegram_webhook(token: str):
                                 predicted_dt = datetime.fromisoformat(p[0])
                                 if predicted_dt > datetime.now():
                                     storm_line = f"Storm ▶ {predicted_dt.strftime('%d.%m %H:%M')} (conf {float(p[1])*100:.0f}%)"
+                                logger.debug(f"/weather prediction row: predicted={p[0]} conf={p[1]} created={p[2]}")
                             except Exception:
                                 pass
                 except Exception:
@@ -1152,6 +1157,7 @@ def telegram_webhook(token: str):
                         desc = getattr(w, 'area_description', '') or ''
                         if 'jihomorav' in desc.lower() or 'brno' in desc.lower():
                             region_hits.append(w)
+                    logger.debug(f"/weather CHMI region warnings count={len(region_hits)} total={len(warnings)}")
                     if region_hits:
                         chmi_line = "CHMI: " + ", ".join([f"{w.event} ({w.color})" for w in region_hits[:5]])
                     else:
@@ -1174,6 +1180,7 @@ def telegram_webhook(token: str):
                             )
                             row = cur.fetchone()
                             lt_line = f"Lightning: total {row[0] or 0}, nearby {row[1] or 0}, closest {row[2]:.1f} km" if row and row[2] is not None else f"Lightning: total {row[0] or 0}, nearby {row[1] or 0}"
+                            logger.debug(f"/weather lightning summary: total={row[0]} nearby={row[1]} closest={row[2]}")
                         except Exception:
                             # fallback raw
                             cur.execute(
@@ -1185,6 +1192,7 @@ def telegram_webhook(token: str):
                             )
                             row = cur.fetchone()
                             lt_line = f"Lightning: total {row[0] or 0}, nearby {row[1] or 0}, closest {row[2]:.1f} km" if row and row[2] is not None else f"Lightning: total {row[0] or 0}, nearby {row[1] or 0}"
+                            logger.debug(f"/weather lightning raw: total={row[0]} nearby={row[1]} closest={row[2]}")
                 except Exception:
                     lt_line = "Lightning: unavailable"
 
@@ -1195,7 +1203,8 @@ def telegram_webhook(token: str):
 
                 # Send text summary
                 if chat_id:
-                    notifier.send_message(summary_text, chat_id=chat_id)
+                    sent = notifier.send_message(summary_text, chat_id=chat_id)
+                    logger.info(f"/weather text sent chat_id={chat_id} ok={sent}")
 
                 # Optional: send a chart image from last 24h
                 try:
@@ -1206,10 +1215,12 @@ def telegram_webhook(token: str):
                     series = list(reversed(weather_rows))[:120]
                     gen = WeatherReportGenerator(config)
                     img_path = gen.create_chart_image(series, datetime.now()) if series else None
+                    logger.debug(f"/weather chart path={img_path} points={len(series) if series else 0}")
                     if img_path and chat_id:
-                        TelegramNotifier(config).send_photo(img_path, caption="24h weather chart", chat_id=chat_id)
+                        photo_ok = TelegramNotifier(config).send_photo(img_path, caption="24h weather chart", chat_id=chat_id)
+                        logger.info(f"/weather photo sent chat_id={chat_id} ok={photo_ok}")
                 except Exception:
-                    pass
+                    logger.exception("/weather chart send failed")
 
                 return jsonify({'ok': True})
             except Exception as e:
@@ -1232,6 +1243,7 @@ def telegram_webhook(token: str):
         event_type = mapping.get(cmd)
         if not event_type:
             # Ignore non-learning messages
+            logger.info(f"Telegram message ignored (no command match): chat_id={chat_id} text={cmd!r}")
             return jsonify({'ok': True})
         # Record the event similar to api_storm_event
         with db.get_connection() as conn:
@@ -1275,6 +1287,7 @@ def telegram_webhook(token: str):
                 (datetime.now().isoformat(), event_type, json.dumps(weather_data), json.dumps([]), None)
             )
             conn.commit()
+        logger.info(f"Recorded user event from Telegram: chat_id={chat_id} type={event_type}")
         return jsonify({'ok': True})
     except Exception as e:
         logger.error(f"Telegram webhook error: {e}")
