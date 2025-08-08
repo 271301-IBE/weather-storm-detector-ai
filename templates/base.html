@@ -22,6 +22,8 @@
             --border: #e5e7eb;
             --shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
             --accent: #22d3ee;
+            --link: #0ea5b1;
+            --link-hover: #0b8894;
 
             --sidebar-bg: #2c3e50;
             --sidebar-link: #bdc3c7;
@@ -40,6 +42,8 @@
             --border: #252a33;
             --shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
             --accent: #22d3ee;
+            --link: #22d3ee;
+            --link-hover: #19b8d0;
 
             --sidebar-bg: #0f131a;
             --sidebar-link: #c9d1d9;
@@ -55,6 +59,7 @@
             color: var(--text);
             font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             transition: background-color 180ms ease, color 180ms ease;
+            color-scheme: light dark;
         }
         .sidebar {
             position: fixed;
@@ -122,6 +127,18 @@
         }
         .text-muted { color: var(--muted) !important; }
 
+        a { color: var(--link); }
+        a:hover, a:focus { color: var(--link-hover); }
+
+        /* Make light badges readable in dark mode */
+        body.dark-mode .badge.bg-light { 
+            background-color: #2a2f3a !important; 
+            color: #e6e6e6 !important; 
+            border: 1px solid var(--border);
+        }
+        body.dark-mode .badge.bg-secondary { color: #e6e6e6; }
+        canvas { background: transparent; }
+
         /* Buttons tweaks for dark background readability */
         .btn-outline-light { border-color: var(--border); color: var(--text); }
         .btn-outline-light:hover { background: var(--sidebar-link-active-bg); color: var(--sidebar-link-active-text); }
@@ -181,8 +198,11 @@
         </ul>
         <div class="position-absolute bottom-0 w-100 p-3">
             <div class="form-check form-switch mb-2">
-                <input class="form-check-input" type="checkbox" id="darkModeSwitch">
-                <label class="form-check-label" for="darkModeSwitch">Dark Mode</label>
+                <input class="form-check-input" type="checkbox" id="darkModeSwitch" aria-label="Toggle dark mode">
+                <label class="form-check-label" for="darkModeSwitch">
+                    <span id="themeLabel">Dark Mode</span>
+                    <i id="themeIcon" class="bi bi-moon-stars ms-1"></i>
+                </label>
             </div>
             <button class="btn btn-outline-info w-100 mb-2" id="enableNotifications">Enable Notifications</button>
             <a href="/logout" class="btn btn-outline-light w-100">Logout</a>
@@ -224,6 +244,10 @@
                     dark = saved === 'enabled';
                 } catch(_) {}
                 if (dark) body.classList.add('dark-mode');
+                const themeIcon = document.getElementById('themeIcon');
+                const themeLabel = document.getElementById('themeLabel');
+                if (themeIcon) themeIcon.className = dark ? 'bi bi-moon-stars ms-1' : 'bi bi-sun ms-1';
+                if (themeLabel) themeLabel.textContent = dark ? 'Dark Mode' : 'Light Mode';
                 // notify so components can sync
                 window.dispatchEvent(new CustomEvent('themechange', { detail: { dark } }));
             })();
