@@ -88,6 +88,14 @@ class WeatherReportGenerator:
         plt.close(fig)
 
         return chart_path
+
+    def create_chart_image(self, weather_data: List[WeatherData], title_time: datetime) -> Optional[str]:
+        """Public wrapper to create and return path to a weather chart PNG for messaging apps."""
+        try:
+            return self._create_weather_chart_cz(weather_data, title_time)
+        except Exception as e:
+            logger.error(f"Failed to create chart image: {e}")
+            return None
     
     def _create_weather_summary_table(self, weather_data: List[WeatherData]) -> List[List[str]]:
         """Create summary table data for weather conditions."""

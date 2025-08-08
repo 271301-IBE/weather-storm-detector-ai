@@ -1080,15 +1080,147 @@ def api_telegram_test_alert():
 
 @app.route('/telegram_webhook/<token>', methods=['POST'])
 def telegram_webhook(token: str):
-    """Telegram webhook to record simple learning commands like 'rain', 'thunderstorm', 'no_storm'."""
+    """Telegram webhook for simple learning commands and /weather summary request.
+
+    Security: We use the bot token as the path secret. Telegram will POST updates here if configured.
+    """
     try:
         if token != (config.telegram.bot_token or ''):
             return jsonify({'error': 'unauthorized'}), 403
         data = request.get_json(force=True, silent=True) or {}
-        message = (data.get('message') or {}).get('text', '')
+        message_obj = (data.get('message') or {})
+        message = message_obj.get('text', '')
+        chat = (message_obj.get('chat') or {})
+        chat_id = str(chat.get('id')) if chat.get('id') is not None else None
         if not message:
             return jsonify({'ok': True})
         cmd = message.strip().lower()
+        # Handle /weather rich summary
+        if cmd.startswith('/weather'):
+            try:
+                # Build comprehensive summary
+                from telegram_notifier import TelegramNotifier
+                notifier = TelegramNotifier(config)
+
+                # Current conditions (latest)
+                with db.get_connection(read_only=True) as conn:
+                    cur = conn.cursor()
+                    cur.execute(
+                        """
+                        SELECT timestamp, temperature, humidity, pressure, wind_speed, precipitation, description
+                        FROM weather_data ORDER BY timestamp DESC LIMIT 1
+                        """
+                    )
+                    row = cur.fetchone()
+                    current_text = "N/A"
+                    if row:
+                        current_text = (
+                            f"Now: {row[5] or ''} | Temp {row[1]:.1f}°C, Hum {row[2]:.0f}%, "
+                            f"Press {row[3]:.0f} hPa, Wind {row[4]:.1f} m/s, Precip {row[5]:.1f} mm"
+                            if row[1] is not None else f"Now: {row[6] or ''}"
+                        )
+
+                # Next predicted storm
+                try:
+                    with db.get_connection(read_only=True) as conn:
+                        cur = conn.cursor()
+                        cur.execute(
+                            """
+                            SELECT prediction_timestamp, confidence, created_at
+                            FROM thunderstorm_predictions ORDER BY created_at DESC LIMIT 1
+                            """
+                        )
+                        p = cur.fetchone()
+                        storm_line = "No storm predicted"
+                        if p:
+                            try:
+                                predicted_dt = datetime.fromisoformat(p[0])
+                                if predicted_dt > datetime.now():
+                                    storm_line = f"Storm ▶ {predicted_dt.strftime('%d.%m %H:%M')} (conf {float(p[1])*100:.0f}%)"
+                            except Exception:
+                                pass
+                except Exception:
+                    storm_line = ""
+
+                # CHMI warnings (filtered to region)
+                try:
+                    from chmi_warnings import ChmiWarningMonitor
+                    chmi_monitor = ChmiWarningMonitor(config)
+                    warnings = chmi_monitor.get_all_active_warnings()
+                    region_hits = []
+                    for w in warnings:
+                        desc = getattr(w, 'area_description', '') or ''
+                        if 'jihomorav' in desc.lower() or 'brno' in desc.lower():
+                            region_hits.append(w)
+                    if region_hits:
+                        chmi_line = "CHMI: " + ", ".join([f"{w.event} ({w.color})" for w in region_hits[:5]])
+                    else:
+                        chmi_line = "CHMI: none for region"
+                except Exception:
+                    chmi_line = "CHMI: unavailable"
+
+                # Lightning snapshot (last hour)
+                try:
+                    with db.get_connection(read_only=True) as conn:
+                        cur = conn.cursor()
+                        one_hour_ago = (datetime.now() - timedelta(hours=1)).isoformat()
+                        try:
+                            cur.execute(
+                                """
+                                SELECT COALESCE(SUM(total_strikes),0), COALESCE(SUM(nearby_strikes),0), MIN(closest_strike_distance)
+                                FROM lightning_activity_summary WHERE hour_timestamp > ?
+                                """,
+                                (one_hour_ago,)
+                            )
+                            row = cur.fetchone()
+                            lt_line = f"Lightning: total {row[0] or 0}, nearby {row[1] or 0}, closest {row[2]:.1f} km" if row and row[2] is not None else f"Lightning: total {row[0] or 0}, nearby {row[1] or 0}"
+                        except Exception:
+                            # fallback raw
+                            cur.execute(
+                                """
+                                SELECT COUNT(*), COUNT(CASE WHEN distance_from_brno <= 50 THEN 1 END), MIN(distance_from_brno)
+                                FROM lightning_strikes WHERE timestamp > ?
+                                """,
+                                (one_hour_ago,)
+                            )
+                            row = cur.fetchone()
+                            lt_line = f"Lightning: total {row[0] or 0}, nearby {row[1] or 0}, closest {row[2]:.1f} km" if row and row[2] is not None else f"Lightning: total {row[0] or 0}, nearby {row[1] or 0}"
+                except Exception:
+                    lt_line = "Lightning: unavailable"
+
+                summary_text = (
+                    f"<b>{config.weather.city_name}</b> • {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
+                    f"{current_text}\n{storm_line}\n{chmi_line}\n{lt_line}"
+                )
+
+                # Send text summary
+                if chat_id:
+                    notifier.send_message(summary_text, chat_id=chat_id)
+
+                # Optional: send a chart image from last 24h
+                try:
+                    from pdf_generator import WeatherReportGenerator
+                    from models import WeatherData
+                    weather_rows = db.get_recent_weather_data(hours=24)
+                    # Downsample to avoid huge charts
+                    series = list(reversed(weather_rows))[:120]
+                    gen = WeatherReportGenerator(config)
+                    img_path = gen.create_chart_image(series, datetime.now()) if series else None
+                    if img_path and chat_id:
+                        TelegramNotifier(config).send_photo(img_path, caption="24h weather chart", chat_id=chat_id)
+                except Exception:
+                    pass
+
+                return jsonify({'ok': True})
+            except Exception as e:
+                logger.error(f"/weather handler error: {e}")
+                # Try to inform user
+                try:
+                    if chat_id and TelegramNotifier:
+                        TelegramNotifier(config).send_message("⚠️ Sorry, failed to build weather summary.", chat_id=chat_id)
+                except Exception:
+                    pass
+                return jsonify({'ok': True})
         mapping = {
             'rain': 'rain_now',
             'storm': 'storm_now',
