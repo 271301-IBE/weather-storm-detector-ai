@@ -67,6 +67,37 @@ USERNAME = config.webapp.username
 PASSWORD = config.webapp.password
 SUBSCRIPTIONS_FILE = 'subscriptions.json'
 
+# Very lightweight in-memory TTL cache for expensive API responses
+class SimpleTTLCache:
+    def __init__(self, max_items: int = 256):
+        self._data = {}
+        self._max_items = max_items
+
+    def get(self, key: str):
+        item = self._data.get(key)
+        if not item:
+            return None
+        expires_at, value = item
+        if expires_at < time.time():
+            # Expired
+            self._data.pop(key, None)
+            return None
+        return value
+
+    def set(self, key: str, value, ttl_seconds: int):
+        # Simple size control
+        if len(self._data) >= self._max_items:
+            # Drop an arbitrary item (LRU not necessary for our size)
+            self._data.pop(next(iter(self._data)))
+        self._data[key] = (time.time() + ttl_seconds, value)
+
+    def invalidate_prefix(self, prefix: str):
+        for k in list(self._data.keys()):
+            if k.startswith(prefix):
+                self._data.pop(k, None)
+
+api_cache = SimpleTTLCache(max_items=256)
+
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -563,23 +594,47 @@ def api_storm_learning_data():
 def api_lightning_current():
     """Get current lightning activity data."""
     try:
+        cache_key = "lightning_current:v1"
+        cached = api_cache.get(cache_key)
+        if cached:
+            return jsonify(cached)
+
         with db.get_connection() as conn:
             cursor = conn.cursor()
             
-            # Get lightning activity summary for the last hour
+            # Prefer fast pre-aggregated hourly summary; fallback to raw scan
             one_hour_ago = (datetime.now() - timedelta(hours=1)).isoformat()
-            
-            cursor.execute("""
-                SELECT COUNT(*) as total_strikes,
-                       COUNT(CASE WHEN is_in_czech_region = 1 THEN 1 END) as czech_strikes,
-                       COUNT(CASE WHEN distance_from_brno <= 50 THEN 1 END) as nearby_strikes,
-                       MIN(distance_from_brno) as closest_distance,
-                       AVG(distance_from_brno) as average_distance
-                FROM lightning_strikes 
-                WHERE timestamp > ?
-            """, (one_hour_ago,))
-            
-            row = cursor.fetchone()
+            try:
+                cursor.execute(
+                    """
+                    SELECT 
+                        COALESCE(SUM(total_strikes),0),
+                        COALESCE(SUM(czech_region_strikes),0),
+                        COALESCE(SUM(nearby_strikes),0),
+                        MIN(closest_strike_distance),
+                        AVG(average_distance)
+                    FROM lightning_activity_summary
+                    WHERE hour_timestamp > ?
+                    """,
+                    (one_hour_ago,)
+                )
+                row = cursor.fetchone()
+                use_summary = True
+            except Exception:
+                use_summary = False
+                cursor.execute(
+                    """
+                    SELECT COUNT(*) as total_strikes,
+                           COUNT(CASE WHEN is_in_czech_region = 1 THEN 1 END) as czech_strikes,
+                           COUNT(CASE WHEN distance_from_brno <= 50 THEN 1 END) as nearby_strikes,
+                           MIN(distance_from_brno) as closest_distance,
+                           AVG(distance_from_brno) as average_distance
+                    FROM lightning_strikes 
+                    WHERE timestamp > ?
+                    """,
+                    (one_hour_ago,)
+                )
+                row = cursor.fetchone()
             
             activity = {
                 'period_hours': 1,
@@ -601,6 +656,8 @@ def api_lightning_current():
                 elif activity['czech_strikes'] > 0:
                     activity['threat_level'] = 'LOW'
             
+            # Cache briefly; currents change fast but avoid repeated heavy scans
+            api_cache.set(cache_key, activity, ttl_seconds=30)
             return jsonify(activity)
         
     except Exception as e:
@@ -614,6 +671,10 @@ def api_lightning_strikes():
     try:
         hours = int(request.args.get('hours', 3))  # Default to last 3 hours
         limit = int(request.args.get('limit', 500))  # Limit for performance
+        cache_key = f"lightning_strikes:v1:h{hours}:l{limit}"
+        cached = api_cache.get(cache_key)
+        if cached:
+            return jsonify(cached)
         
         with db.get_connection() as conn:
             cursor = conn.cursor()
@@ -647,7 +708,7 @@ def api_lightning_strikes():
                     'age_minutes': max(0, (datetime.now() - datetime.fromisoformat(row[0])).total_seconds() / 60)
                 })
             
-            return jsonify({
+            payload = {
                 'strikes': strikes,
                 'total_count': len(strikes),
                 'hours_requested': hours,
@@ -655,7 +716,9 @@ def api_lightning_strikes():
                     'latitude': config.weather.latitude,
                     'longitude': config.weather.longitude
                 }
-            })
+            }
+            api_cache.set(cache_key, payload, ttl_seconds=15)
+            return jsonify(payload)
         
     except Exception as e:
         logger.error(f"Error fetching lightning strikes: {e}")
@@ -666,21 +729,39 @@ def api_lightning_strikes():
 def api_lightning_dashboard_stats():
     """Get lightning detection statistics for the dashboard."""
     try:
+        cache_key = "lightning_dashboard_stats:v1"
+        cached = api_cache.get(cache_key)
+        if cached:
+            return jsonify(cached)
+
         with db.get_connection() as conn:
             cursor = conn.cursor()
             
-            # Get statistics for different time periods
+            # Prefer pre-aggregated totals from summary table (fast), fallback to raw counts
             stats = {}
+            try:
+                cursor.execute(
+                    """
+                    SELECT 
+                        COALESCE(SUM(total_strikes),0),
+                        COALESCE(SUM(czech_region_strikes),0),
+                        COALESCE(SUM(nearby_strikes),0)
+                    FROM lightning_activity_summary
+                    """
+                )
+                t, c, n = cursor.fetchone()
+                stats['total_strikes'] = t or 0
+                stats['czech_strikes'] = c or 0
+                stats['nearby_strikes'] = n or 0
+            except Exception:
+                cursor.execute("SELECT COUNT(*) as total FROM lightning_strikes")
+                stats['total_strikes'] = cursor.fetchone()[0] or 0
+                cursor.execute("SELECT COUNT(*) as czech FROM lightning_strikes WHERE is_in_czech_region = 1")
+                stats['czech_strikes'] = cursor.fetchone()[0] or 0
+                cursor.execute("SELECT COUNT(*) as nearby FROM lightning_strikes WHERE distance_from_brno <= 50")
+                stats['nearby_strikes'] = cursor.fetchone()[0] or 0
             
-            cursor.execute("SELECT COUNT(*) as total FROM lightning_strikes")
-            stats['total_strikes'] = cursor.fetchone()[0] or 0
-
-            cursor.execute("SELECT COUNT(*) as czech FROM lightning_strikes WHERE is_in_czech_region = 1")
-            stats['czech_strikes'] = cursor.fetchone()[0] or 0
-
-            cursor.execute("SELECT COUNT(*) as nearby FROM lightning_strikes WHERE distance_from_brno <= 50")
-            stats['nearby_strikes'] = cursor.fetchone()[0] or 0
-            
+            api_cache.set(cache_key, stats, ttl_seconds=300)
             return jsonify(stats)
         
     except Exception as e:
@@ -692,6 +773,11 @@ def api_lightning_dashboard_stats():
 def api_lightning_stats():
     """Get lightning detection statistics."""
     try:
+        cache_key = "lightning_stats:v2"
+        cached = api_cache.get(cache_key)
+        if cached:
+            return jsonify(cached)
+
         with db.get_connection() as conn:
             cursor = conn.cursor()
             
@@ -700,17 +786,35 @@ def api_lightning_stats():
             
             for period, hours in [('1h', 1), ('6h', 6), ('24h', 24), ('7d', 168)]:
                 cutoff_time = (datetime.now() - timedelta(hours=hours)).isoformat()
-                
-                cursor.execute("""
-                    SELECT COUNT(*) as total,
-                           COUNT(CASE WHEN is_in_czech_region = 1 THEN 1 END) as czech,
-                           COUNT(CASE WHEN distance_from_brno <= 50 THEN 1 END) as nearby,
-                           MIN(distance_from_brno) as closest
-                    FROM lightning_strikes 
-                    WHERE timestamp > ?
-                """, (cutoff_time,))
-                
-                row = cursor.fetchone()
+                # Prefer summary table aggregation
+                try:
+                    cursor.execute(
+                        """
+                        SELECT 
+                            COALESCE(SUM(total_strikes),0),
+                            COALESCE(SUM(czech_region_strikes),0),
+                            COALESCE(SUM(nearby_strikes),0),
+                            MIN(closest_strike_distance)
+                        FROM lightning_activity_summary
+                        WHERE hour_timestamp > ?
+                        """,
+                        (cutoff_time,)
+                    )
+                    row = cursor.fetchone()
+                except Exception:
+                    cursor.execute(
+                        """
+                        SELECT COUNT(*) as total,
+                               COUNT(CASE WHEN is_in_czech_region = 1 THEN 1 END) as czech,
+                               COUNT(CASE WHEN distance_from_brno <= 50 THEN 1 END) as nearby,
+                               MIN(distance_from_brno) as closest
+                        FROM lightning_strikes 
+                        WHERE timestamp > ?
+                        """,
+                        (cutoff_time,)
+                    )
+                    row = cursor.fetchone()
+
                 stats[period] = {
                     'total_strikes': row[0] or 0,
                     'czech_strikes': row[1] or 0,
@@ -735,12 +839,14 @@ def api_lightning_stats():
                     'nearby': row[3]
                 })
             
-            return jsonify({
+            payload = {
                 'periods': stats,
                 'hourly_distribution': hourly_data,
                 'system_status': 'active',
                 'last_updated': datetime.now().isoformat()
-            })
+            }
+            api_cache.set(cache_key, payload, ttl_seconds=120)
+            return jsonify(payload)
         
     except Exception as e:
         logger.error(f"Error fetching lightning statistics: {e}")

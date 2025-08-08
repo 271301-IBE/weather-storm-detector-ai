@@ -374,25 +374,29 @@ class LightningMonitor:
                     is_nearby = strike.distance_from_brno <= self.alert_radius_km
                     is_czech = strike.is_in_czech_region
                     
-                    cursor.execute("""
+                    # Avoid scanning raw table for AVG on each strike: incremental EMA for average
+                    cursor.execute(
+                        """
                         UPDATE lightning_activity_summary 
                         SET total_strikes = total_strikes + 1,
                             czech_region_strikes = czech_region_strikes + ?,
                             nearby_strikes = nearby_strikes + ?,
                             closest_strike_distance = MIN(closest_strike_distance, ?),
-                            average_distance = (
-                                SELECT AVG(distance_from_brno) FROM lightning_strikes 
-                                WHERE timestamp BETWEEN ? AND ?
-                            )
+                            average_distance = CASE 
+                                WHEN total_strikes <= 0 THEN ?
+                                ELSE ( (average_distance * total_strikes) + ? ) / (total_strikes + 1)
+                            END
                         WHERE hour_timestamp = ?
-                    """, (
-                        1 if is_czech else 0,
-                        1 if is_nearby else 0,
-                        strike.distance_from_brno,
-                        hour_timestamp.isoformat(),
-                        (hour_timestamp + timedelta(hours=1)).isoformat(),
-                        hour_timestamp.isoformat()
-                    ))
+                        """,
+                        (
+                            1 if is_czech else 0,
+                            1 if is_nearby else 0,
+                            strike.distance_from_brno,
+                            strike.distance_from_brno,
+                            strike.distance_from_brno,
+                            hour_timestamp.isoformat(),
+                        ),
+                    )
                     
                     conn.commit()
                     return  # Success, exit retry loop

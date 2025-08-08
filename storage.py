@@ -160,6 +160,33 @@ class WeatherDatabase:
             
             conn.commit()
             logger.info("Database initialized successfully")
+            try:
+                # Create lightning summary tables/indexes if lightning monitor is used
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS lightning_activity_summary (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        hour_timestamp TEXT NOT NULL,
+                        total_strikes INTEGER DEFAULT 0,
+                        czech_region_strikes INTEGER DEFAULT 0,
+                        nearby_strikes INTEGER DEFAULT 0,
+                        closest_strike_distance REAL,
+                        average_distance REAL,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(hour_timestamp)
+                    )
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_lightning_summary_hour
+                    ON lightning_activity_summary(hour_timestamp)
+                    """
+                )
+                conn.commit()
+            except Exception:
+                # Optional in environments without lightning ingestion
+                pass
     
     @contextmanager
     def get_connection(self, read_only=False):
