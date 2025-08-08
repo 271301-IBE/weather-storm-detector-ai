@@ -511,24 +511,27 @@ class StormDetectionEngine:
         db = WeatherDatabase(self.config)
         historical_patterns = db.get_storm_patterns()
 
+        # If conditions don't strongly warrant AI costs, still produce a baseline analysis
         if not self._is_ai_analysis_warranted(weather_data, historical_patterns, chmi_warnings):
-            return None
-            
-        async with DeepSeekAnalyzer(self.config) as analyzer:
-            analysis = await analyzer.analyze_weather_data(weather_data, historical_patterns, chmi_warnings, lightning_activity)
-            
+            analysis = self._baseline_analysis(weather_data, chmi_warnings, lightning_activity)
+        else:
+            async with DeepSeekAnalyzer(self.config) as analyzer:
+                analysis = await analyzer.analyze_weather_data(weather_data, historical_patterns, chmi_warnings, lightning_activity)
+
+            # If AI call failed or returned invalid data, fall back to baseline to avoid None
+            if not analysis:
+                analysis = self._baseline_analysis(weather_data, chmi_warnings, lightning_activity)
+
         if analysis:
             logger.info(f"Storm analysis completed: confidence={analysis.confidence_score:.3f}, detected={analysis.storm_detected}")
-            
             # If a storm is detected with high confidence, store the current weather data as a new pattern
             if analysis.storm_detected and analysis.confidence_score >= self.config.ai.storm_confidence_threshold:
                 logger.warning(f"HIGH CONFIDENCE STORM DETECTED: {analysis.confidence_score:.3f}")
                 db.store_storm_pattern("ai_detection", weather_data)
-            
+
         # Always generate local forecast after analysis
         local_forecast = self.local_forecast_generator.generate_forecast(weather_data)
         db.store_weather_forecast(local_forecast)
-        return analysis
         return analysis
     
     def should_send_alert(self, analysis: StormAnalysis) -> bool:
@@ -546,6 +549,84 @@ class StormDetectionEngine:
             
         logger.info(f"Storm detected but confidence too low: {analysis.confidence_score:.3f} < {self.config.ai.storm_confidence_threshold} and alert level is {analysis.alert_level}")
         return False
+
+    def _baseline_analysis(self, weather_data: List[WeatherData], chmi_warnings: List[ChmiWarning] = None, lightning_activity: Dict[str, Any] = None) -> StormAnalysis:
+        """Create a conservative offline analysis without calling external AI.
+
+        Uses recent weather metrics, optional ČHMÚ warnings, and lightning activity
+        to produce a best-effort StormAnalysis object suitable for tests and
+        low-cost runs.
+        """
+        latest = weather_data[0]
+        # Simple heuristics
+        precip_prob = latest.precipitation_probability or 0
+        precip = latest.precipitation or 0
+        wind = latest.wind_speed or 0
+        humidity = latest.humidity or 0
+        pressure = latest.pressure or 1013
+
+        # Lightning threat boost
+        lightning_boost = 0.0
+        if lightning_activity:
+            closest = lightning_activity.get('closest_distance_km')
+            nearby = lightning_activity.get('nearby_strikes', 0)
+            if closest is not None:
+                if closest <= 20:
+                    lightning_boost = 0.4
+                elif closest <= 50 or nearby > 0:
+                    lightning_boost = 0.2
+
+        # ČHMÚ storm-related keywords
+        chmi_boost = 0.0
+        if chmi_warnings:
+            for w in chmi_warnings:
+                text = f"{w.event} {getattr(w, 'detailed_text', '')}".lower()
+                if any(k in text for k in ['bouř', 'thunder', 'déšť', 'rain', 'vichr', 'wind']):
+                    chmi_boost = max(chmi_boost, 0.2 if w.color in ['yellow'] else 0.3)
+
+        # Base score from local conditions
+        score = 0.0
+        if precip_prob >= 70:
+            score += 0.3
+        if precip >= 1.0:
+            score += 0.2
+        if humidity >= 85 and pressure < 1000:
+            score += 0.2
+        if wind >= 12:
+            score += 0.1
+
+        score = min(0.95, max(0.0, score + lightning_boost + chmi_boost))
+
+        detected = score >= 0.6
+        if lightning_boost >= 0.4:
+            detected = True
+        if detected:
+            if score >= 0.85:
+                level = AlertLevel.HIGH
+            else:
+                level = AlertLevel.MEDIUM
+        else:
+            level = AlertLevel.LOW
+
+        return StormAnalysis(
+            timestamp=datetime.now(),
+            confidence_score=float(score),
+            storm_detected=bool(detected),
+            alert_level=level,
+            predicted_arrival=None,
+            predicted_intensity='moderate' if detected else None,
+            analysis_summary=(
+                "Baseline analysis without external AI. "
+                f"precip_prob={precip_prob}%, precip={precip}mm, wind={wind}m/s, "
+                f"humidity={humidity}%, pressure={pressure}hPa, "
+                f"chmi_boost={chmi_boost}, lightning_boost={lightning_boost}"
+            ),
+            recommendations=[
+                "Sledujte ČHMÚ radar a oficiální výstrahy.",
+                "Zkontrolujte venkovní vybavení při zhoršení podmínek."
+            ] if detected else [],
+            data_quality_score=0.8 if weather_data else 0.0,
+        )
 
 class DeepSeekPredictor:
     """AI predictor using DeepSeek API for 6-hour weather forecasts."""

@@ -397,6 +397,17 @@ class ChmiWarningParser:
         
         new_warnings = []
         
+        for warning in current_warnings:
+            warning_id = warning.identifier
+            current_hash = self._calculate_warning_hash(warning)
+            prev = previous_warnings.get(warning_id)
+            # new if not seen or content changed
+            if prev is None or prev.get("hash") != current_hash:
+                new_warnings.append(warning)
+                logger.info(f"New/updated ČHMÚ warning: {warning.event} ({warning.color})")
+        
+        return new_warnings
+        
     def get_all_warnings_for_period(self, hours: int = 72) -> List[ChmiWarning]:
         """Get all warnings for a specific time period."""
         try:

@@ -1491,7 +1491,8 @@ if __name__ == '__main__':
     Path('templates').mkdir(exist_ok=True)
     
     # Start system monitoring
-    start_system_monitoring('weather_data.db', interval=60)
+    # start system monitoring with proper config
+    start_system_monitoring(config, interval=60)
     logger.info("System monitoring started")
     
     app.run(host='0.0.0.0', port=5000, debug=True, ssl_context=('cert.pem', 'key.pem'))

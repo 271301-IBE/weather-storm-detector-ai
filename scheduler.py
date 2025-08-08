@@ -20,7 +20,7 @@ except ImportError:
 
 from config import Config, load_config
 from data_fetcher import WeatherDataCollector
-from ai_analysis import StormDetectionEngine, LocalForecastGenerator, DeepSeekPredictor, DeepSeekPredictor
+from ai_analysis import StormDetectionEngine, DeepSeekPredictor
 from email_notifier import EmailNotifier
 from web_notifier import WebNotifier
 from pdf_generator import WeatherReportGenerator
@@ -730,7 +730,7 @@ async def main():
             raise ValueError("Email configuration incomplete")
         
         # Initialize database optimizer and create indexes
-        db_optimizer = get_database_optimizer('weather_data.db')
+        db_optimizer = get_database_optimizer(config)
         optimization_results = db_optimizer.optimize_database(full_optimization=False)
         logger.info(f"Database optimization results: {optimization_results}")
         

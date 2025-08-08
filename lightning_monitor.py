@@ -509,7 +509,7 @@ class LightningMonitor:
                         COUNT(CASE WHEN is_in_czech_region = 1 THEN 1 END) as czech_strikes,
                         COUNT(CASE WHEN distance_from_brno <= ? THEN 1 END) as nearby_strikes,
                         MIN(distance_from_brno) as closest_distance,
-                        AVG(distance_from_brn) as average_distance
+                        AVG(distance_from_brno) as average_distance
                     FROM lightning_strikes 
                     WHERE timestamp > ?
                 """, (self.alert_radius_km, cutoff_time.isoformat()))
