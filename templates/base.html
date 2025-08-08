@@ -139,6 +139,16 @@
         body.dark-mode .badge.bg-secondary { color: #e6e6e6; }
         canvas { background: transparent; }
 
+        /* Dark mode overrides for common Bootstrap utility classes */
+        body.dark-mode .text-dark { color: var(--text) !important; }
+        body.dark-mode .text-black { color: var(--text) !important; }
+        body.dark-mode .bg-white { background-color: var(--card) !important; color: var(--text) !important; }
+        body.dark-mode .bg-light { background-color: #1c232e !important; color: var(--text) !important; }
+        body.dark-mode .table { color: var(--text) !important; }
+        body.dark-mode .table thead th { color: var(--text) !important; border-color: var(--border) !important; }
+        body.dark-mode .table td, 
+        body.dark-mode .table th { border-color: var(--border) !important; }
+
         /* Buttons tweaks for dark background readability */
         .btn-outline-light { border-color: var(--border); color: var(--text); }
         .btn-outline-light:hover { background: var(--sidebar-link-active-bg); color: var(--sidebar-link-active-text); }

@@ -1284,9 +1284,14 @@ def api_enhanced_forecast():
             latest_physics = forecasts.get('physics') 
             latest_ai = forecasts.get('ai')
 
-            def format_forecast_data(forecast_dict):
+            def format_forecast_data(forecast_dict, fallback_method: str):
                 if not forecast_dict or not forecast_dict.get('data'):
-                    return []
+                    return {
+                        'forecast': [],
+                        'method': fallback_method,
+                        'confidence': 0,
+                        'generated_at': datetime.now().isoformat(),
+                    }
                 formatted = []
                 for i, item in enumerate(forecast_dict['data']):
                     formatted.append({
@@ -1305,21 +1310,39 @@ def api_enhanced_forecast():
                         'confidence': round(float(item.get('metadata', {}).get('confidence', 0.5)) * 100, 0),
                         'confidence_level': item.get('metadata', {}).get('confidence_level', 'unknown')
                     })
-                return formatted
+                # derive a simple confidence from available points if explicit not provided
+                conf_values = [item.get('confidence', 0) for item in formatted if item.get('confidence') is not None]
+                avg_conf = round(sum(conf_values) / len(conf_values), 0) if conf_values else 0
+                method_name = (
+                    forecast_dict.get('metadata', {}).get('primary_method') or fallback_method
+                )
+                return {
+                    'forecast': formatted,
+                    'method': method_name,
+                    'confidence': avg_conf,
+                    'generated_at': datetime.now().isoformat(),
+                }
 
-            ensemble_forecast = format_forecast_data(latest_ensemble)
-            physics_forecast = format_forecast_data(latest_physics)
-            ai_forecast = format_forecast_data(latest_ai)
+            ensemble_forecast = format_forecast_data(latest_ensemble, 'ensemble')
+            physics_forecast = format_forecast_data(latest_physics, 'physics')
+            ai_forecast = format_forecast_data(latest_ai, 'ai')
 
             result = {
                 'ensemble': ensemble_forecast,
                 'physics': physics_forecast,
                 'ai': ai_forecast,
                 'generated_at': datetime.now().isoformat(), # Overall generation time
-                'data_points_used': max(len(ensemble_forecast) if ensemble_forecast else 0, len(physics_forecast) if physics_forecast else 0, len(ai_forecast) if ai_forecast else 0)
+                'data_points_used': max(
+                    len(ensemble_forecast.get('forecast', [])),
+                    len(physics_forecast.get('forecast', [])),
+                    len(ai_forecast.get('forecast', [])),
+                )
             }
             
-            logger.info(f"Returning enhanced forecast data for ensemble ({len(ensemble_forecast)}), physics ({len(physics_forecast)}), and AI ({len(ai_forecast)})")
+            logger.info(
+                f"Returning enhanced forecast data for ensemble ({len(ensemble_forecast.get('forecast', []))}), "
+                f"physics ({len(physics_forecast.get('forecast', []))}), and AI ({len(ai_forecast.get('forecast', []))})"
+            )
             return jsonify(result)
         
     except Exception as e:
