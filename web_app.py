@@ -18,12 +18,12 @@ import psutil
 from config import load_config
 from models import WeatherForecast
 from system_monitor import get_system_monitor, start_system_monitoring
-from log_rotation import get_log_rotator
+from log_rotation import get_log_rotator, setup_weather_logging
 from telegram_poller import start_telegram_polling
 from database_optimizer import get_database_optimizer
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure rotating file logging to weather_monitor.log
+setup_weather_logging('weather_monitor.log')
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__, static_url_path='/static')

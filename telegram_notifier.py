@@ -28,6 +28,7 @@ class TelegramNotifier:
             return False
         target_chat = chat_id or self.config.telegram.chat_id
         try:
+            logger.debug(f"Telegram sendMessage chat_id={target_chat} text_len={len(text)}")
             resp = requests.post(
                 f"{self.base_url}/sendMessage",
                 json={
@@ -71,6 +72,7 @@ class TelegramNotifier:
             logger.warning(f"Image not found for Telegram photo send: {image_path}")
             return False
         target_chat = chat_id or self.config.telegram.chat_id
+        logger.debug(f"Telegram sendPhoto chat_id={target_chat} file={os.path.basename(image_path)} caption_len={len(caption) if caption else 0}")
         files = {"photo": open(image_path, "rb")}
         data = {"chat_id": target_chat}
         if caption:
