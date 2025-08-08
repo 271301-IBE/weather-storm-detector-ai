@@ -1060,12 +1060,20 @@ def api_notification_history():
 def api_telegram_test_alert():
     """Send a test alert via Telegram to verify delivery."""
     try:
-        if not config.telegram.enabled or not TelegramNotifier:
-            return jsonify({'success': False, 'error': 'Telegram not configured'}), 400
+        if not getattr(config, 'telegram', None):
+            return jsonify({'success': False, 'error': 'Telegram config missing'}), 400
+        if not config.telegram.enabled:
+            return jsonify({'success': False, 'error': 'Telegram not enabled (set TELEGRAM_ENABLED=true)'}), 400
+        if not TelegramNotifier:
+            return jsonify({'success': False, 'error': 'Telegram notifier unavailable'}), 400
+        if not config.telegram.bot_token or not config.telegram.chat_id:
+            return jsonify({'success': False, 'error': 'Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID'}), 400
         notifier = TelegramNotifier(config)
         text = f"\ud83d\udce2 Test alert from Clipron AI Weather at {datetime.now().strftime('%H:%M:%S')}"
         ok = notifier.send_message(text)
-        return jsonify({'success': ok}), (200 if ok else 500)
+        if ok:
+            return jsonify({'success': True}), 200
+        return jsonify({'success': False, 'error': 'Telegram API send failed. Check bot token/chat id and network.'}), 502
     except Exception as e:
         logger.error(f"Error sending Telegram test alert: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
