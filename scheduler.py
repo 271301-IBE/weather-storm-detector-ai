@@ -114,53 +114,29 @@ class WeatherMonitoringScheduler:
                     # Check if we should send alert (rate limiting)
                     last_alert_time = self.database.get_last_storm_alert()
                     if not last_alert_time or (datetime.now() - last_alert_time).total_seconds() > 1800:  # 30 min
-                        await self._send_lightning_alert(analysis, strike)
+                        await self._send_lightning_alert(analysis, strike, weather_data, chmi_warnings)
                     else:
                         logger.info("Skipping lightning alert due to rate limiting")
                         
         except Exception as e:
             logger.error(f"Error handling nearby lightning: {e}")
     
-    async def _send_lightning_alert(self, analysis, strike: LightningStrike):
-        """Send specialized lightning-based storm alert."""
+    async def _send_lightning_alert(self, analysis, strike: LightningStrike, weather_data, chmi_warnings):
+        """Send specialized lightning-based storm alert using the combined email flow."""
         try:
-            subject = f"⚡ IMMEDIATE STORM ALERT - Lightning {strike.distance_from_brno:.1f}km from Brno"
-            
-            message = f"""
-            🚨 IMMEDIATE THUNDERSTORM ALERT 🚨
-            
-            Lightning strike detected at {strike.distance_from_brno:.1f} kilometers from Brno!
-            
-            ⚡ Lightning Location: {strike.latitude:.4f}°N, {strike.longitude:.4f}°E
-            ⏰ Strike Time: {strike.timestamp.strftime('%H:%M:%S')}
-            🎯 Confidence: {analysis.confidence_score:.1%}
-            📊 Alert Level: {analysis.alert_level.value.upper()}
-            
-            {analysis.analysis_summary}
-            
-            IMMEDIATE RECOMMENDATIONS:
-            """
-            
-            for rec in analysis.recommendations:
-                message += f"• {rec}\n"
-            
-            message += f"""
-            
-            This alert was triggered by REAL-TIME lightning detection.
-            Take shelter immediately if outdoors.
-            
-            Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-            """
-            
-            # Send email alert
-            await self.email_notifier.send_storm_alert(
-                self.config.email.recipient_email,
-                subject,
-                message,
-                "lightning_storm_alert"
+            # Generate PDF report for context
+            pdf_path = self.pdf_generator.generate_storm_report(analysis, weather_data) if weather_data else None
+
+            # Use unified combined flow to ensure consistent formatting and DB logging
+            notification = self.email_notifier.send_combined_weather_alert(
+                analysis, weather_data or [], chmi_warnings or [], pdf_path
             )
-            
-            logger.info("Lightning-triggered storm alert sent successfully")
+            self.database.store_email_notification(notification)
+
+            if notification.sent_successfully:
+                logger.info("Lightning-triggered storm alert sent successfully")
+            else:
+                logger.error(f"Failed to send lightning-triggered alert: {notification.error_message}")
             
         except Exception as e:
             logger.error(f"Error sending lightning alert: {e}")

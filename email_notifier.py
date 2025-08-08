@@ -11,6 +11,7 @@ from email import encoders
 from typing import Optional, List
 import os
 import asyncio
+import time
 
 from models import StormAnalysis, WeatherData, EmailNotification, ChmiWarningNotification, WeatherForecast
 from chmi_warnings import ChmiWarning
@@ -27,22 +28,20 @@ class EmailNotifier:
         """Initialize email notifier."""
         self.config = config
         
-    def _create_smtp_connection(self):
-        """Create SMTP connection with Seznam.cz."""
+    def _create_smtp_connection(self, timeout: float = 15.0):
+        """Create SMTP connection with timeout and TLS/SSL as configured."""
         try:
             if self.config.email.smtp_use_ssl:
                 context = ssl.create_default_context()
                 server = smtplib.SMTP_SSL(
                     self.config.email.smtp_server,
                     self.config.email.smtp_port,
-                    context=context
+                    context=context,
+                    timeout=timeout
                 )
             else:
-                server = smtplib.SMTP(
-                    self.config.email.smtp_server,
-                    self.config.email.smtp_port
-                )
-                server.starttls()
+                server = smtplib.SMTP(self.config.email.smtp_server, self.config.email.smtp_port, timeout=timeout)
+                server.starttls(context=ssl.create_default_context())
             
             server.login(
                 self.config.email.sender_email,
@@ -249,26 +248,36 @@ class EmailNotifier:
         
         try:
             msg = self._create_storm_alert_email(analysis, weather_data)
-            
+
             # Attach PDF report if provided
             if pdf_path and os.path.exists(pdf_path):
                 with open(pdf_path, "rb") as attachment:
                     part = MIMEBase('application', 'octet-stream')
                     part.set_payload(attachment.read())
-                    
                 encoders.encode_base64(part)
-                part.add_header(
-                    'Content-Disposition',
-                    f'attachment; filename= storm_report_{datetime.now().strftime("%Y%m%d_%H%M")}.pdf'
-                )
+                part.add_header('Content-Disposition', f'attachment; filename= storm_report_{datetime.now().strftime("%Y%m%d_%H%M")}.pdf')
                 msg.attach(part)
-            
-            with self._create_smtp_connection() as server:
-                server.send_message(msg)
-                
-            notification.sent_successfully = True
-            logger.info(f"Storm alert email sent successfully to {self.config.email.recipient_email}")
-            
+
+            # Retry send with exponential backoff for robustness
+            last_error = None
+            for attempt in range(1, 4):  # up to 3 attempts
+                try:
+                    with self._create_smtp_connection() as server:
+                        server.send_message(msg)
+                    notification.sent_successfully = True
+                    logger.info(f"Storm alert email sent successfully to {self.config.email.recipient_email} (attempt {attempt})")
+                    break
+                except Exception as e:
+                    last_error = e
+                    logger.warning(f"Attempt {attempt} to send storm alert failed: {e}")
+                    # Backoff 1s, 2s between retries (sync)
+                    try:
+                        time.sleep(1 if attempt == 1 else 2)
+                    except Exception:
+                        pass
+            if not notification.sent_successfully:
+                raise last_error or RuntimeError("Unknown email send error")
+
         except Exception as e:
             notification.error_message = str(e)
             logger.error(f"Failed to send storm alert email: {e}")
@@ -338,11 +347,21 @@ class EmailNotifier:
 
             msg = self._create_chmi_warning_email(storm_warnings, ai_analysis=ai_analysis_result)
             
-            with self._create_smtp_connection() as server:
-                server.send_message(msg)
-                
-            notification.sent_successfully = True
-            logger.info(f"ČHMÚ warning email sent successfully to {self.config.email.recipient_email} for {len(storm_warnings)} relevant warning(s)")
+            # Retry send for robustness
+            for attempt in range(1, 4):
+                try:
+                    with self._create_smtp_connection() as server:
+                        server.send_message(msg)
+                    notification.sent_successfully = True
+                    logger.info(f"ČHMÚ warning email sent successfully to {self.config.email.recipient_email} (attempt {attempt})")
+                    break
+                except Exception as e:
+                    notification.error_message = str(e)
+                    logger.warning(f"Attempt {attempt} to send ČHMÚ email failed: {e}")
+                    try:
+                        await asyncio.sleep(1 if attempt == 1 else 2)
+                    except Exception:
+                        pass
             
         except Exception as e:
             notification.error_message = str(e)
