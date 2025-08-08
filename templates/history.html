@@ -123,6 +123,29 @@
             </div>
         </div>
     </div>
+
+    <div class="row mt-4">
+        <div class="col-md-6">
+            <div class="card history-card">
+                <div class="card-header">Wind Speed Over Time</div>
+                <div class="card-body">
+                    <div class="history-chart-container">
+                        <canvas id="windChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card history-card">
+                <div class="card-header">Precipitation (mm) Over Time</div>
+                <div class="card-body">
+                    <div class="history-chart-container">
+                        <canvas id="precipChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
@@ -134,17 +157,20 @@
 
         let weatherChartInstance = null;
         let lightningChartInstance = null;
+        let windChartInstance = null;
+        let precipChartInstance = null;
 
         async function fetchWeatherHistory() {
             const hours = weatherHistoryRange.value;
             try {
                 const response = await fetch(`/api/weather_history?hours=${hours}`);
-                const data = await response.json();
+                const payload = await response.json();
+                const data = (payload && payload.weather_data) ? payload.weather_data : payload;
                 const tbody = document.getElementById('weather-history-body');
                 tbody.innerHTML = ''; // Clear previous data
 
                 // Populate table
-                data.forEach(item => {
+                (Array.isArray(data) ? data : []).forEach(item => {
                     const row = tbody.insertRow();
                     row.insertCell().textContent = new Date(item.timestamp).toLocaleString();
                     row.insertCell().textContent = item.temperature !== null ? item.temperature.toFixed(1) : 'N/A';
@@ -156,10 +182,12 @@
                 });
 
                 // Prepare data for chart
-                const timestamps = data.map(item => new Date(item.timestamp));
-                const temperatures = data.map(item => item.temperature);
-                const humidities = data.map(item => item.humidity);
-                const pressures = data.map(item => item.pressure);
+                const timestamps = (Array.isArray(data) ? data : []).map(item => new Date(item.timestamp));
+                const temperatures = (Array.isArray(data) ? data : []).map(item => item.temperature);
+                const humidities = (Array.isArray(data) ? data : []).map(item => item.humidity);
+                const pressures = (Array.isArray(data) ? data : []).map(item => item.pressure);
+                const winds = (Array.isArray(data) ? data : []).map(item => item.wind_speed);
+                const precips = (Array.isArray(data) ? data : []).map(item => item.precipitation);
 
                 if (weatherChartInstance) {
                     weatherChartInstance.destroy();
@@ -234,6 +262,86 @@
                         }
                     }
                 });
+
+                // Wind speed chart
+                try {
+                    if (windChartInstance) windChartInstance.destroy();
+                    const wctx = document.getElementById('windChart').getContext('2d');
+                    windChartInstance = new Chart(wctx, {
+                        type: 'line',
+                        data: {
+                            labels: timestamps,
+                            datasets: [
+                                {
+                                    label: 'Wind Speed (m/s)',
+                                    data: winds,
+                                    borderColor: 'rgba(255, 159, 64, 1)',
+                                    backgroundColor: 'rgba(255, 159, 64, 0.15)',
+                                    fill: true,
+                                    tension: 0.2
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {
+                                x: {
+                                    type: 'time',
+                                    time: { unit: 'hour', tooltipFormat: 'MMM d, HH:mm' },
+                                    title: { display: true, text: 'Time' }
+                                },
+                                y: {
+                                    title: { display: true, text: 'm/s' }
+                                }
+                            },
+                            plugins: {
+                                tooltip: { mode: 'index', intersect: false },
+                                zoom: { zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' } }
+                            }
+                        }
+                    });
+                } catch(_) {}
+
+                // Precipitation chart
+                try {
+                    if (precipChartInstance) precipChartInstance.destroy();
+                    const pctx = document.getElementById('precipChart').getContext('2d');
+                    precipChartInstance = new Chart(pctx, {
+                        type: 'bar',
+                        data: {
+                            labels: timestamps,
+                            datasets: [
+                                {
+                                    label: 'Precipitation (mm)',
+                                    data: precips,
+                                    backgroundColor: 'rgba(54, 162, 235, 0.4)',
+                                    borderColor: 'rgba(54, 162, 235, 1)',
+                                    borderWidth: 1
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {
+                                x: {
+                                    type: 'time',
+                                    time: { unit: 'hour', tooltipFormat: 'MMM d, HH:mm' },
+                                    title: { display: true, text: 'Time' }
+                                },
+                                y: {
+                                    beginAtZero: true,
+                                    title: { display: true, text: 'mm' }
+                                }
+                            },
+                            plugins: {
+                                tooltip: { mode: 'index', intersect: false },
+                                zoom: { zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' } }
+                            }
+                        }
+                    });
+                } catch(_) {}
 
             } catch (error) {
                 console.error('Error fetching weather history:', error);
