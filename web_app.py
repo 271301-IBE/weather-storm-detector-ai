@@ -2149,12 +2149,16 @@ if __name__ == '__main__':
     start_system_monitoring(config, interval=60)
     logger.info("System monitoring started")
     # Start Telegram getUpdates poller (no webhook needed)
+    # Avoid double-start in Flask debug reloader
     try:
-        if getattr(config, 'telegram', None) and config.telegram.enabled:
-            start_telegram_polling(config)
-            logger.info("Telegram polling enabled")
+        if os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+            if getattr(config, 'telegram', None) and config.telegram.enabled:
+                start_telegram_polling(config)
+                logger.info("Telegram polling enabled (main reloader process)")
+            else:
+                logger.info("Telegram polling disabled (config)")
         else:
-            logger.info("Telegram polling disabled (config)")
+            logger.info("Skipping Telegram polling init in reloader parent process")
     except Exception as e:
         logger.warning(f"Failed to start Telegram polling: {e}")
     
