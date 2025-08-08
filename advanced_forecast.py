@@ -680,18 +680,53 @@ class AdvancedForecastGenerator:
                 humidities, timestamps, future_time
             )
             
+            # Wind and precipitation simple trends (use linear trend for stability)
+            wind_points = [d.wind_speed for d in sorted_data if d.wind_speed is not None]
+            if len(wind_points) >= 2:
+                wind_pred, wind_tr_conf = self.trend_analyzer.linear_trend(
+                    wind_points, timestamps[-len(wind_points):], future_time
+                )
+            else:
+                wind_pred, wind_tr_conf = latest_data.wind_speed or 0.0, 0.3
+            
+            # Blend weights based on trend confidence
+            temp_weight_trend = max(0.2, min(0.8, temp_conf))
+            temp_weight_phys = 1.0 - temp_weight_trend
+            
             # Apply physics corrections
             temp_trend = temp_pred - latest_data.temperature
             pressure_trend = pressure_pred - latest_data.pressure
             humidity_physics = self.physics_model.calculate_humidity_trend(temp_trend, pressure_trend)
             
             # Combine predictions
-            final_temp = (physics_temp + temp_pred) / 2
+            final_temp = temp_weight_phys * physics_temp + temp_weight_trend * temp_pred
             final_pressure = pressure_pred
-            final_humidity = humidity_pred + humidity_physics
+            final_humidity = max(0.0, min(100.0, humidity_pred + humidity_physics))
+            
+            # Precipitation probability/intensity heuristic from humidity & pressure tendency
+            base_precip_prob = latest_data.precipitation_probability or 0.0
+            humidity_factor = 30 if final_humidity > 90 else 15 if final_humidity > 80 else 0
+            pressure_drop_factor = 20 if pressure_tendency <= -2.0 else 10 if pressure_tendency <= -1.0 else 0
+            recent_rain_factor = 10 if (latest_data.precipitation or 0) > 0 else 0
+            precip_prob = max(0.0, min(100.0, base_precip_prob + humidity_factor + pressure_drop_factor + recent_rain_factor - (10 if final_humidity < 60 else 0)))
+            
+            # Precipitation intensity forecast
+            if precip_prob >= 70:
+                precip_intensity = max(latest_data.precipitation or 0.0, 0.4) + 0.1 * hour
+            elif precip_prob >= 50:
+                precip_intensity = max((latest_data.precipitation or 0.0) * 0.7, 0.1)
+            elif precip_prob >= 35:
+                precip_intensity = (latest_data.precipitation or 0.0) * 0.4
+            else:
+                precip_intensity = max(0.0, (latest_data.precipitation or 0.0) * 0.2 - 0.05)
+            
+            # Cloud cover estimate (blend of current and humidity-driven)
+            cloud_from_humidity = 20 + 0.8 * final_humidity  # 20..100
+            cloud_cover_est = 0.6 * (latest_data.cloud_cover or 40.0) + 0.4 * cloud_from_humidity
+            cloud_cover_est = max(5.0, min(100.0, cloud_cover_est))
             
             # Calculate hourly confidence
-            hour_confidence = (temp_conf + pressure_conf + humidity_conf) / 3
+            hour_confidence = (temp_conf + pressure_conf + humidity_conf + wind_tr_conf) / 4
             confidences.append(hour_confidence)
             
             # Clamp values
@@ -699,11 +734,11 @@ class AdvancedForecastGenerator:
                 temperature=final_temp,
                 humidity=final_humidity,
                 pressure=final_pressure,
-                wind_speed=latest_data.wind_speed * (1 - hour * 0.02),  # Gradual decay
+                wind_speed=wind_pred,
                 wind_direction=latest_data.wind_direction,
-                precipitation=latest_data.precipitation * max(0, 1 - hour * 0.1),
-                precipitation_probability=latest_data.precipitation_probability or 0,
-                cloud_cover=latest_data.cloud_cover,
+                precipitation=precip_intensity,
+                precipitation_probability=precip_prob,
+                cloud_cover=cloud_cover_est,
                 visibility=latest_data.visibility or 10.0
             )
             
@@ -755,17 +790,15 @@ class AdvancedForecastGenerator:
         precipitation_prob = weather_params['precipitation_probability']
         cloud_cover = weather_params['cloud_cover']
         
-        if precipitation > 0.5 or precipitation_prob > 80:
-            if humidity > 85 and cloud_cover > 80:
-                return WeatherCondition.THUNDERSTORM
-            else:
-                return WeatherCondition.RAIN
-        elif cloud_cover > 80:
+        if precipitation >= 5.0 or (precipitation_prob >= 80 and humidity > 85 and cloud_cover > 80):
+            return WeatherCondition.THUNDERSTORM
+        if precipitation >= 0.5 or precipitation_prob >= 60:
+            return WeatherCondition.RAIN
+        if precipitation >= 0.1 or precipitation_prob >= 40:
+            return WeatherCondition.DRIZZLE
+        if cloud_cover >= 70:
             return WeatherCondition.CLOUDS
-        elif cloud_cover > 30:
-            return WeatherCondition.CLOUDS
-        else:
-            return WeatherCondition.CLEAR
+        return WeatherCondition.CLEAR
     
     async def generate_ai_forecast(self, weather_data: List[WeatherData]) -> Optional[EnhancedWeatherForecast]:
         """Generate AI-powered forecast using DeepSeek."""
