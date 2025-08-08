@@ -233,8 +233,28 @@ class SystemMonitor:
             'disk_usage': metrics.disk_usage,
             'network_bytes_sent': metrics.network_bytes_sent,
             'network_bytes_recv': metrics.network_bytes_recv,
-            'load_avg': metrics.load_avg
+            'load_avg': metrics.load_avg,
+            'smtp_status': self._smtp_health_status()
         }
+
+    def _smtp_health_status(self) -> str:
+        """Light SMTP health indicator based on the last notification record."""
+        try:
+            db = WeatherDatabase(self.config)
+            with db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT sent_successfully FROM email_notifications
+                    ORDER BY timestamp DESC LIMIT 1
+                    """
+                )
+                row = cursor.fetchone()
+                if row is None:
+                    return 'unknown'
+                return 'ok' if row[0] else 'error'
+        except Exception:
+            return 'unknown'
     
     def get_metrics_summary(self, hours: int = 24) -> Dict[str, Any]:
         """Get summary statistics for metrics."""

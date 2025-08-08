@@ -1624,6 +1624,32 @@ def api_system_metrics_current():
         logger.error(f"Error getting current system metrics: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/smtp_health_check')
+@login_required
+def api_smtp_health_check():
+    """Perform a quick SMTP health check by attempting a login only."""
+    try:
+        import smtplib, ssl
+        server = None
+        try:
+            if config.email.smtp_use_ssl:
+                context = ssl.create_default_context()
+                server = smtplib.SMTP_SSL(config.email.smtp_server, config.email.smtp_port, context=context, timeout=10)
+            else:
+                server = smtplib.SMTP(config.email.smtp_server, config.email.smtp_port, timeout=10)
+                server.starttls(context=ssl.create_default_context())
+            server.login(config.email.sender_email, config.email.sender_password)
+            return jsonify({'status': 'ok'})
+        finally:
+            try:
+                if server:
+                    server.quit()
+            except Exception:
+                pass
+    except Exception as e:
+        logger.warning(f"SMTP health check failed: {e}")
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
 @app.route('/api/weather_processes')
 @login_required
 def api_weather_processes():

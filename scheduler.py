@@ -180,8 +180,8 @@ class WeatherMonitoringScheduler:
                 # 6. Store analysis results
                 self.database.store_storm_analysis(analysis)
                 
-                # 7. Check if combined storm alert should be sent
-                if self.storm_engine.should_send_alert(analysis):
+                # 7. Check if combined storm alert should be sent (respect quiet hours with escalation)
+                if self._should_send_alert_now(analysis):
                     last_alert_time = self.database.get_last_storm_alert()
                     
                     if self.email_notifier.can_send_storm_alert(last_alert_time):
@@ -656,6 +656,50 @@ class WeatherMonitoringScheduler:
         
         # Skip AI analysis - normal conditions
         return False
+
+    def _is_quiet_hours(self, now: datetime | None = None) -> bool:
+        """Determine if current time is within configured quiet hours."""
+        if not self.config.system.quiet_hours_enabled:
+            return False
+        now = now or datetime.now()
+        try:
+            start_h, start_m = map(int, self.config.system.quiet_hours_start.split(":"))
+            end_h, end_m = map(int, self.config.system.quiet_hours_end.split(":"))
+            start = now.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
+            end = now.replace(hour=end_h, minute=end_m, second=0, microsecond=0)
+            if start <= end:
+                return start <= now <= end
+            # crosses midnight
+            return now >= start or now <= end
+        except Exception:
+            return False
+
+    def _has_escalation_condition(self, analysis, chmi_warnings) -> bool:
+        """True if conditions warrant immediate alert regardless of quiet hours."""
+        try:
+            # Nearby lightning escalation already handled via lightning path, but include high confidence
+            if analysis and analysis.confidence_score >= max(0.9, self.config.ai.storm_confidence_threshold):
+                return True
+            if chmi_warnings:
+                colors = {getattr(w, 'color', '').lower() for w in chmi_warnings}
+                if 'red' in colors or 'orange' in colors:
+                    return True
+        except Exception:
+            pass
+        return False
+
+    def _should_send_alert_now(self, analysis) -> bool:
+        """Apply quiet hours policy with escalation; defer non-critical alerts during quiet hours."""
+        if not self.storm_engine.should_send_alert(analysis):
+            return False
+        if self._is_quiet_hours():
+            # During quiet hours, only allow if escalation is present
+            try:
+                chmi_warnings = self.chmi_monitor.get_storm_warnings()
+            except Exception:
+                chmi_warnings = []
+            return self._has_escalation_condition(analysis, chmi_warnings)
+        return True
     
     def _is_warning_recently_analyzed(self, warning_key: str) -> bool:
         """Check if a warning has been analyzed recently (within 6 hours)."""

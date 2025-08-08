@@ -157,6 +157,7 @@
                 } else {
                     const tempDisplay = data.cpu_temperature ? `${data.cpu_temperature}°C` : 'N/A';
                     const loadAvgDisplay = data.load_avg ? `${data.load_avg[0].toFixed(2)}, ${data.load_avg[1].toFixed(2)}, ${data.load_avg[2].toFixed(2)}` : 'N/A';
+                    const smtpBadge = data.smtp_status === 'ok' ? '<span class="badge bg-success">SMTP OK</span>' : (data.smtp_status === 'error' ? '<span class="badge bg-danger">SMTP ERR</span>' : '<span class="badge bg-secondary">SMTP ?</span>');
                     container.innerHTML = `
                         <ul class="list-group list-group-flush">
                             <li class="list-group-item d-flex justify-content-between align-items-center">
@@ -170,6 +171,10 @@
                             <li class="list-group-item d-flex justify-content-between align-items-center">
                                 CPU Temperature
                                 <span class="badge bg-danger rounded-pill">${tempDisplay}</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Email Delivery
+                                ${smtpBadge}
                             </li>
                             ${data.disk_usage ? `
                             <li class="list-group-item d-flex justify-content-between align-items-center">

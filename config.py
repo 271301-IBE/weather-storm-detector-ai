@@ -73,6 +73,9 @@ class SystemConfig:
     local_forecast_interval_minutes: int
     ensemble_forecast_interval_minutes: int
     max_cpu_usage_threshold: int
+    quiet_hours_enabled: bool
+    quiet_hours_start: str  # "22:00"
+    quiet_hours_end: str    # "07:00"
 
 @dataclass
 class Config:
@@ -121,7 +124,10 @@ def load_config() -> Config:
             database_path=os.getenv("DATABASE_PATH", "./weather_data.db"),
             local_forecast_interval_minutes=int(os.getenv("LOCAL_FORECAST_INTERVAL_MINUTES", "15")),
             ensemble_forecast_interval_minutes=int(os.getenv("ENSEMBLE_FORECAST_INTERVAL_MINUTES", "45")),
-            max_cpu_usage_threshold=int(os.getenv("MAX_CPU_USAGE_THRESHOLD", "75"))
+            max_cpu_usage_threshold=int(os.getenv("MAX_CPU_USAGE_THRESHOLD", "75")),
+            quiet_hours_enabled=os.getenv("QUIET_HOURS_ENABLED", "true").lower() == "true",
+            quiet_hours_start=os.getenv("QUIET_HOURS_START", "22:00"),
+            quiet_hours_end=os.getenv("QUIET_HOURS_END", "07:00")
         ),
         chmi=ChmiConfig(
             region_code=os.getenv("CHMI_REGION_CODE", "6203"),
