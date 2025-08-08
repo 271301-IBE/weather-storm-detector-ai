@@ -92,6 +92,10 @@
                             <button class="btn btn-warning" id="sendTestAlertBtn">Send Test Alert Email</button>
                             <div id="testAlertStatus" class="small mt-2"></div>
                         </div>
+                        <div class="col-md-4">
+                            <button class="btn btn-outline-primary" id="sendTestTelegramBtn">Send Test Telegram</button>
+                            <div id="testTelegramStatus" class="small mt-2"></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -546,6 +550,25 @@
                             statusEl.innerHTML = '<span class="text-success">Test email sent ✅</span>';
                         } else {
                             statusEl.innerHTML = `<span class=\"text-danger\">Failed: ${data.error || 'Unknown'}</span>`;
+                        }
+                    })
+                    .catch(()=>{ statusEl.innerHTML = `<span class=\"text-danger\">Error</span>`; });
+            });
+        }
+
+        // Send test telegram
+        const testTgBtn = document.getElementById('sendTestTelegramBtn');
+        if (testTgBtn) {
+            testTgBtn.addEventListener('click', () => {
+                const statusEl = document.getElementById('testTelegramStatus');
+                statusEl.innerHTML = 'Sending...';
+                fetch('/api/telegram_test_alert', { method: 'POST' })
+                    .then(async r=>({ ok: r.ok, data: await r.json() }))
+                    .then(({ok, data})=>{
+                        if (ok && data.success) {
+                            statusEl.innerHTML = '<span class="text-success">Telegram sent 💬✅</span>';
+                        } else {
+                            statusEl.innerHTML = `<span class=\"text-danger\">Failed: ${data?.error || 'Unknown'}</span>`;
                         }
                     })
                     .catch(()=>{ statusEl.innerHTML = `<span class=\"text-danger\">Error</span>`; });
