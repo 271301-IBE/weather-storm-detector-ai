@@ -120,11 +120,13 @@ class ThunderstormPredictor:
         # Prep index, drop NaNs conservatively
         df['timestamp'] = pd.to_datetime(df['timestamp'])
         df = df.set_index('timestamp').sort_index()
-        df = df[['temperature', 'humidity', 'pressure', 'wind_speed', 'precipitation', 'precipitation_probability', 'description']].copy()
-        df = df.fillna(method='ffill').fillna(method='bfill')
+        # Work only with numeric columns for resampling
+        numeric_cols = ['temperature', 'humidity', 'pressure', 'wind_speed', 'precipitation', 'precipitation_probability']
+        df = df[numeric_cols].copy()
+        df = df.ffill().bfill()
 
-        # Resample to 10-minute cadence for smoother slope estimation
-        df_10 = df.resample('10T').mean().fillna(method='ffill')
+        # Resample to 10-minute cadence for smoother slope estimation (numeric only)
+        df_10 = df.resample('10T').mean().ffill()
 
         # Last 60 and 30 minutes windows
         last_60 = df_10.last('60T')
