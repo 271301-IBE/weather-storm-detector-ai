@@ -62,6 +62,14 @@
                 </div>
             </div>
         </div>
+        <div class="col-lg-4 mt-4">
+            <div class="card">
+                <div class="card-header">SNOW ❄️</div>
+                <div class="card-body" id="snowSummary">
+                    <p class="text-center">Loading snow & frost info...</p>
+                </div>
+            </div>
+        </div>
         <div class="col-lg-4">
             <div class="card">
                 <div class="card-header">Recent AI Analysis 🤖</div>
@@ -606,6 +614,7 @@
         loadChmiWarnings();
         loadLightningStats();
         loadSystemStatus();
+        loadSnowSummary();
         loadRecentEmails();
         updateLastUpdateTime();
     }
@@ -1217,6 +1226,56 @@
             })
             .catch(error => {
                 document.getElementById('systemStatus').innerHTML = '<p class="text-center text-danger">Error loading system status.</p>';
+                console.error('Error:', error);
+            });
+    }
+
+    function loadSnowSummary() {
+        fetch('/api/snow_summary')
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('snowSummary');
+                if (data.error) {
+                    container.innerHTML = `<p class="text-center text-danger">${data.error}</p>`;
+                    return;
+                }
+                const cur = data.current;
+                const forecast = data.forecast || {};
+                const warnings = data.warnings || [];
+                const risk = data.risk_level || 'LOW';
+                const riskBadge = risk === 'HIGH' ? 'bg-danger' : (risk === 'MEDIUM' ? 'bg-warning' : 'bg-success');
+                let html = `
+                    <ul class="list-group list-group-flush">
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            Risk Level
+                            <span class="badge ${riskBadge} rounded-pill">${risk}</span>
+                        </li>
+                        <li class="list-group-item">
+                            <div><strong>Current:</strong> ${cur ? `${cur.temperature?.toFixed?.(1) ?? cur.temperature}°C, ${cur.description || ''}` : 'N/A'}</div>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            Subzero (next 12h)
+                            <span class="badge bg-secondary rounded-pill">${forecast.subzero_hours ?? 0}</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            Snow-risk hours (next 12h)
+                            <span class="badge bg-secondary rounded-pill">${forecast.snow_risk_hours ?? 0}</span>
+                        </li>
+                        ${forecast.first_freeze_time ? `<li class="list-group-item">First freeze: <strong>${forecast.first_freeze_time}</strong></li>` : ''}
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            Min temp (24h)
+                            <span class="badge bg-secondary rounded-pill">${data.min_temp_24h ?? 'N/A'}°C</span>
+                        </li>
+                        <li class="list-group-item">
+                            <strong>CHMI Warnings:</strong>
+                            ${warnings.length ? warnings.map(w=>`<div><span class="badge bg-${w.color==='red'?'danger':w.color==='orange'?'warning':w.color==='yellow'?'warning':'secondary'}">${w.color?.toUpperCase()}</span> ${w.event}</div>`).join('') : 'None'}
+                        </li>
+                    </ul>
+                `;
+                container.innerHTML = html;
+            })
+            .catch(error => {
+                document.getElementById('snowSummary').innerHTML = '<p class="text-center text-danger">Error loading snow summary</p>';
                 console.error('Error:', error);
             });
     }

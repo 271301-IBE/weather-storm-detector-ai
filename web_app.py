@@ -1650,6 +1650,119 @@ def api_smtp_health_check():
         logger.warning(f"SMTP health check failed: {e}")
         return jsonify({'status': 'error', 'error': str(e)}), 500
 
+@app.route('/api/snow_summary')
+@login_required
+def api_snow_summary():
+    """Summarize snow/frost/cold conditions from current, history, forecast, and CHMI warnings."""
+    try:
+        summary = {
+            'current': None,
+            'min_temp_24h': None,
+            'forecast': None,
+            'warnings': [],
+            'risk_level': 'LOW'
+        }
+
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            # Latest current conditions
+            cursor.execute(
+                """
+                SELECT timestamp, temperature, precipitation, precipitation_probability, description
+                FROM weather_data ORDER BY timestamp DESC LIMIT 1
+                """
+            )
+            row = cursor.fetchone()
+            if row:
+                summary['current'] = {
+                    'timestamp': row[0],
+                    'temperature': row[1],
+                    'precipitation': row[2],
+                    'precipitation_probability': row[3],
+                    'description': row[4],
+                }
+
+            # Minimum temperature in last 24 hours
+            cursor.execute(
+                """
+                SELECT MIN(temperature) FROM weather_data
+                WHERE datetime(timestamp) > datetime('now','-24 hours')
+                """
+            )
+            tmin = cursor.fetchone()[0]
+            summary['min_temp_24h'] = tmin
+
+            # Forecast analysis (ensemble)
+            cursor.execute(
+                """
+                SELECT forecast_data_json FROM enhanced_forecasts
+                WHERE method = 'ensemble' ORDER BY timestamp DESC LIMIT 1
+                """
+            )
+            row = cursor.fetchone()
+            snow_risk_hours = 0
+            first_freeze_time = None
+            subzero_hours = 0
+            if row:
+                try:
+                    fdata = json.loads(row[0])
+                    items = fdata.get('forecast_data', [])
+                    for item in items[:12]:  # next ~12 hours
+                        temp = float(item.get('temperature', 100))
+                        precip = float(item.get('precipitation', 0) or 0)
+                        pprob = float(item.get('precipitation_probability', 0) or 0)
+                        ts = item.get('timestamp')
+                        if temp <= 0.0:
+                            subzero_hours += 1
+                            if not first_freeze_time and ts:
+                                first_freeze_time = ts
+                        # simple snow risk heuristic: cold and precip present or high prob
+                        if temp <= 1.0 and (precip > 0.0 or pprob >= 60.0):
+                            snow_risk_hours += 1
+                    summary['forecast'] = {
+                        'subzero_hours': subzero_hours,
+                        'snow_risk_hours': snow_risk_hours,
+                        'first_freeze_time': first_freeze_time
+                    }
+                except Exception as e:
+                    logger.warning(f"Error parsing ensemble forecast for snow summary: {e}")
+
+        # CHMI warnings filtering for snow/frost/ice
+        try:
+            from chmi_warnings import ChmiWarningMonitor
+            chmi_monitor = ChmiWarningMonitor(config)
+            warnings = chmi_monitor.get_all_active_warnings()
+            snow_keywords = ['sníh', 'led', 'náledí', 'mráz', 'namrzání', 'ice', 'snow', 'frost', 'freezing']
+            snow_warnings = []
+            for w in warnings:
+                text = (getattr(w, 'event', '') + ' ' + getattr(w, 'description_text', '')).lower()
+                if any(k in text for k in snow_keywords):
+                    snow_warnings.append({
+                        'event': getattr(w, 'event', ''),
+                        'color': getattr(w, 'color', ''),
+                        'time_start': getattr(w, 'time_start_iso', None),
+                        'time_end': getattr(w, 'time_end_iso', None),
+                    })
+            summary['warnings'] = snow_warnings
+        except Exception as e:
+            logger.warning(f"CHMI snow warnings unavailable: {e}")
+
+        # Risk assessment
+        risk = 'LOW'
+        colors = {w['color'] for w in summary['warnings']}
+        if 'red' in colors or 'orange' in colors:
+            risk = 'HIGH'
+        elif summary.get('forecast') and (summary['forecast'].get('snow_risk_hours', 0) >= 2 or summary['forecast'].get('subzero_hours', 0) >= 4):
+            risk = 'MEDIUM'
+        elif tmin is not None and tmin <= -3:
+            risk = 'MEDIUM'
+        summary['risk_level'] = risk
+
+        return jsonify(summary)
+    except Exception as e:
+        logger.error(f"Error building snow summary: {e}")
+        return jsonify({'error': 'Failed to build snow summary'}), 500
+
 @app.route('/api/weather_processes')
 @login_required
 def api_weather_processes():
