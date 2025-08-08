@@ -43,6 +43,25 @@
                 </div>
             </div>
         </div>
+        <div class="col-lg-4 mt-4">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>Lightning Stats ⚡</span>
+                    <a href="/map" class="btn btn-sm btn-outline-primary">Open Map</a>
+                </div>
+                <div class="card-body" id="lightningStats">
+                    <p class="text-center">Loading lightning stats...</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4 mt-4">
+            <div class="card">
+                <div class="card-header">System Status 💻</div>
+                <div class="card-body" id="systemStatus">
+                    <p class="text-center">Loading system status...</p>
+                </div>
+            </div>
+        </div>
         <div class="col-lg-4">
             <div class="card">
                 <div class="card-header">Recent AI Analysis 🤖</div>
@@ -919,6 +938,14 @@
                         }
                     }
                 });
+
+                // Register for global theme updates
+                try {
+                    window.appCharts = window.appCharts || [];
+                    if (!window.appCharts.includes(weatherChart)) {
+                        window.appCharts.push(weatherChart);
+                    }
+                } catch (_) {}
             })
             .catch(error => {
                 console.error('Error loading weather chart:', error);
@@ -1267,6 +1294,14 @@
                             }
                         }
                     });
+
+                    // Register for global theme updates
+                    try {
+                        window.appCharts = window.appCharts || [];
+                        if (!window.appCharts.includes(historyCharts[metric])) {
+                            window.appCharts.push(historyCharts[metric]);
+                        }
+                    } catch (_) {}
                 });
 
                 loadCombinedHistoryChart(data);
