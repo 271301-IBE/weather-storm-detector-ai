@@ -1284,7 +1284,7 @@
     }
 
     function loadRecentEmails() {
-        fetch('/api/email_history')
+        fetch('/api/notification_history')
             .then(response => response.json())
             .then(data => {
                 const container = document.getElementById('recentEmails');
@@ -1292,17 +1292,19 @@
                     container.innerHTML = `<p class="text-center text-danger">${data.error}</p>`;
                     return;
                 }
-                if (data.length > 0) {
+                if (Array.isArray(data) && data.length > 0) {
                     let html = '<ul class="list-group list-group-flush">';
-                    data.slice(0, 3).forEach(email => {
-                        const isSuccess = email.sent_successfully;
+                    data.slice(0, 5).forEach(item => {
+                        const isSuccess = item.ok;
+                        const channelIcon = item.channel === 'telegram' ? '💬' : '📧';
                         const statusIcon = isSuccess ? '✅' : '❌';
-                        const subject = email.subject.length > 30 ? email.subject.substring(0, 27) + '...' : email.subject;
-                        const timestamp = new Date(email.timestamp).toLocaleString('cs-CZ');
+                        const title = (item.title || 'Alert').toString();
+                        const short = title.length > 48 ? title.substring(0, 45) + '…' : title;
+                        const timestamp = new Date(item.timestamp).toLocaleString('cs-CZ');
                         html += `
                             <li class="list-group-item">
                                 <div class="d-flex justify-content-between">
-                                    <span>${statusIcon} ${subject}</span>
+                                    <span>${channelIcon} ${statusIcon} ${short}</span>
                                     <small class="text-muted">${timestamp}</small>
                                 </div>
                             </li>

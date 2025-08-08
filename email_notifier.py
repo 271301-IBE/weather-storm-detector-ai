@@ -19,6 +19,11 @@ from config import Config
 from ai_analysis import StormDetectionEngine
 from storage import WeatherDatabase
 
+try:
+    from telegram_notifier import TelegramNotifier
+except Exception:
+    TelegramNotifier = None
+
 logger = logging.getLogger(__name__)
 
 class EmailNotifier:
@@ -281,6 +286,14 @@ class EmailNotifier:
         except Exception as e:
             notification.error_message = str(e)
             logger.error(f"Failed to send storm alert email: {e}")
+            # Telegram fallback when email fails
+            try:
+                if getattr(self.config.telegram, 'enabled', False) and TelegramNotifier:
+                    tg = TelegramNotifier(self.config)
+                    message = f"\u26a1\ufe0f Storm Alert {analysis.alert_level.value.upper()}\nConfidence: {analysis.confidence_score:.0%}\n{analysis.analysis_summary}"
+                    tg.send_message(message)
+            except Exception as te:
+                logger.error(f"Telegram fallback failed: {te}")
             
         return notification
     

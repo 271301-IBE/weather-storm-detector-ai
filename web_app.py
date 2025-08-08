@@ -44,6 +44,10 @@ from storage import WeatherDatabase
 from pdf_generator import WeatherReportGenerator
 db = WeatherDatabase(config)
 pdf_generator = WeatherReportGenerator(config)
+try:
+    from telegram_notifier import TelegramNotifier
+except Exception:
+    TelegramNotifier = None
 
 # Simple asset cache-busting helper using file mtime
 def asset_url(filename: str) -> str:
@@ -1000,6 +1004,141 @@ def api_email_history():
     except Exception as e:
         logger.error(f"Error fetching email history: {e}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/notification_history')
+@login_required
+def api_notification_history():
+    """Unified recent notification history (email + telegram)."""
+    try:
+        items = []
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            # Emails
+            cursor.execute(
+                """
+                SELECT timestamp, subject, message_type, sent_successfully, error_message
+                FROM email_notifications ORDER BY timestamp DESC LIMIT 20
+                """
+            )
+            for row in cursor.fetchall():
+                items.append({
+                    'timestamp': row[0],
+                    'channel': 'email',
+                    'title': row[1],
+                    'type': row[2],
+                    'ok': bool(row[3]),
+                    'error': row[4]
+                })
+            # Telegram
+            cursor.execute(
+                """
+                SELECT timestamp, text, sent_successfully, error_message
+                FROM telegram_notifications ORDER BY timestamp DESC LIMIT 20
+                """
+            )
+            for row in cursor.fetchall():
+                items.append({
+                    'timestamp': row[0],
+                    'channel': 'telegram',
+                    'title': row[1],
+                    'type': 'telegram_alert',
+                    'ok': bool(row[2]),
+                    'error': row[3]
+                })
+        # Sort all by timestamp desc
+        try:
+            items.sort(key=lambda x: x['timestamp'], reverse=True)
+        except Exception:
+            pass
+        return jsonify(items[:20])
+    except Exception as e:
+        logger.error(f"Error fetching notification history: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/telegram_test_alert', methods=['POST'])
+@login_required
+def api_telegram_test_alert():
+    """Send a test alert via Telegram to verify delivery."""
+    try:
+        if not config.telegram.enabled or not TelegramNotifier:
+            return jsonify({'success': False, 'error': 'Telegram not configured'}), 400
+        notifier = TelegramNotifier(config)
+        text = f"\ud83d\udce2 Test alert from Clipron AI Weather at {datetime.now().strftime('%H:%M:%S')}"
+        ok = notifier.send_message(text)
+        return jsonify({'success': ok}), (200 if ok else 500)
+    except Exception as e:
+        logger.error(f"Error sending Telegram test alert: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/telegram_webhook/<token>', methods=['POST'])
+def telegram_webhook(token: str):
+    """Telegram webhook to record simple learning commands like 'rain', 'thunderstorm', 'no_storm'."""
+    try:
+        if token != (config.telegram.bot_token or ''):
+            return jsonify({'error': 'unauthorized'}), 403
+        data = request.get_json(force=True, silent=True) or {}
+        message = (data.get('message') or {}).get('text', '')
+        if not message:
+            return jsonify({'ok': True})
+        cmd = message.strip().lower()
+        mapping = {
+            'rain': 'rain_now',
+            'storm': 'storm_now',
+            'thunderstorm': 'storm_now',
+            'hail': 'hail_now',
+            'no_storm': 'no_storm',
+            'clear': 'no_storm'
+        }
+        event_type = mapping.get(cmd)
+        if not event_type:
+            # Ignore non-learning messages
+            return jsonify({'ok': True})
+        # Record the event similar to api_storm_event
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_storm_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    weather_data_json TEXT,
+                    chmi_warnings_json TEXT,
+                    ai_confidence REAL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            # Basic snapshot: latest weather rows
+            cursor.execute(
+                """
+                SELECT temperature, humidity, pressure, wind_speed, precipitation,
+                       precipitation_probability, condition, description
+                FROM weather_data ORDER BY timestamp DESC LIMIT 3
+                """
+            )
+            weather_rows = cursor.fetchall()
+            weather_data = []
+            for row in weather_rows:
+                weather_data.append({
+                    'temperature': row[0], 'humidity': row[1], 'pressure': row[2],
+                    'wind_speed': row[3], 'precipitation': row[4],
+                    'precipitation_probability': row[5], 'condition': row[6],
+                    'description': row[7]
+                })
+            # Insert
+            cursor.execute(
+                """
+                INSERT INTO user_storm_events (timestamp, event_type, weather_data_json, chmi_warnings_json, ai_confidence)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (datetime.now().isoformat(), event_type, json.dumps(weather_data), json.dumps([]), None)
+            )
+            conn.commit()
+        return jsonify({'ok': True})
+    except Exception as e:
+        logger.error(f"Telegram webhook error: {e}")
+        return jsonify({'error': 'internal error'}), 500
 
 @app.route('/api/api_usage_stats')
 @login_required

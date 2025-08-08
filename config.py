@@ -58,6 +58,13 @@ class WebNotificationConfig:
     vapid_public_key: str
 
 @dataclass
+class TelegramConfig:
+    """Telegram bot configuration."""
+    enabled: bool
+    bot_token: str
+    chat_id: str
+
+@dataclass
 class PredictionConfig:
     """Thunderstorm prediction configuration."""
     wind_speed_threshold: float
@@ -87,6 +94,7 @@ class Config:
     chmi: ChmiConfig
     webapp: WebAppConfig
     web_notification: WebNotificationConfig
+    telegram: TelegramConfig
     prediction: PredictionConfig
 
 def load_config() -> Config:
@@ -141,6 +149,11 @@ def load_config() -> Config:
         web_notification=WebNotificationConfig(
             vapid_private_key=os.getenv("VAPID_PRIVATE_KEY"),
             vapid_public_key=os.getenv("VAPID_PUBLIC_KEY")
+        ),
+        telegram=TelegramConfig(
+            enabled=os.getenv("TELEGRAM_ENABLED", "false").lower() == "true",
+            bot_token=os.getenv("TELEGRAM_BOT_TOKEN", ""),
+            chat_id=os.getenv("TELEGRAM_CHAT_ID", "")
         ),
         prediction=PredictionConfig(
             wind_speed_threshold=float(os.getenv("WIND_SPEED_THRESHOLD", "20.0")),

@@ -100,6 +100,19 @@ class WeatherDatabase:
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+
+            # Telegram notifications table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS telegram_notifications (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    chat_id TEXT NOT NULL,
+                    text TEXT,
+                    sent_successfully BOOLEAN NOT NULL,
+                    error_message TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
             
             # System status table
             cursor.execute("""
@@ -355,6 +368,24 @@ class WeatherDatabase:
                 
         except Exception as e:
             logger.error(f"Error storing email notification: {e}")
+            return False
+
+    def store_telegram_notification(self, timestamp: datetime, chat_id: str, text: str, sent_successfully: bool, error_message: Optional[str] = None) -> bool:
+        """Store a Telegram notification record."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    INSERT INTO telegram_notifications (timestamp, chat_id, text, sent_successfully, error_message)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (timestamp.isoformat(), chat_id, text, int(bool(sent_successfully)), error_message)
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Error storing telegram notification: {e}")
             return False
     
     def get_recent_weather_data(self, hours: int = 72) -> List[WeatherData]:
