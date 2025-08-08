@@ -211,7 +211,7 @@
 <body>
     <nav class="navbar navbar-light bg-light d-md-none">
         <div class="container-fluid">
-            <button class="navbar-toggler" type="button">
+            <button class="navbar-toggler" type="button" aria-label="Open menu">
                 <span class="navbar-toggler-icon"></span>
             </button>
             <a class="navbar-brand" href="#">🌩️ Weather AI</a>
@@ -223,6 +223,9 @@
         <ul class="nav flex-column">
             <li class="nav-item">
                 <a class="nav-link {% if request.path == '/' %}active{% endif %}" href="/"><i class="bi bi-grid-fill"></i>Dashboard</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="/#snow"><i class="bi bi-snow"></i>SNOW</a>
             </li>
             <li class="nav-item">
                 <a class="nav-link {% if request.path == '/map' %}active{% endif %}" href="/map"><i class="bi bi-lightning-charge-fill"></i>Lightning Map</a>
@@ -313,6 +316,15 @@
                     sidebar.classList.remove('active');
                 });
             }
+            // Close sidebar when a link is clicked (mobile UX)
+            const sidebarLinks = document.querySelectorAll('.sidebar .nav-link');
+            sidebarLinks.forEach((link) => {
+                link.addEventListener('click', () => {
+                    if (sidebar && window.innerWidth <= 768) {
+                        sidebar.classList.remove('active');
+                    }
+                });
+            });
 
             // Simple online/offline indicator
             const netStatus = document.getElementById('netStatus');
