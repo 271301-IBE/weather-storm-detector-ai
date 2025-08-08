@@ -41,7 +41,9 @@ def add_security_headers(resp):
 
 # Initialize database first
 from storage import WeatherDatabase
+from pdf_generator import WeatherReportGenerator
 db = WeatherDatabase(config)
+pdf_generator = WeatherReportGenerator(config)
 
 # Simple asset cache-busting helper using file mtime
 def asset_url(filename: str) -> str:
@@ -1258,6 +1260,77 @@ def api_test_forecast():
     except Exception as e:
         logger.error(f"Test forecast error: {e}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/current_threshold')
+@login_required
+def api_current_threshold():
+    """Return current storm confidence threshold (0..1)."""
+    try:
+        return jsonify({'storm_confidence_threshold': config.ai.storm_confidence_threshold})
+    except Exception as e:
+        logger.error(f"Error getting threshold: {e}")
+        return jsonify({'error': 'Could not read threshold'}), 500
+
+@app.route('/api/set_threshold', methods=['POST'])
+@login_required
+def api_set_threshold():
+    """Set storm confidence threshold (0..1)."""
+    try:
+        if not request.is_json:
+            return jsonify({'error': 'Invalid request'}), 400
+        value = request.json.get('storm_confidence_threshold')
+        try:
+            value = float(value)
+        except Exception:
+            return jsonify({'error': 'Threshold must be a number'}), 400
+        if value < 0.0 or value > 1.0:
+            return jsonify({'error': 'Threshold must be between 0 and 1'}), 400
+        # Update in-memory config (scheduler holds a reference to this object)
+        config.ai.storm_confidence_threshold = value
+        return jsonify({'success': True, 'storm_confidence_threshold': value})
+    except Exception as e:
+        logger.error(f"Error setting threshold: {e}")
+        return jsonify({'error': 'Failed to set threshold'}), 500
+
+@app.route('/api/send_test_alert', methods=['POST'])
+@login_required
+def api_send_test_alert():
+    """Send a test storm alert email to verify delivery."""
+    try:
+        from models import StormAnalysis, AlertLevel
+        from email_notifier import EmailNotifier
+
+        # Build dummy analysis
+        analysis = StormAnalysis(
+            timestamp=datetime.now(),
+            confidence_score=0.95,
+            storm_detected=True,
+            alert_level=AlertLevel.HIGH,
+            predicted_arrival=None,
+            predicted_intensity='moderate',
+            analysis_summary='TEST: This is a delivery verification alert from Clipron AI Weather.',
+            recommendations=['Toto je testovací zpráva', 'Ověření doručení emailu'],
+            data_quality_score=0.9
+        )
+
+        # Get recent weather data for context (optional)
+        weather_data = db.get_recent_weather_data(hours=2)
+        # Generate PDF report for the test
+        pdf_path = pdf_generator.generate_storm_report(analysis, weather_data) if weather_data else None
+
+        notifier = EmailNotifier(config)
+        notification = notifier.send_storm_alert(analysis, weather_data, pdf_path)
+        db.store_email_notification(notification)
+
+        return jsonify({
+            'success': notification.sent_successfully,
+            'error': notification.error_message,
+            'timestamp': notification.timestamp.isoformat(),
+            'recipient': notification.recipient,
+        }), (200 if notification.sent_successfully else 500)
+    except Exception as e:
+        logger.error(f"Error sending test alert: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/enhanced_forecast')
 @login_required
