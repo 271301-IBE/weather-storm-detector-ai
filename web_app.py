@@ -19,6 +19,7 @@ from config import load_config
 from models import WeatherForecast
 from system_monitor import get_system_monitor, start_system_monitoring
 from log_rotation import get_log_rotator
+from telegram_poller import start_telegram_polling
 from database_optimizer import get_database_optimizer
 
 # Configure logging
@@ -2147,5 +2148,14 @@ if __name__ == '__main__':
     # start system monitoring with proper config
     start_system_monitoring(config, interval=60)
     logger.info("System monitoring started")
+    # Start Telegram getUpdates poller (no webhook needed)
+    try:
+        if getattr(config, 'telegram', None) and config.telegram.enabled:
+            start_telegram_polling(config)
+            logger.info("Telegram polling enabled")
+        else:
+            logger.info("Telegram polling disabled (config)")
+    except Exception as e:
+        logger.warning(f"Failed to start Telegram polling: {e}")
     
     app.run(host='0.0.0.0', port=5000, debug=True, ssl_context=('cert.pem', 'key.pem'))
