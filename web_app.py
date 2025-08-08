@@ -1201,7 +1201,7 @@ def api_next_storm_prediction():
             """)
 
             cursor.execute("""
-                SELECT prediction_timestamp, confidence 
+                SELECT prediction_timestamp, confidence, created_at 
                 FROM thunderstorm_predictions 
                 ORDER BY created_at DESC 
                 LIMIT 1
@@ -1210,6 +1210,26 @@ def api_next_storm_prediction():
             row = cursor.fetchone()
             
             if row:
+                try:
+                    predicted_dt = datetime.fromisoformat(row[0])
+                except Exception:
+                    # If parsing fails, treat as invalid
+                    return jsonify({'error': 'No valid prediction available'}), 404
+
+                # Do not show stale predictions in the past
+                now_dt = datetime.now()
+                if predicted_dt <= now_dt:
+                    return jsonify({'error': 'No prediction available'}), 404
+
+                # Optional freshness guard: hide very old records (e.g., > 12 hours old)
+                try:
+                    created_dt = datetime.fromisoformat(row[2]) if len(row) > 2 and row[2] else None
+                    if created_dt and (now_dt - created_dt).total_seconds() > 12 * 3600:
+                        return jsonify({'error': 'No prediction available'}), 404
+                except Exception:
+                    # If created_at is malformed, ignore freshness check
+                    pass
+
                 prediction = {
                     'prediction_timestamp': row[0],
                     'confidence': row[1]
