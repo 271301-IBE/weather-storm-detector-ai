@@ -229,6 +229,11 @@ class TelegramPoller:
     def _handle_command(self, chat_id: str, text: str):
         cmd = (text or "").strip().lower()
         if cmd.startswith("/start"):
+            # subscribe chat
+            try:
+                self.db.upsert_telegram_subscriber(chat_id, enabled=True)
+            except Exception:
+                pass
             keyboard = {
                 "inline_keyboard": [
                     [
@@ -255,12 +260,23 @@ class TelegramPoller:
                 reply_markup=keyboard,
             )
             return
+        if cmd.startswith("/stop"):
+            try:
+                self.db.upsert_telegram_subscriber(chat_id, enabled=False)
+            except Exception:
+                pass
+            self.notifier.send_message("🛑 Tento chat byl odhlášen z upozornění. (/start pro znovu-přihlášení)", chat_id=chat_id)
+            return
         if cmd.startswith("/pomoc"):
             help_text = (
                 "📖 Nápověda:\n"
                 "• /weather – Souhrn aktuálního počasí a graf (24h)\n"
                 "• /pomoc – Tento přehled příkazů\n"
                 "• /radar – Aktuální radarový snímek (ČHMÚ)\n"
+                "• /start – Přihlásit tento chat k odběru upozornění\n"
+                "• /stop – Odhlásit tento chat z odběru upozornění\n"
+                "• /stav – Rychlý stav systému (CPU/RAM/DB/SMTP/Telegram)\n"
+                "• /export 24h – Export posledních 24h dat jako CSV\n"
                 "• /nastaveni status – Zobrazit stav tichých hodin a prahu spolehlivosti\n"
                 "• /nastaveni tiche_hodiny on|off – Zapnout/vypnout tiché hodiny\n"
                 "• /nastaveni prah 0–1 – Nastavit prah spolehlivosti (např. 0.85)\n"
@@ -276,6 +292,15 @@ class TelegramPoller:
                     f"• Tiché hodiny: {'ZAPNUTO' if self.config.system.quiet_hours_enabled else 'VYPNUTO'} ({self.config.system.quiet_hours_start}–{self.config.system.quiet_hours_end})\n"
                     f"• Prah spolehlivosti: {self.config.ai.storm_confidence_threshold:.2f}"
                 )
+                # include per-chat override snapshot
+                try:
+                    sub = self.db.get_telegram_subscriber(chat_id)
+                    if sub:
+                        status_msg += (f"\n• Tento chat: {'přihlášen' if sub.get('enabled', True) else 'odhlášen'}"
+                                       f"; prah={sub.get('threshold') if sub.get('threshold') is not None else '—'}"
+                                       f"; tiché_hodiny={'ON' if sub.get('quiet_hours_enabled') else '—'}")
+                except Exception:
+                    pass
                 self.notifier.send_message(status_msg, chat_id=chat_id)
                 return
             if parts[1] == "tiche_hodiny" and len(parts) >= 3:
@@ -283,11 +308,19 @@ class TelegramPoller:
                 if val in ("on", "zapnout", "zapnuto"):
                     self.config.system.quiet_hours_enabled = True
                     self._persist_settings()
+                    try:
+                        self.db.upsert_telegram_subscriber(chat_id, quiet_hours_enabled=True)
+                    except Exception:
+                        pass
                     self.notifier.send_message("✅ Tiché hodiny ZAPNUTY.", chat_id=chat_id)
                     return
                 if val in ("off", "vypnout", "vypnuto"):
                     self.config.system.quiet_hours_enabled = False
                     self._persist_settings()
+                    try:
+                        self.db.upsert_telegram_subscriber(chat_id, quiet_hours_enabled=False)
+                    except Exception:
+                        pass
                     self.notifier.send_message("✅ Tiché hodiny VYPNUTY.", chat_id=chat_id)
                     return
                 self.notifier.send_message("❌ Neplatná hodnota. Použijte on/off.", chat_id=chat_id)
@@ -298,6 +331,10 @@ class TelegramPoller:
                     if 0.0 <= val <= 1.0:
                         self.config.ai.storm_confidence_threshold = val
                         self._persist_settings()
+                        try:
+                            self.db.upsert_telegram_subscriber(chat_id, threshold=val)
+                        except Exception:
+                            pass
                         self.notifier.send_message(
                             f"✅ Prah spolehlivosti nastaven na {val:.2f}", chat_id=chat_id
                         )
@@ -322,6 +359,7 @@ class TelegramPoller:
             return
         if cmd.startswith("/weather"):
             logger.info(f"Polling: handling /weather for chat_id={chat_id}")
+            # rate limit per chat: skip if duplicate text was sent recently
             summary = self._compose_weather_summary()
             keyboard = {
                 "inline_keyboard": [
@@ -353,6 +391,62 @@ class TelegramPoller:
                         logger.info(f"Polling: /weather photo sent ok={photo_ok}")
             except Exception as e:
                 logger.warning(f"Polling: chart send failed: {e}")
+            return
+
+        if cmd.startswith("/stav"):
+            try:
+                from system_monitor import get_system_monitor
+                mon = get_system_monitor(self.config)
+                metrics = mon.get_current_metrics()
+                db_size = 0
+                try:
+                    import os
+                    db_path = self.config.system.database_path
+                    if os.path.exists(db_path):
+                        db_size = os.path.getsize(db_path) // 1024 // 1024
+                except Exception:
+                    pass
+                status = (
+                    f"🧰 Stav systému:\n"
+                    f"• CPU: {metrics.get('cpu_usage')}%\n"
+                    f"• RAM: {metrics.get('memory_usage')}%\n"
+                    f"• DB: {db_size} MB\n"
+                    f"• SMTP: {metrics.get('smtp_status')}\n"
+                    f"• Telegram: {'enabled' if self.config.telegram.enabled else 'disabled'}\n"
+                )
+                self.notifier.send_message(status, chat_id=chat_id)
+            except Exception as e:
+                self.notifier.send_message(f"❌ Chyba /stav: {e}", chat_id=chat_id)
+            return
+
+        if cmd.startswith("/export"):
+            try:
+                parts = cmd.split()
+                hours = 24
+                if len(parts) >= 2:
+                    try:
+                        hours = int(parts[1].replace('h',''))
+                    except Exception:
+                        pass
+                rows = list(reversed(self.db.get_recent_weather_data(hours=hours)))
+                if not rows:
+                    self.notifier.send_message("ℹ️ Žádná data k exportu.", chat_id=chat_id)
+                    return
+                import csv, tempfile
+                fn = f"export_{hours}h_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
+                with tempfile.NamedTemporaryFile(delete=False, suffix=fn) as tmp:
+                    writer = csv.writer(tmp)
+                    writer.writerow(["timestamp","temperature","humidity","pressure","wind_speed","precipitation","description"]) 
+                    for r in rows:
+                        writer.writerow([
+                            r.timestamp.isoformat(), r.temperature, r.humidity, r.pressure,
+                            r.wind_speed, r.precipitation, r.description
+                        ])
+                    tmp.flush()
+                    path = tmp.name
+                self.notifier.send_document(path, caption=f"Export {hours}h")
+            except Exception as e:
+                self.notifier.send_message(f"❌ Chyba exportu: {e}", chat_id=chat_id)
             return
 
         if cmd.startswith("/radar"):

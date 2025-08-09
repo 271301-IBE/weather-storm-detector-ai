@@ -5,6 +5,7 @@ import json
 import logging
 import time
 from datetime import datetime, timedelta
+import hashlib
 from typing import List, Optional, Dict, Any
 from contextlib import contextmanager
 
@@ -112,6 +113,36 @@ class WeatherDatabase:
                     error_message TEXT,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
+            """)
+
+            # Telegram subscribers table (per chat settings)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS telegram_subscribers (
+                    chat_id TEXT PRIMARY KEY,
+                    enabled INTEGER DEFAULT 1,
+                    quiet_hours_enabled INTEGER DEFAULT NULL,
+                    quiet_hours_start TEXT DEFAULT NULL,
+                    quiet_hours_end TEXT DEFAULT NULL,
+                    threshold REAL DEFAULT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # Telegram message log for dedup/rate-limit
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS telegram_msg_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id TEXT NOT NULL,
+                    msg_hash TEXT NOT NULL,
+                    text_preview TEXT,
+                    sent_at TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_tg_msglog_chat_time
+                ON telegram_msg_log(chat_id, sent_at)
             """)
             
             # System status table
@@ -386,6 +417,121 @@ class WeatherDatabase:
                 return True
         except Exception as e:
             logger.error(f"Error storing telegram notification: {e}")
+            return False
+
+    # --- Telegram subscribers & anti-spam helpers ---
+    def upsert_telegram_subscriber(self, chat_id: str, enabled: Optional[bool] = None,
+                                   quiet_hours_enabled: Optional[bool] = None,
+                                   quiet_hours_start: Optional[str] = None,
+                                   quiet_hours_end: Optional[str] = None,
+                                   threshold: Optional[float] = None) -> bool:
+        """Insert or update a telegram subscriber with per-chat settings."""
+        try:
+            with self.get_connection() as conn:
+                cur = conn.cursor()
+                # Ensure row exists
+                cur.execute(
+                    """
+                    INSERT INTO telegram_subscribers (chat_id)
+                    VALUES (?)
+                    ON CONFLICT(chat_id) DO NOTHING
+                    """,
+                    (chat_id,)
+                )
+                # Build dynamic update
+                fields = []
+                params = []
+                if enabled is not None:
+                    fields.append("enabled = ?")
+                    params.append(1 if enabled else 0)
+                if quiet_hours_enabled is not None:
+                    fields.append("quiet_hours_enabled = ?")
+                    params.append(1 if quiet_hours_enabled else 0)
+                if quiet_hours_start is not None:
+                    fields.append("quiet_hours_start = ?")
+                    params.append(quiet_hours_start)
+                if quiet_hours_end is not None:
+                    fields.append("quiet_hours_end = ?")
+                    params.append(quiet_hours_end)
+                if threshold is not None:
+                    fields.append("threshold = ?")
+                    params.append(float(threshold))
+                if fields:
+                    fields.append("updated_at = ?")
+                    params.append(datetime.now().isoformat())
+                    params.append(chat_id)
+                    cur.execute(f"UPDATE telegram_subscribers SET {', '.join(fields)} WHERE chat_id = ?", params)
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Error upserting telegram subscriber {chat_id}: {e}")
+            return False
+
+    def get_telegram_subscriber(self, chat_id: str) -> Optional[Dict[str, Any]]:
+        try:
+            with self.get_connection(read_only=True) as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT chat_id, enabled, quiet_hours_enabled, quiet_hours_start, quiet_hours_end, threshold FROM telegram_subscribers WHERE chat_id = ?", (chat_id,))
+                row = cur.fetchone()
+                if not row:
+                    return None
+                return {
+                    'chat_id': row[0],
+                    'enabled': bool(row[1]) if row[1] is not None else True,
+                    'quiet_hours_enabled': bool(row[2]) if row[2] is not None else None,
+                    'quiet_hours_start': row[3],
+                    'quiet_hours_end': row[4],
+                    'threshold': float(row[5]) if row[5] is not None else None,
+                }
+        except Exception as e:
+            logger.error(f"Error getting telegram subscriber {chat_id}: {e}")
+            return None
+
+    def list_telegram_subscribers(self) -> List[str]:
+        try:
+            with self.get_connection(read_only=True) as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT chat_id FROM telegram_subscribers WHERE enabled = 1")
+                return [r[0] for r in cur.fetchall()]
+        except Exception as e:
+            logger.error(f"Error listing telegram subscribers: {e}")
+            return []
+
+    def _hash_text(self, text: str) -> str:
+        return hashlib.sha256((text or '').encode('utf-8')).hexdigest()
+
+    def record_telegram_message(self, chat_id: str, text: str):
+        try:
+            with self.get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    INSERT INTO telegram_msg_log (chat_id, msg_hash, text_preview, sent_at)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (chat_id, self._hash_text(text), (text or '')[:200], datetime.now().isoformat())
+                )
+                conn.commit()
+        except Exception as e:
+            logger.debug(f"Error recording tg message: {e}")
+
+    def was_recent_telegram_duplicate(self, chat_id: str, text: str, within_seconds: int = 120) -> bool:
+        try:
+            cutoff = datetime.now() - timedelta(seconds=max(1, within_seconds))
+            h = self._hash_text(text)
+            with self.get_connection(read_only=True) as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    SELECT 1 FROM telegram_msg_log
+                    WHERE chat_id = ? AND msg_hash = ? AND sent_at >= ?
+                    LIMIT 1
+                    """,
+                    (chat_id, h, cutoff.isoformat())
+                )
+                return cur.fetchone() is not None
+        except Exception as e:
+            logger.debug(f"Error checking tg duplicate: {e}")
             return False
     
     def get_recent_weather_data(self, hours: int = 72) -> List[WeatherData]:

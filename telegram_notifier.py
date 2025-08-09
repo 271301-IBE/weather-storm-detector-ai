@@ -27,6 +27,13 @@ class TelegramNotifier:
             logger.warning("Telegram not configured (token/chat_id missing)")
             return False
         target_chat = chat_id or self.config.telegram.chat_id
+        # Anti-spam: rate limit and dedup within small window
+        try:
+            if self.db.was_recent_telegram_duplicate(target_chat, text, within_seconds=90):
+                logger.info("Skipping Telegram message (duplicate within 90s)")
+                return False
+        except Exception:
+            pass
         try:
             logger.debug(f"Telegram sendMessage chat_id={target_chat} text_len={len(text)}")
             # Sanitize potentially unsafe characters for HTML parse_mode
@@ -53,6 +60,11 @@ class TelegramNotifier:
                 sent_successfully=ok,
                 error_message=None if ok else resp.text,
             )
+            try:
+                if ok:
+                    self.db.record_telegram_message(target_chat, text)
+            except Exception:
+                pass
             if not ok:
                 logger.error(f"Telegram send failed: {resp.text}")
             return ok
@@ -79,6 +91,12 @@ class TelegramNotifier:
             return False
         target_chat = chat_id or self.config.telegram.chat_id
         logger.debug(f"Telegram sendPhoto chat_id={target_chat} file={os.path.basename(image_path)} caption_len={len(caption) if caption else 0}")
+        try:
+            if caption and self.db.was_recent_telegram_duplicate(target_chat, f"[photo]{caption}", within_seconds=90):
+                logger.info("Skipping Telegram photo (duplicate within 90s)")
+                return False
+        except Exception:
+            pass
         files = {"photo": open(image_path, "rb")}
         data = {"chat_id": target_chat}
         if caption:
