@@ -391,8 +391,11 @@ class TelegramPoller:
                     if tz is None:
                         continue
                     base_now = now_utc if tz_name == "UTC" else datetime.now(tz)
+                    # Zarovnat na nejbližší nižší 10min slot (00,10,20,30,40,50)
+                    base_slot = base_now.replace(second=0, microsecond=0)
+                    base_slot = base_slot.replace(minute=(base_slot.minute // 10) * 10)
                     for step in range(0, attempts_per_tz):
-                        dt = base_now - timedelta(minutes=step * 10)
+                        dt = base_slot - timedelta(minutes=step * 10)
                         date_str = dt.strftime('%Y%m%d')
                         time_str = dt.strftime('%H%M')
                         candidate = base.format(date=date_str, time=time_str)
