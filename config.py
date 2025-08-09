@@ -44,6 +44,8 @@ class ChmiConfig:
     region_code: str
     xml_url: str
     radar_image_url: str
+    radar_pattern_url: str
+    radar_outline_path: str
 
 @dataclass
 class WebAppConfig:
@@ -141,7 +143,13 @@ def load_config() -> Config:
         chmi=ChmiConfig(
             region_code=os.getenv("CHMI_REGION_CODE", "6203"),
             xml_url=os.getenv("CHMI_XML_URL", "https://www.chmi.cz/files/portal/docs/meteo/om/bulletiny/XOCZ50_OKPR.xml"),
-            radar_image_url=os.getenv("CHMI_RADAR_IMAGE_URL", "")
+            radar_image_url=os.getenv("CHMI_RADAR_IMAGE_URL", ""),
+            radar_pattern_url=os.getenv(
+                "CHMI_RADAR_PATTERN_URL",
+                "https://opendata.chmi.cz/meteorology/weather/radar/composite/maxz/png/"
+                "pacz2gmaps3.z_max3d.{date}.{time}.0.png",
+            ),
+            radar_outline_path=os.getenv("CHMI_OUTLINE_IMAGE_PATH", ""),
         ),
         webapp=WebAppConfig(
             username=os.getenv("WEBAPP_USERNAME", "pi"),
