@@ -43,6 +43,7 @@ class ChmiConfig:
     """CHMI warning configuration."""
     region_code: str
     xml_url: str
+    radar_image_url: str
 
 @dataclass
 class WebAppConfig:
@@ -139,7 +140,8 @@ def load_config() -> Config:
         ),
         chmi=ChmiConfig(
             region_code=os.getenv("CHMI_REGION_CODE", "6203"),
-            xml_url=os.getenv("CHMI_XML_URL", "https://www.chmi.cz/files/portal/docs/meteo/om/bulletiny/XOCZ50_OKPR.xml")
+            xml_url=os.getenv("CHMI_XML_URL", "https://www.chmi.cz/files/portal/docs/meteo/om/bulletiny/XOCZ50_OKPR.xml"),
+            radar_image_url=os.getenv("CHMI_RADAR_IMAGE_URL", "")
         ),
         webapp=WebAppConfig(
             username=os.getenv("WEBAPP_USERNAME", "pi"),

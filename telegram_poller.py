@@ -260,6 +260,7 @@ class TelegramPoller:
                 "📖 Nápověda:\n"
                 "• /weather – Souhrn aktuálního počasí a graf (24h)\n"
                 "• /pomoc – Tento přehled příkazů\n"
+                "• /radar – Aktuální radarový snímek (ČHMÚ)\n"
                 "• /nastaveni status – Zobrazit stav tichých hodin a prahu spolehlivosti\n"
                 "• /nastaveni tiche_hodiny on|off – Zapnout/vypnout tiché hodiny\n"
                 "• /nastaveni prah 0–1 – Nastavit prah spolehlivosti (např. 0.85)\n"
@@ -352,6 +353,33 @@ class TelegramPoller:
                         logger.info(f"Polling: /weather photo sent ok={photo_ok}")
             except Exception as e:
                 logger.warning(f"Polling: chart send failed: {e}")
+            return
+
+        if cmd.startswith("/radar"):
+            try:
+                url = (self.config.chmi.radar_image_url or '').strip()
+                if not url:
+                    self.notifier.send_message("❌ Radar není nakonfigurován. Nastavte CHMI_RADAR_IMAGE_URL.", chat_id=chat_id)
+                    return
+                import tempfile
+                r = requests.get(url, timeout=15)
+                if not r.ok:
+                    self.notifier.send_message(f"❌ Nelze stáhnout radar ({r.status_code}).", chat_id=chat_id)
+                    return
+                suffix = os.path.splitext(url)[1] or '.png'
+                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                    tmp.write(r.content)
+                    tmp.flush()
+                    path = tmp.name
+                self.notifier.send_photo(path, caption="Aktuální radar (ČHMÚ)", chat_id=chat_id)
+                try:
+                    os.remove(path)
+                except Exception:
+                    pass
+            except Exception as e:
+                logger.error(f"/radar error: {e}")
+                self.notifier.send_message("❌ Došlo k chybě při stahování radaru.", chat_id=chat_id)
+            return
 
     def run(self):
         while self.running:
