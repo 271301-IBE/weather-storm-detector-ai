@@ -1,7 +1,7 @@
 import logging
 import os
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any
 
 import requests
 
@@ -19,7 +19,7 @@ class TelegramNotifier:
         self.base_url = f"https://api.telegram.org/bot{self.config.telegram.bot_token}"
         self.db = WeatherDatabase(config)
 
-    def send_message(self, text: str, chat_id: Optional[str] = None) -> bool:
+    def send_message(self, text: str, chat_id: Optional[str] = None, reply_markup: Optional[Dict[str, Any]] = None, reply_to_message_id: Optional[int] = None) -> bool:
         if not self.config.telegram.enabled:
             logger.info("Telegram disabled; skipping send")
             return False
@@ -34,16 +34,17 @@ class TelegramNotifier:
                 text.replace('<', '&lt;')
                     .replace('>', '&gt;')
             )
-            resp = requests.post(
-                f"{self.base_url}/sendMessage",
-                json={
-                    "chat_id": target_chat,
-                    "text": safe_text,
-                    "parse_mode": "HTML",
-                    "disable_web_page_preview": True,
-                },
-                timeout=10,
-            )
+            payload: Dict[str, Any] = {
+                "chat_id": target_chat,
+                "text": safe_text,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True,
+            }
+            if reply_markup:
+                payload["reply_markup"] = reply_markup
+            if reply_to_message_id is not None:
+                payload["reply_to_message_id"] = reply_to_message_id
+            resp = requests.post(f"{self.base_url}/sendMessage", json=payload, timeout=10)
             ok = resp.ok and (resp.json().get("ok") is True)
             self.db.store_telegram_notification(
                 timestamp=datetime.now(),
@@ -66,7 +67,7 @@ class TelegramNotifier:
             )
             return False
 
-    def send_photo(self, image_path: str, caption: Optional[str] = None, chat_id: Optional[str] = None) -> bool:
+    def send_photo(self, image_path: str, caption: Optional[str] = None, chat_id: Optional[str] = None, reply_to_message_id: Optional[int] = None) -> bool:
         if not self.config.telegram.enabled:
             logger.info("Telegram disabled; skipping photo send")
             return False
@@ -83,6 +84,8 @@ class TelegramNotifier:
         if caption:
             data["caption"] = caption
             data["parse_mode"] = "HTML"
+        if reply_to_message_id is not None:
+            data["reply_to_message_id"] = str(reply_to_message_id)
         try:
             resp = requests.post(f"{self.base_url}/sendPhoto", files=files, data=data, timeout=20)
             ok = resp.ok and (resp.json().get("ok") is True)
@@ -102,6 +105,48 @@ class TelegramNotifier:
                 timestamp=datetime.now(),
                 chat_id=target_chat,
                 text=f"[photo] {os.path.basename(image_path)}",
+                sent_successfully=False,
+                error_message=str(e),
+            )
+            return False
+
+    def send_document(self, file_path: str, caption: Optional[str] = None, chat_id: Optional[str] = None, reply_to_message_id: Optional[int] = None) -> bool:
+        if not self.config.telegram.enabled:
+            logger.info("Telegram disabled; skipping document send")
+            return False
+        target_chat = chat_id or self.config.telegram.chat_id
+        if not self.config.telegram.bot_token or not target_chat:
+            logger.warning("Telegram not configured (token/chat_id missing)")
+            return False
+        if not os.path.exists(file_path):
+            logger.error(f"Document file not found: {file_path}")
+            return False
+        try:
+            with open(file_path, 'rb') as f:
+                files = {"document": f}
+                data: Dict[str, Any] = {"chat_id": target_chat}
+                if caption:
+                    data["caption"] = caption
+                if reply_to_message_id is not None:
+                    data["reply_to_message_id"] = str(reply_to_message_id)
+                resp = requests.post(f"{self.base_url}/sendDocument", files=files, data=data, timeout=30)
+            ok = resp.ok and (resp.json().get("ok") is True)
+            self.db.store_telegram_notification(
+                timestamp=datetime.now(),
+                chat_id=target_chat,
+                text=f"[document] {os.path.basename(file_path)}",
+                sent_successfully=ok,
+                error_message=None if ok else resp.text,
+            )
+            if not ok:
+                logger.error(f"Telegram document send failed: {resp.text}")
+            return ok
+        except Exception as e:
+            logger.error(f"Telegram document send exception: {e}")
+            self.db.store_telegram_notification(
+                timestamp=datetime.now(),
+                chat_id=target_chat,
+                text=f"[document] {os.path.basename(file_path)}",
                 sent_successfully=False,
                 error_message=str(e),
             )

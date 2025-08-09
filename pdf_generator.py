@@ -96,6 +96,52 @@ class WeatherReportGenerator:
         except Exception as e:
             logger.error(f"Failed to create chart image: {e}")
             return None
+
+    def create_multi_panel_chart_image(self, weather_data: List[WeatherData], title_time: datetime) -> Optional[str]:
+        """Vytvoří vícepanelový graf (Teplota/Srážky, Vítr, Tlak) v češtině."""
+        if not weather_data or len(weather_data) < 2:
+            return None
+
+        df = pd.DataFrame([vars(d) for d in weather_data])
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        df = df.sort_values('timestamp').set_index('timestamp')
+
+        plt.style.use('seaborn-v0_8-whitegrid')
+        fig, axes = plt.subplots(3, 1, figsize=(12, 9), sharex=True)
+
+        # Panel 1: Teplota + Srážky
+        ax1 = axes[0]
+        ax1.set_title(f'Počasí – {title_time.strftime("%d.%m.%Y %H:%M")}', fontsize=14, loc='left')
+        ax1.plot(df.index, df['temperature'], color='#d62728', label='Teplota (°C)')
+        ax1.axhline(0, color='blue', linestyle='--', linewidth=1, label='Bod mrazu')
+        ax1.set_ylabel('Teplota (°C)')
+        ax1.legend(loc='upper left')
+        ax1b = ax1.twinx()
+        ax1b.bar(df.index, df['precipitation'], width=0.01, color='#1f77b4', alpha=0.6, label='Srážky (mm)')
+        ax1b.set_ylabel('Srážky (mm)')
+
+        # Panel 2: Vítr
+        ax2 = axes[1]
+        if 'wind_speed' in df.columns:
+            ax2.plot(df.index, df['wind_speed'], color='#9467bd', label='Vítr (m/s)')
+        ax2.set_ylabel('Vítr (m/s)')
+        ax2.legend(loc='upper left')
+
+        # Panel 3: Tlak
+        ax3 = axes[2]
+        if 'pressure' in df.columns:
+            ax3.plot(df.index, df['pressure'], color='#2ca02c', label='Tlak (hPa)')
+        ax3.set_ylabel('Tlak (hPa)')
+        ax3.legend(loc='upper left')
+
+        axes[-1].xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        plt.xticks(rotation=45)
+        fig.tight_layout()
+
+        chart_path = os.path.join(self.reports_dir, f"multi_chart_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+        plt.savefig(chart_path, dpi=300)
+        plt.close(fig)
+        return chart_path
     
     def _create_weather_summary_table(self, weather_data: List[WeatherData]) -> List[List[str]]:
         """Create summary table data for weather conditions."""

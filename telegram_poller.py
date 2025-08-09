@@ -229,12 +229,30 @@ class TelegramPoller:
     def _handle_command(self, chat_id: str, text: str):
         cmd = (text or "").strip().lower()
         if cmd.startswith("/start"):
+            keyboard = {
+                "inline_keyboard": [
+                    [
+                        {"text": "Tiché hodiny ON", "callback_data": "qh:on"},
+                        {"text": "Tiché hodiny OFF", "callback_data": "qh:off"},
+                    ],
+                    [
+                        {"text": "Prahová 0.80", "callback_data": "thr:0.80"},
+                        {"text": "Prahová 0.90", "callback_data": "thr:0.90"},
+                    ],
+                    [
+                        {"text": "Graf 12h", "callback_data": "graph:12"},
+                        {"text": "Graf 24h", "callback_data": "graph:24"},
+                        {"text": "Graf 48h", "callback_data": "graph:48"},
+                    ],
+                ]
+            }
             self.notifier.send_message(
                 (
                     "👋 Ahoj! Jsem váš Clipron AI Weather bot.\n"
                     "Napište /pomoc pro přehled příkazů, nebo /weather pro rychlý souhrn s grafem."
                 ),
                 chat_id=chat_id,
+                reply_markup=keyboard,
             )
             return
         if cmd.startswith("/pomoc"):
@@ -304,7 +322,24 @@ class TelegramPoller:
         if cmd.startswith("/weather"):
             logger.info(f"Polling: handling /weather for chat_id={chat_id}")
             summary = self._compose_weather_summary()
-            sent = self.notifier.send_message(summary, chat_id=chat_id)
+            keyboard = {
+                "inline_keyboard": [
+                    [
+                        {"text": "Tiché hodiny ON", "callback_data": "qh:on"},
+                        {"text": "Tiché hodiny OFF", "callback_data": "qh:off"},
+                    ],
+                    [
+                        {"text": "Prahová 0.80", "callback_data": "thr:0.80"},
+                        {"text": "Prahová 0.90", "callback_data": "thr:0.90"},
+                    ],
+                    [
+                        {"text": "Graf 12h", "callback_data": "graph:12"},
+                        {"text": "Graf 24h", "callback_data": "graph:24"},
+                        {"text": "Graf 48h", "callback_data": "graph:48"},
+                    ],
+                ]
+            }
+            sent = self.notifier.send_message(summary, chat_id=chat_id, reply_markup=keyboard)
             logger.info(f"Polling: /weather text sent ok={sent}")
             # Try to send chart
             try:
@@ -323,7 +358,7 @@ class TelegramPoller:
             try:
                 params = {
                     "timeout": 50,
-                    "allowed_updates": json.dumps(["message"]),
+                    "allowed_updates": json.dumps(["message", "callback_query"]),
                 }
                 if self.last_update_id is not None:
                     params["offset"] = self.last_update_id + 1
@@ -343,13 +378,44 @@ class TelegramPoller:
                 for upd in updates:
                     try:
                         self.last_update_id = max(self.last_update_id or 0, upd.get("update_id", 0))
-                        msg = upd.get("message") or {}
-                        text = msg.get("text")
-                        chat = msg.get("chat") or {}
-                        chat_id = str(chat.get("id")) if chat.get("id") is not None else None
-                        logger.debug(f"Polling: update {upd.get('update_id')} chat_id={chat_id} text={text!r}")
-                        if chat_id and text and text.startswith('/'):
-                            self._handle_command(chat_id, text)
+                        if upd.get("callback_query"):
+                            cq = upd["callback_query"]
+                            data = cq.get("data")
+                            msg = cq.get("message") or {}
+                            chat = (msg.get("chat") or {})
+                            chat_id = str(chat.get("id")) if chat.get("id") is not None else None
+                            message_id = msg.get("message_id")
+                            if chat_id and data:
+                                try:
+                                    if data.startswith("qh:"):
+                                        on = data.split(":",1)[1] == "on"
+                                        self.config.system.quiet_hours_enabled = on
+                                        self._persist_settings()
+                                        self.notifier.send_message(f"✅ Tiché hodiny {'ZAPNUTY' if on else 'VYPNUTY'}.", chat_id=chat_id, reply_to_message_id=message_id)
+                                    elif data.startswith("thr:"):
+                                        val = float(data.split(":",1)[1])
+                                        if 0.0 <= val <= 1.0:
+                                            self.config.ai.storm_confidence_threshold = val
+                                            self._persist_settings()
+                                            self.notifier.send_message(f"✅ Prah spolehlivosti nastaven na {val:.2f}", chat_id=chat_id, reply_to_message_id=message_id)
+                                    elif data.startswith("graph:"):
+                                        hours = int(data.split(":",1)[1])
+                                        series = list(reversed(self.db.get_recent_weather_data(hours=hours)))[:max(60, hours*5)]
+                                        if series:
+                                            gen = WeatherReportGenerator(self.config)
+                                            path = gen.create_multi_panel_chart_image(series, datetime.now())
+                                            if path:
+                                                self.notifier.send_photo(path, caption=f"Graf počasí za {hours} hodin", chat_id=chat_id, reply_to_message_id=message_id)
+                                except Exception as e:
+                                    logger.warning(f"Callback processing failed: {e}")
+                        else:
+                            msg = upd.get("message") or {}
+                            text = msg.get("text")
+                            chat = msg.get("chat") or {}
+                            chat_id = str(chat.get("id")) if chat.get("id") is not None else None
+                            logger.debug(f"Polling: update {upd.get('update_id')} chat_id={chat_id} text={text!r}")
+                            if chat_id and text and text.startswith('/'):
+                                self._handle_command(chat_id, text)
                     finally:
                         if self.last_update_id:
                             self._save_offset(self.last_update_id)
