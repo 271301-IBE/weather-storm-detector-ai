@@ -600,7 +600,6 @@ class TelegramPoller:
                                 if r2.ok and r2.headers.get('Content-Type','').startswith('image'):
                                     content = r2.content
                                     try:
-                                        from datetime import datetime
                                         chosen_dt = datetime.strptime(matches[0][0]+matches[0][1], "%Y%m%d%H%M").replace(tzinfo=timezone.utc)
                                     except Exception:
                                         chosen_dt = None
