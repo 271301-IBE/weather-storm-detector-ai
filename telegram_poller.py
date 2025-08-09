@@ -34,6 +34,7 @@ class TelegramPoller:
         self.offset_file = offset_file
         self.last_update_id: Optional[int] = self._load_offset()
         self.thread: Optional[threading.Thread] = None
+        self.settings_file = "settings_override.json"
 
     def _load_offset(self) -> Optional[int]:
         try:
@@ -52,9 +53,73 @@ class TelegramPoller:
         except Exception as e:
             logger.warning(f"Could not write Telegram offset file: {e}")
 
+    def _load_settings(self):
+        try:
+            if os.path.exists(self.settings_file):
+                with open(self.settings_file, "r", encoding="utf-8") as f:
+                    s = json.load(f)
+                qh = s.get("quiet_hours_enabled")
+                if isinstance(qh, bool):
+                    self.config.system.quiet_hours_enabled = qh
+                qhs = s.get("quiet_hours_start")
+                qhe = s.get("quiet_hours_end")
+                if isinstance(qhs, str):
+                    self.config.system.quiet_hours_start = qhs
+                if isinstance(qhe, str):
+                    self.config.system.quiet_hours_end = qhe
+                thr = s.get("storm_confidence_threshold")
+                if isinstance(thr, (int, float)):
+                    self.config.ai.storm_confidence_threshold = float(thr)
+                logger.info("Loaded settings overrides from settings_override.json")
+        except Exception as e:
+            logger.warning(f"Failed to load settings overrides: {e}")
+
+    def _persist_settings(self):
+        try:
+            payload = {
+                "quiet_hours_enabled": bool(self.config.system.quiet_hours_enabled),
+                "quiet_hours_start": self.config.system.quiet_hours_start,
+                "quiet_hours_end": self.config.system.quiet_hours_end,
+                "storm_confidence_threshold": float(self.config.ai.storm_confidence_threshold),
+            }
+            with open(self.settings_file, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.warning(f"Failed to persist settings: {e}")
+
+    def _record_user_event(self, event_type: str):
+        try:
+            with self.db.get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS user_storm_events (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp TEXT NOT NULL,
+                        event_type TEXT NOT NULL,
+                        weather_data_json TEXT,
+                        chmi_warnings_json TEXT,
+                        ai_confidence REAL,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    INSERT INTO user_storm_events (timestamp, event_type, weather_data_json, chmi_warnings_json, ai_confidence)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (datetime.now().isoformat(), event_type, json.dumps([]), json.dumps([]), None)
+                )
+                conn.commit()
+        except Exception as e:
+            logger.warning(f"Failed to record user event {event_type}: {e}")
+
     def start(self):
         if self.running:
             return
+        # load persisted overrides if present
+        self._load_settings()
         self.running = True
         self.thread = threading.Thread(target=self.run, name="TelegramPoller", daemon=True)
         self.thread.start()
@@ -163,6 +228,79 @@ class TelegramPoller:
 
     def _handle_command(self, chat_id: str, text: str):
         cmd = (text or "").strip().lower()
+        if cmd.startswith("/start"):
+            self.notifier.send_message(
+                (
+                    "👋 Ahoj! Jsem váš Clipron AI Weather bot.\n"
+                    "Napište /pomoc pro přehled příkazů, nebo /weather pro rychlý souhrn s grafem."
+                ),
+                chat_id=chat_id,
+            )
+            return
+        if cmd.startswith("/pomoc"):
+            help_text = (
+                "📖 Nápověda:\n"
+                "• /weather – Souhrn aktuálního počasí a graf (24h)\n"
+                "• /pomoc – Tento přehled příkazů\n"
+                "• /nastaveni status – Zobrazit stav tichých hodin a prahu spolehlivosti\n"
+                "• /nastaveni tiche_hodiny on|off – Zapnout/vypnout tiché hodiny\n"
+                "• /nastaveni prah <0–1> – Nastavit prah spolehlivosti (např. 0.85)\n"
+                "• Učení: pošlete zprávu ‚déšť‘, ‚krupobití‘, nebo ‚bez_bouře‘\n"
+            )
+            self.notifier.send_message(help_text, chat_id=chat_id)
+            return
+        if cmd.startswith("/nastaveni"):
+            parts = cmd.split()
+            if len(parts) == 1 or parts[1] == "status":
+                status_msg = (
+                    f"🔧 Nastavení:\n"
+                    f"• Tiché hodiny: {'ZAPNUTO' if self.config.system.quiet_hours_enabled else 'VYPNUTO'} ({self.config.system.quiet_hours_start}–{self.config.system.quiet_hours_end})\n"
+                    f"• Prah spolehlivosti: {self.config.ai.storm_confidence_threshold:.2f}"
+                )
+                self.notifier.send_message(status_msg, chat_id=chat_id)
+                return
+            if parts[1] == "tiche_hodiny" and len(parts) >= 3:
+                val = parts[2]
+                if val in ("on", "zapnout", "zapnuto"):
+                    self.config.system.quiet_hours_enabled = True
+                    self._persist_settings()
+                    self.notifier.send_message("✅ Tiché hodiny ZAPNUTY.", chat_id=chat_id)
+                    return
+                if val in ("off", "vypnout", "vypnuto"):
+                    self.config.system.quiet_hours_enabled = False
+                    self._persist_settings()
+                    self.notifier.send_message("✅ Tiché hodiny VYPNUTY.", chat_id=chat_id)
+                    return
+                self.notifier.send_message("❌ Neplatná hodnota. Použijte on/off.", chat_id=chat_id)
+                return
+            if parts[1] == "prah" and len(parts) >= 3:
+                try:
+                    val = float(parts[2].replace(',', '.'))
+                    if 0.0 <= val <= 1.0:
+                        self.config.ai.storm_confidence_threshold = val
+                        self._persist_settings()
+                        self.notifier.send_message(
+                            f"✅ Prah spolehlivosti nastaven na {val:.2f}", chat_id=chat_id
+                        )
+                        return
+                except Exception:
+                    pass
+                self.notifier.send_message("❌ Zadejte číslo v intervalu 0–1 (např. 0.85).", chat_id=chat_id)
+                return
+            self.notifier.send_message("❔ Použití: /nastaveni status | tiche_hodiny on|off | prah 0.85", chat_id=chat_id)
+            return
+        if cmd in ("déšť", "dest", "déšt", "dést", "rain"):
+            self._record_user_event("rain_now")
+            self.notifier.send_message("✔️ Díky! Zaznamenal jsem událost: déšť.", chat_id=chat_id)
+            return
+        if cmd in ("krupobití", "krupobiti", "hail"):
+            self._record_user_event("hail_now")
+            self.notifier.send_message("✔️ Díky! Zaznamenal jsem událost: krupobití.", chat_id=chat_id)
+            return
+        if cmd in ("bez_bouře", "bez-bouře", "bez_boure", "no_storm", "clear"):
+            self._record_user_event("no_storm")
+            self.notifier.send_message("✔️ Rozumím. Zaznamenal jsem: bez bouře.", chat_id=chat_id)
+            return
         if cmd.startswith("/weather"):
             logger.info(f"Polling: handling /weather for chat_id={chat_id}")
             summary = self._compose_weather_summary()

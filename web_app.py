@@ -1098,6 +1098,49 @@ def telegram_webhook(token: str):
         if not message:
             return jsonify({'ok': True})
         cmd = message.strip().lower()
+        # Nápověda
+        if cmd.startswith('/pomoc'):
+            help_text = (
+                "📖 Nápověda:\n"
+                "• /weather – Souhrn aktuálního počasí a graf (24h)\n"
+                "• /pomoc – Tento přehled příkazů\n"
+                "• /nastaveni status – Zobrazit stav tichých hodin a prahu spolehlivosti\n"
+                "• /nastaveni tiche_hodiny on|off – Zapnout/vypnout tiché hodiny\n"
+                "• /nastaveni prah <0–1> – Nastavit prah spolehlivosti (např. 0.85)\n"
+                "• Učení: pošlete zprávu ‚déšť‘, ‚krupobití‘, nebo ‚bez_bouře‘\n"
+            )
+            if chat_id and TelegramNotifier:
+                TelegramNotifier(config).send_message(help_text, chat_id=chat_id)
+            return jsonify({'ok': True})
+
+        # Start
+        if cmd.startswith('/start'):
+            if chat_id and TelegramNotifier:
+                TelegramNotifier(config).send_message(
+                    (
+                        "👋 Ahoj! Jsem váš Clipron AI Weather bot.\n"
+                        "Napište /pomoc pro přehled příkazů, nebo /weather pro rychlý souhrn s grafem."
+                    ),
+                    chat_id=chat_id
+                )
+            return jsonify({'ok': True})
+
+        # Nastavení (jen status)
+        if cmd.startswith('/nastaveni'):
+            parts = cmd.split()
+            if len(parts) == 1 or parts[1] == 'status':
+                status_msg = (
+                    f"🔧 Nastavení:\n"
+                    f"• Tiché hodiny: {'ZAPNUTO' if config.system.quiet_hours_enabled else 'VYPNUTO'} ({config.system.quiet_hours_start}–{config.system.quiet_hours_end})\n"
+                    f"• Prah spolehlivosti: {config.ai.storm_confidence_threshold:.2f}"
+                )
+                if chat_id and TelegramNotifier:
+                    TelegramNotifier(config).send_message(status_msg, chat_id=chat_id)
+            else:
+                if chat_id and TelegramNotifier:
+                    TelegramNotifier(config).send_message("❔ Použití: /nastaveni status", chat_id=chat_id)
+            return jsonify({'ok': True})
+
         # Handle /weather rich summary
         if cmd.startswith('/weather'):
             try:
@@ -1233,62 +1276,48 @@ def telegram_webhook(token: str):
                 except Exception:
                     pass
                 return jsonify({'ok': True})
-        mapping = {
-            'rain': 'rain_now',
-            'storm': 'storm_now',
-            'thunderstorm': 'storm_now',
-            'hail': 'hail_now',
-            'no_storm': 'no_storm',
-            'clear': 'no_storm'
+        # Učení – české i anglické varianty
+        learning_map = {
+            'déšť': 'rain_now', 'dest': 'rain_now', 'déšt': 'rain_now', 'dést': 'rain_now', 'rain': 'rain_now',
+            'krupobití': 'hail_now', 'krupobiti': 'hail_now', 'hail': 'hail_now',
+            'bez_bouře': 'no_storm', 'bez-bouře': 'no_storm', 'bez_boure': 'no_storm', 'no_storm': 'no_storm', 'clear': 'no_storm'
         }
-        event_type = mapping.get(cmd)
-        if not event_type:
-            # Ignore non-learning messages
-            logger.info(f"Telegram message ignored (no command match): chat_id={chat_id} text={cmd!r}")
-            return jsonify({'ok': True})
-        # Record the event similar to api_storm_event
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS user_storm_events (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL,
-                    event_type TEXT NOT NULL,
-                    weather_data_json TEXT,
-                    chmi_warnings_json TEXT,
-                    ai_confidence REAL,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        event_type = learning_map.get(cmd)
+        if event_type:
+            with db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS user_storm_events (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp TEXT NOT NULL,
+                        event_type TEXT NOT NULL,
+                        weather_data_json TEXT,
+                        chmi_warnings_json TEXT,
+                        ai_confidence REAL,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
                 )
-                """
-            )
-            # Basic snapshot: latest weather rows
-            cursor.execute(
-                """
-                SELECT temperature, humidity, pressure, wind_speed, precipitation,
-                       precipitation_probability, condition, description
-                FROM weather_data ORDER BY timestamp DESC LIMIT 3
-                """
-            )
-            weather_rows = cursor.fetchall()
-            weather_data = []
-            for row in weather_rows:
-                weather_data.append({
-                    'temperature': row[0], 'humidity': row[1], 'pressure': row[2],
-                    'wind_speed': row[3], 'precipitation': row[4],
-                    'precipitation_probability': row[5], 'condition': row[6],
-                    'description': row[7]
-                })
-            # Insert
-            cursor.execute(
-                """
-                INSERT INTO user_storm_events (timestamp, event_type, weather_data_json, chmi_warnings_json, ai_confidence)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (datetime.now().isoformat(), event_type, json.dumps(weather_data), json.dumps([]), None)
-            )
-            conn.commit()
-        logger.info(f"Recorded user event from Telegram: chat_id={chat_id} type={event_type}")
+                cursor.execute(
+                    """
+                    INSERT INTO user_storm_events (timestamp, event_type, weather_data_json, chmi_warnings_json, ai_confidence)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (datetime.now().isoformat(), event_type, json.dumps([]), json.dumps([]), None)
+                )
+                conn.commit()
+            # Potvrzení česky
+            if chat_id and TelegramNotifier:
+                if event_type == 'rain_now':
+                    TelegramNotifier(config).send_message("✔️ Díky! Zaznamenal jsem událost: déšť.", chat_id=chat_id)
+                elif event_type == 'hail_now':
+                    TelegramNotifier(config).send_message("✔️ Díky! Zaznamenal jsem událost: krupobití.", chat_id=chat_id)
+                else:
+                    TelegramNotifier(config).send_message("✔️ Rozumím. Zaznamenal jsem: bez bouře.", chat_id=chat_id)
+            return jsonify({'ok': True})
+        # Ignore ostatní zprávy
+        logger.info(f"Telegram message ignored (no command match): chat_id={chat_id} text={cmd!r}")
         return jsonify({'ok': True})
     except Exception as e:
         logger.error(f"Telegram webhook error: {e}")
