@@ -415,11 +415,34 @@ class TelegramPoller:
                     try:
                         radar_img = Image.open(radar_tmp_path).convert('RGBA')
                         outline_img = Image.open(outline_path).convert('RGBA')
-                        # Přizpůsobit outline do velikosti radaru, zachovat poměr a vystředit
-                        outline_resized = ImageOps.contain(outline_img, radar_img.size)
+                        # Zmenšení a posun (konfigurovatelné přes ENV):
+                        # CHMI_OUTLINE_SCALE: 0.0–1.0 (výchozí 0.85)
+                        # CHMI_OUTLINE_OFFSET_X: pixely, záporné= doleva, kladné= doprava (výchozí 0)
+                        # CHMI_OUTLINE_OFFSET_Y: pixely, záporné= nahoru, kladné= dolů (výchozí 30)
+                        try:
+                            scale = float(os.getenv('CHMI_OUTLINE_SCALE', '0.85'))
+                        except Exception:
+                            scale = 0.85
+                        try:
+                            offset_x = int(os.getenv('CHMI_OUTLINE_OFFSET_X', '0'))
+                        except Exception:
+                            offset_x = 0
+                        try:
+                            offset_y = int(os.getenv('CHMI_OUTLINE_OFFSET_Y', '30'))
+                        except Exception:
+                            offset_y = 30
+
+                        scale = max(0.05, min(1.0, scale))
+                        max_w = max(1, int(radar_img.width * scale))
+                        max_h = max(1, int(radar_img.height * scale))
+
+                        outline_resized = ImageOps.contain(outline_img, (max_w, max_h))
                         overlay_layer = Image.new('RGBA', radar_img.size, (0, 0, 0, 0))
-                        pos_x = (radar_img.width - outline_resized.width) // 2
-                        pos_y = (radar_img.height - outline_resized.height) // 2
+                        pos_x = (radar_img.width - outline_resized.width) // 2 + offset_x
+                        pos_y = (radar_img.height - outline_resized.height) // 2 + offset_y
+                        # Omezit do hranic plátna
+                        pos_x = max(-outline_resized.width, min(radar_img.width, pos_x))
+                        pos_y = max(-outline_resized.height, min(radar_img.height, pos_y))
                         overlay_layer.paste(outline_resized, (pos_x, pos_y), mask=outline_resized)
                         composite = Image.alpha_composite(radar_img, overlay_layer)
                         composite_path = radar_tmp_path.replace('.png', '_cz.png')
