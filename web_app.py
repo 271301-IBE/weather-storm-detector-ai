@@ -1106,7 +1106,7 @@ def telegram_webhook(token: str):
                 "• /pomoc – Tento přehled příkazů\n"
                 "• /nastaveni status – Zobrazit stav tichých hodin a prahu spolehlivosti\n"
                 "• /nastaveni tiche_hodiny on|off – Zapnout/vypnout tiché hodiny\n"
-                "• /nastaveni prah <0–1> – Nastavit prah spolehlivosti (např. 0.85)\n"
+                "• /nastaveni prah 0–1 – Nastavit prah spolehlivosti (např. 0.85)\n"
                 "• Učení: pošlete zprávu ‚déšť‘, ‚krupobití‘, nebo ‚bez_bouře‘\n"
             )
             if chat_id and TelegramNotifier:

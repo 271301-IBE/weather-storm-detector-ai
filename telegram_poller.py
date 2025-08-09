@@ -244,7 +244,7 @@ class TelegramPoller:
                 "• /pomoc – Tento přehled příkazů\n"
                 "• /nastaveni status – Zobrazit stav tichých hodin a prahu spolehlivosti\n"
                 "• /nastaveni tiche_hodiny on|off – Zapnout/vypnout tiché hodiny\n"
-                "• /nastaveni prah <0–1> – Nastavit prah spolehlivosti (např. 0.85)\n"
+                "• /nastaveni prah 0–1 – Nastavit prah spolehlivosti (např. 0.85)\n"
                 "• Učení: pošlete zprávu ‚déšť‘, ‚krupobití‘, nebo ‚bez_bouře‘\n"
             )
             self.notifier.send_message(help_text, chat_id=chat_id)

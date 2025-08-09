@@ -29,11 +29,16 @@ class TelegramNotifier:
         target_chat = chat_id or self.config.telegram.chat_id
         try:
             logger.debug(f"Telegram sendMessage chat_id={target_chat} text_len={len(text)}")
+            # Sanitize potentially unsafe characters for HTML parse_mode
+            safe_text = (
+                text.replace('<', '&lt;')
+                    .replace('>', '&gt;')
+            )
             resp = requests.post(
                 f"{self.base_url}/sendMessage",
                 json={
                     "chat_id": target_chat,
-                    "text": text,
+                    "text": safe_text,
                     "parse_mode": "HTML",
                     "disable_web_page_preview": True,
                 },
