@@ -420,7 +420,15 @@ class TelegramPoller:
                             logger.debug("/radar tried: " + " | ".join(tried_log[-10:]))
                         except Exception:
                             pass
-                        self.notifier.send_message("❌ Radar nelze stáhnout (žádný dostupný snímek).", chat_id=chat_id)
+                        # poslat stručnou diagnostiku do chatu (poslední 3 kandidáty)
+                        try:
+                            tail = " | ".join(tried_log[-3:]) if tried_log else ""
+                            msg = "❌ Radar nelze stáhnout (žádný dostupný snímek)."
+                            if tail:
+                                msg += f"\nDebug: {tail}"
+                            self.notifier.send_message(msg, chat_id=chat_id)
+                        except Exception:
+                            self.notifier.send_message("❌ Radar nelze stáhnout (žádný dostupný snímek).", chat_id=chat_id)
                         return
                     r = requests.get(fixed, timeout=15)
                     if not r.ok:
@@ -439,7 +447,8 @@ class TelegramPoller:
                 final_path = radar_tmp_path
                 extra_tmp_to_cleanup = []
 
-                if pil_available and outline_path and os.path.exists(outline_path):
+                outline_disabled = (os.getenv('CHMI_OUTLINE_DISABLED', '').strip().lower() in ('1','true','yes','on'))
+                if pil_available and (not outline_disabled) and outline_path and os.path.exists(outline_path):
                     try:
                         radar_img = Image.open(radar_tmp_path).convert('RGBA')
                         outline_img = Image.open(outline_path).convert('RGBA')
