@@ -290,7 +290,11 @@ class EmailNotifier:
             try:
                 if getattr(self.config.telegram, 'enabled', False) and TelegramNotifier:
                     tg = TelegramNotifier(self.config)
-                    message = f"\u26a1\ufe0f Storm Alert {analysis.alert_level.value.upper()}\nConfidence: {analysis.confidence_score:.0%}\n{analysis.analysis_summary}"
+                    message = (
+                        f"\u26a1\ufe0f Upozornění na bouři {analysis.alert_level.value.upper()}\n"
+                        f"Spolehlivost: {analysis.confidence_score:.0%}\n"
+                        f"{analysis.analysis_summary}"
+                    )
                     tg.send_message(message)
             except Exception as te:
                 logger.error(f"Telegram fallback failed: {te}")

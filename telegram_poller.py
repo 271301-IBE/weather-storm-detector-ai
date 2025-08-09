@@ -66,7 +66,7 @@ class TelegramPoller:
             self.thread.join(timeout=2)
 
     def _compose_weather_summary(self) -> str:
-        # Current conditions
+        # Aktuální podmínky
         current_text = "N/A"
         try:
             with self.db.get_connection(read_only=True) as conn:
@@ -80,16 +80,16 @@ class TelegramPoller:
                 row = cur.fetchone()
                 if row and row[1] is not None:
                     current_text = (
-                        f"Now: {row[6] or ''} | Temp {row[1]:.1f}°C, Hum {row[2]:.0f}%, "
-                        f"Press {row[3]:.0f} hPa, Wind {row[4]:.1f} m/s, Precip {row[5]:.1f} mm"
+                        f"Nyní: {row[6] or ''} | Teplota {row[1]:.1f}°C, Vlhkost {row[2]:.0f}%, "
+                        f"Tlak {row[3]:.0f} hPa, Vítr {row[4]:.1f} m/s, Srážky {row[5]:.1f} mm"
                     )
                 elif row:
-                    current_text = f"Now: {row[6] or ''}"
+                    current_text = f"Nyní: {row[6] or ''}"
         except Exception:
             pass
 
-        # Next predicted storm
-        storm_line = "No storm predicted"
+        # Další předpokládaná bouřka
+        storm_line = "Bouřka se neočekává"
         try:
             with self.db.get_connection(read_only=True) as conn:
                 cur = conn.cursor()
@@ -104,13 +104,13 @@ class TelegramPoller:
                     try:
                         predicted_dt = datetime.fromisoformat(p[0])
                         if predicted_dt > datetime.now():
-                            storm_line = f"Storm ▶ {predicted_dt.strftime('%d.%m %H:%M')} (conf {float(p[1])*100:.0f}%)"
+                            storm_line = f"Bouřka ▶ {predicted_dt.strftime('%d.%m %H:%M')} (spolehlivost {float(p[1])*100:.0f}%)"
                     except Exception:
                         pass
         except Exception:
             pass
 
-        # CHMI warnings
+        # ČHMÚ výstrahy
         try:
             from chmi_warnings import ChmiWarningMonitor
             chmi_monitor = ChmiWarningMonitor(self.config)
@@ -121,13 +121,13 @@ class TelegramPoller:
                 if 'jihomorav' in desc.lower() or 'brno' in desc.lower():
                     region_hits.append(w)
             if region_hits:
-                chmi_line = "CHMI: " + ", ".join([f"{w.event} ({w.color})" for w in region_hits[:5]])
+                chmi_line = "ČHMÚ: " + ", ".join([f"{w.event} ({w.color})" for w in region_hits[:5]])
             else:
-                chmi_line = "CHMI: none for region"
+                chmi_line = "ČHMÚ: žádné pro region"
         except Exception:
-            chmi_line = "CHMI: unavailable"
+            chmi_line = "ČHMÚ: nedostupné"
 
-        # Lightning snapshot (last hour)
+        # Blesky (poslední hodina)
         try:
             with self.db.get_connection(read_only=True) as conn:
                 cur = conn.cursor()
@@ -141,7 +141,7 @@ class TelegramPoller:
                         (one_hour_ago,)
                     )
                     row = cur.fetchone()
-                    lt_line = f"Lightning: total {row[0] or 0}, nearby {row[1] or 0}, closest {row[2]:.1f} km" if row and row[2] is not None else f"Lightning: total {row[0] or 0}, nearby {row[1] or 0}"
+                    lt_line = f"Blesky: celkem {row[0] or 0}, v okolí {row[1] or 0}, nejbližší {row[2]:.1f} km" if row and row[2] is not None else f"Blesky: celkem {row[0] or 0}, v okolí {row[1] or 0}"
                 except Exception:
                     cur.execute(
                         """
@@ -151,9 +151,9 @@ class TelegramPoller:
                         (one_hour_ago,)
                     )
                     row = cur.fetchone()
-                    lt_line = f"Lightning: total {row[0] or 0}, nearby {row[1] or 0}, closest {row[2]:.1f} km" if row and row[2] is not None else f"Lightning: total {row[0] or 0}, nearby {row[1] or 0}"
+                    lt_line = f"Blesky: celkem {row[0] or 0}, v okolí {row[1] or 0}, nejbližší {row[2]:.1f} km" if row and row[2] is not None else f"Blesky: celkem {row[0] or 0}, v okolí {row[1] or 0}"
         except Exception:
-            lt_line = "Lightning: unavailable"
+            lt_line = "Blesky: nedostupné"
 
         summary_text = (
             f"<b>{self.config.weather.city_name}</b> • {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
@@ -175,7 +175,7 @@ class TelegramPoller:
                     gen = WeatherReportGenerator(self.config)
                     img_path = gen.create_chart_image(series, datetime.now())
                     if img_path:
-                        photo_ok = self.notifier.send_photo(img_path, caption="24h weather chart", chat_id=chat_id)
+                        photo_ok = self.notifier.send_photo(img_path, caption="Graf počasí za 24 hodin", chat_id=chat_id)
                         logger.info(f"Polling: /weather photo sent ok={photo_ok}")
             except Exception as e:
                 logger.warning(f"Polling: chart send failed: {e}")

@@ -1070,7 +1070,7 @@ def api_telegram_test_alert():
         if not config.telegram.bot_token or not config.telegram.chat_id:
             return jsonify({'success': False, 'error': 'Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID'}), 400
         notifier = TelegramNotifier(config)
-        text = f"\ud83d\udce2 Test alert from Clipron AI Weather at {datetime.now().strftime('%H:%M:%S')}"
+        text = f"\ud83d\udce2 Testovací upozornění z Clipron AI Weather v {datetime.now().strftime('%H:%M:%S')}"
         ok = notifier.send_message(text)
         if ok:
             return jsonify({'success': True}), 200
@@ -1119,9 +1119,9 @@ def telegram_webhook(token: str):
                     current_text = "N/A"
                     if row:
                         current_text = (
-                            f"Now: {row[5] or ''} | Temp {row[1]:.1f}°C, Hum {row[2]:.0f}%, "
-                            f"Press {row[3]:.0f} hPa, Wind {row[4]:.1f} m/s, Precip {row[5]:.1f} mm"
-                            if row[1] is not None else f"Now: {row[6] or ''}"
+                            f"Nyní: {row[6] or ''} | Teplota {row[1]:.1f}°C, Vlhkost {row[2]:.0f}%, "
+                            f"Tlak {row[3]:.0f} hPa, Vítr {row[4]:.1f} m/s, Srážky {row[5]:.1f} mm"
+                            if row[1] is not None else f"Nyní: {row[6] or ''}"
                         )
                         logger.debug(f"/weather current row: ts={row[0]} temp={row[1]} hum={row[2]} press={row[3]} wind={row[4]} precip={row[5]}")
 
@@ -1136,12 +1136,12 @@ def telegram_webhook(token: str):
                             """
                         )
                         p = cur.fetchone()
-                        storm_line = "No storm predicted"
+                        storm_line = "Bouřka se neočekává"
                         if p:
                             try:
                                 predicted_dt = datetime.fromisoformat(p[0])
                                 if predicted_dt > datetime.now():
-                                    storm_line = f"Storm ▶ {predicted_dt.strftime('%d.%m %H:%M')} (conf {float(p[1])*100:.0f}%)"
+                                    storm_line = f"Bouřka ▶ {predicted_dt.strftime('%d.%m %H:%M')} (spolehlivost {float(p[1])*100:.0f}%)"
                                 logger.debug(f"/weather prediction row: predicted={p[0]} conf={p[1]} created={p[2]}")
                             except Exception:
                                 pass
@@ -1160,11 +1160,11 @@ def telegram_webhook(token: str):
                             region_hits.append(w)
                     logger.debug(f"/weather CHMI region warnings count={len(region_hits)} total={len(warnings)}")
                     if region_hits:
-                        chmi_line = "CHMI: " + ", ".join([f"{w.event} ({w.color})" for w in region_hits[:5]])
+                        chmi_line = "ČHMÚ: " + ", ".join([f"{w.event} ({w.color})" for w in region_hits[:5]])
                     else:
-                        chmi_line = "CHMI: none for region"
+                        chmi_line = "ČHMÚ: žádné pro region"
                 except Exception:
-                    chmi_line = "CHMI: unavailable"
+                    chmi_line = "ČHMÚ: nedostupné"
 
                 # Lightning snapshot (last hour)
                 try:
@@ -1180,7 +1180,7 @@ def telegram_webhook(token: str):
                                 (one_hour_ago,)
                             )
                             row = cur.fetchone()
-                            lt_line = f"Lightning: total {row[0] or 0}, nearby {row[1] or 0}, closest {row[2]:.1f} km" if row and row[2] is not None else f"Lightning: total {row[0] or 0}, nearby {row[1] or 0}"
+                            lt_line = f"Blesky: celkem {row[0] or 0}, v okolí {row[1] or 0}, nejbližší {row[2]:.1f} km" if row and row[2] is not None else f"Blesky: celkem {row[0] or 0}, v okolí {row[1] or 0}"
                             logger.debug(f"/weather lightning summary: total={row[0]} nearby={row[1]} closest={row[2]}")
                         except Exception:
                             # fallback raw
@@ -1192,10 +1192,10 @@ def telegram_webhook(token: str):
                                 (one_hour_ago,)
                             )
                             row = cur.fetchone()
-                            lt_line = f"Lightning: total {row[0] or 0}, nearby {row[1] or 0}, closest {row[2]:.1f} km" if row and row[2] is not None else f"Lightning: total {row[0] or 0}, nearby {row[1] or 0}"
+                            lt_line = f"Blesky: celkem {row[0] or 0}, v okolí {row[1] or 0}, nejbližší {row[2]:.1f} km" if row and row[2] is not None else f"Blesky: celkem {row[0] or 0}, v okolí {row[1] or 0}"
                             logger.debug(f"/weather lightning raw: total={row[0]} nearby={row[1]} closest={row[2]}")
                 except Exception:
-                    lt_line = "Lightning: unavailable"
+                    lt_line = "Blesky: nedostupné"
 
                 summary_text = (
                     f"<b>{config.weather.city_name}</b> • {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
@@ -1218,7 +1218,7 @@ def telegram_webhook(token: str):
                     img_path = gen.create_chart_image(series, datetime.now()) if series else None
                     logger.debug(f"/weather chart path={img_path} points={len(series) if series else 0}")
                     if img_path and chat_id:
-                        photo_ok = TelegramNotifier(config).send_photo(img_path, caption="24h weather chart", chat_id=chat_id)
+                        photo_ok = TelegramNotifier(config).send_photo(img_path, caption="Graf počasí za 24 hodin", chat_id=chat_id)
                         logger.info(f"/weather photo sent chat_id={chat_id} ok={photo_ok}")
                 except Exception:
                     logger.exception("/weather chart send failed")
@@ -1229,7 +1229,7 @@ def telegram_webhook(token: str):
                 # Try to inform user
                 try:
                     if chat_id and TelegramNotifier:
-                        TelegramNotifier(config).send_message("⚠️ Sorry, failed to build weather summary.", chat_id=chat_id)
+                        TelegramNotifier(config).send_message("⚠️ Omlouvám se, nepodařilo se vytvořit souhrn počasí.", chat_id=chat_id)
                 except Exception:
                     pass
                 return jsonify({'ok': True})
