@@ -345,17 +345,70 @@ class TelegramPoller:
                 return
             self.notifier.send_message("❔ Použití: /nastaveni status | tiche_hodiny on|off | prah 0.85", chat_id=chat_id)
             return
-        if cmd in ("déšť", "dest", "déšt", "dést", "rain"):
+        if cmd.startswith("déšť") or cmd.startswith("dest") or cmd.startswith("déšt") or cmd.startswith("dést") or cmd.startswith("rain"):
+            # Parse optional intensity "déšť 3/5" => value 3 of 5
+            value = None
+            unit = None
+            try:
+                parts = cmd.split()
+                if len(parts) >= 2:
+                    if "/" in parts[1]:
+                        num, den = parts[1].split("/", 1)
+                        value = float(num) / float(den)
+                        unit = "ratio"
+                    else:
+                        value = float(parts[1])
+                        unit = "value"
+            except Exception:
+                pass
+            try:
+                self.db.record_learning_event(chat_id, "rain", value, unit, cmd)
+            except Exception:
+                pass
             self._record_user_event("rain_now")
             self.notifier.send_message("✔️ Díky! Zaznamenal jsem událost: déšť.", chat_id=chat_id)
             return
-        if cmd in ("krupobití", "krupobiti", "hail"):
+        if cmd.startswith("krupobití") or cmd.startswith("krupobiti") or cmd.startswith("hail"):
+            value = None
+            unit = None
+            try:
+                parts = cmd.split()
+                if len(parts) >= 2:
+                    value = float(parts[1])
+                    unit = "value"
+            except Exception:
+                pass
+            try:
+                self.db.record_learning_event(chat_id, "hail", value, unit, cmd)
+            except Exception:
+                pass
             self._record_user_event("hail_now")
             self.notifier.send_message("✔️ Díky! Zaznamenal jsem událost: krupobití.", chat_id=chat_id)
             return
-        if cmd in ("bez_bouře", "bez-bouře", "bez_boure", "no_storm", "clear"):
+        if cmd.startswith("bez_bouře") or cmd.startswith("bez-bouře") or cmd.startswith("bez_boure") or cmd.startswith("no_storm") or cmd.startswith("clear"):
+            try:
+                self.db.record_learning_event(chat_id, "no_storm", None, None, cmd)
+            except Exception:
+                pass
             self._record_user_event("no_storm")
             self.notifier.send_message("✔️ Rozumím. Zaznamenal jsem: bez bouře.", chat_id=chat_id)
+            return
+        if cmd.startswith("vítr") or cmd.startswith("vitr") or cmd.startswith("wind"):
+            # e.g., "vítr 12 m/s"
+            value = None
+            unit = None
+            try:
+                parts = cmd.split()
+                if len(parts) >= 2:
+                    value = float(parts[1].replace(',', '.'))
+                    unit = parts[2] if len(parts) >= 3 else "m/s"
+            except Exception:
+                pass
+            try:
+                self.db.record_learning_event(chat_id, "wind", value, unit, cmd)
+            except Exception:
+                pass
+            self.notifier.send_message("✔️ Díky! Zaznamenal jsem událost: vítr.", chat_id=chat_id)
             return
         if cmd.startswith("/weather"):
             logger.info(f"Polling: handling /weather for chat_id={chat_id}")
@@ -384,8 +437,26 @@ class TelegramPoller:
             try:
                 series = list(reversed(self.db.get_recent_weather_data(hours=24)))[:120]
                 if series:
+                    # Build CHMI alert windows for shading
+                    chmi_windows = []
+                    try:
+                        from chmi_warnings import ChmiWarningMonitor
+                        mon = ChmiWarningMonitor(self.config)
+                        warns = mon.get_all_active_warnings()
+                        for w in warns or []:
+                            try:
+                                s = getattr(w, 'time_start_iso', None)
+                                e = getattr(w, 'time_end_iso', None)
+                                color = getattr(w, 'color', 'yellow')
+                                if s and e:
+                                    # strings acceptable; generator handles parse
+                                    chmi_windows.append({'start': s, 'end': e, 'color': color})
+                            except Exception:
+                                continue
+                    except Exception:
+                        pass
                     gen = WeatherReportGenerator(self.config)
-                    img_path = gen.create_chart_image(series, datetime.now())
+                    img_path = gen.create_multi_panel_chart_image(series, datetime.now(), chmi_alert_windows=chmi_windows)
                     if img_path:
                         photo_ok = self.notifier.send_photo(img_path, caption="Graf počasí za 24 hodin", chat_id=chat_id)
                         logger.info(f"Polling: /weather photo sent ok={photo_ok}")

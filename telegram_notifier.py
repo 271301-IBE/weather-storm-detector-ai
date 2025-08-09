@@ -47,12 +47,29 @@ class TelegramNotifier:
                 "parse_mode": "HTML",
                 "disable_web_page_preview": True,
             }
+            # Try thread anchor if no explicit reply_to
+            if reply_to_message_id is None:
+                try:
+                    anchor = self.db.get_thread_anchor(target_chat)
+                    if anchor:
+                        payload["reply_to_message_id"] = anchor
+                except Exception:
+                    pass
             if reply_markup:
                 payload["reply_markup"] = reply_markup
             if reply_to_message_id is not None:
                 payload["reply_to_message_id"] = reply_to_message_id
             resp = requests.post(f"{self.base_url}/sendMessage", json=payload, timeout=10)
             ok = resp.ok and (resp.json().get("ok") is True)
+            try:
+                if ok and reply_to_message_id is None:
+                    data = resp.json()
+                    msg = data.get("result") or {}
+                    mid = msg.get("message_id")
+                    if mid is not None:
+                        self.db.set_thread_anchor(target_chat, str(mid))
+            except Exception:
+                pass
             self.db.store_telegram_notification(
                 timestamp=datetime.now(),
                 chat_id=target_chat,

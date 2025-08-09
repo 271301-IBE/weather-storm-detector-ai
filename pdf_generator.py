@@ -97,8 +97,11 @@ class WeatherReportGenerator:
             logger.error(f"Failed to create chart image: {e}")
             return None
 
-    def create_multi_panel_chart_image(self, weather_data: List[WeatherData], title_time: datetime) -> Optional[str]:
-        """Vytvoří vícepanelový graf (Teplota/Srážky, Vítr, Tlak) v češtině."""
+    def create_multi_panel_chart_image(self, weather_data: List[WeatherData], title_time: datetime, chmi_alert_windows: Optional[List[Dict[str, Any]]] = None) -> Optional[str]:
+        """Vytvoří vícepanelový graf (Teplota/Srážky, Vítr, Tlak) v češtině s volitelným pozadím výstrah ČHMÚ.
+
+        chmi_alert_windows: seznam dictů { 'start': datetime, 'end': datetime, 'color': 'yellow'|'orange'|'red' }
+        """
         if not weather_data or len(weather_data) < 2:
             return None
 
@@ -109,8 +112,27 @@ class WeatherReportGenerator:
         plt.style.use('seaborn-v0_8-whitegrid')
         fig, axes = plt.subplots(3, 1, figsize=(12, 9), sharex=True)
 
+        # Funkce pro vykreslení výstražného pozadí
+        def shade_alerts(ax):
+            if not chmi_alert_windows:
+                return
+            for win in chmi_alert_windows:
+                try:
+                    s = pd.to_datetime(win['start'])
+                    e = pd.to_datetime(win['end'])
+                    col = str(win.get('color','yellow')).lower()
+                    rgba = {
+                        'yellow': (1.0, 0.95, 0.6, 0.3),
+                        'orange': (1.0, 0.8, 0.5, 0.35),
+                        'red': (1.0, 0.6, 0.6, 0.4),
+                    }.get(col, (0.9, 0.9, 0.9, 0.2))
+                    ax.axvspan(s, e, color=rgba, linewidth=0)
+                except Exception:
+                    continue
+
         # Panel 1: Teplota + Srážky
         ax1 = axes[0]
+        shade_alerts(ax1)
         ax1.set_title(f'Počasí – {title_time.strftime("%d.%m.%Y %H:%M")}', fontsize=14, loc='left')
         ax1.plot(df.index, df['temperature'], color='#d62728', label='Teplota (°C)')
         ax1.axhline(0, color='blue', linestyle='--', linewidth=1, label='Bod mrazu')
@@ -122,6 +144,7 @@ class WeatherReportGenerator:
 
         # Panel 2: Vítr
         ax2 = axes[1]
+        shade_alerts(ax2)
         if 'wind_speed' in df.columns:
             ax2.plot(df.index, df['wind_speed'], color='#9467bd', label='Vítr (m/s)')
         ax2.set_ylabel('Vítr (m/s)')
@@ -129,6 +152,7 @@ class WeatherReportGenerator:
 
         # Panel 3: Tlak
         ax3 = axes[2]
+        shade_alerts(ax3)
         if 'pressure' in df.columns:
             ax3.plot(df.index, df['pressure'], color='#2ca02c', label='Tlak (hPa)')
         ax3.set_ylabel('Tlak (hPa)')

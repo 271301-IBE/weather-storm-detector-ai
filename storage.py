@@ -144,6 +144,29 @@ class WeatherDatabase:
                 CREATE INDEX IF NOT EXISTS idx_tg_msglog_chat_time
                 ON telegram_msg_log(chat_id, sent_at)
             """)
+
+            # Telegram threads (anchor message per chat)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS telegram_threads (
+                    chat_id TEXT PRIMARY KEY,
+                    anchor_message_id TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # User learning events (intensity/value training)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS user_learning_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    chat_id TEXT,
+                    event_type TEXT NOT NULL,
+                    value REAL,
+                    unit TEXT,
+                    raw_text TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
             
             # System status table
             cursor.execute("""
@@ -532,6 +555,52 @@ class WeatherDatabase:
                 return cur.fetchone() is not None
         except Exception as e:
             logger.debug(f"Error checking tg duplicate: {e}")
+            return False
+
+    def get_thread_anchor(self, chat_id: str) -> Optional[str]:
+        try:
+            with self.get_connection(read_only=True) as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT anchor_message_id FROM telegram_threads WHERE chat_id = ?", (chat_id,))
+                row = cur.fetchone()
+                return row[0] if row else None
+        except Exception as e:
+            logger.debug(f"Error getting thread anchor: {e}")
+            return None
+
+    def set_thread_anchor(self, chat_id: str, message_id: str) -> bool:
+        try:
+            with self.get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    INSERT INTO telegram_threads (chat_id, anchor_message_id)
+                    VALUES (?, ?)
+                    ON CONFLICT(chat_id) DO UPDATE SET anchor_message_id = excluded.anchor_message_id
+                    """,
+                    (chat_id, str(message_id))
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.debug(f"Error setting thread anchor: {e}")
+            return False
+
+    def record_learning_event(self, chat_id: Optional[str], event_type: str, value: Optional[float], unit: Optional[str], raw_text: str) -> bool:
+        try:
+            with self.get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    INSERT INTO user_learning_events (timestamp, chat_id, event_type, value, unit, raw_text)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (datetime.now().isoformat(), chat_id, event_type, value, unit, raw_text)
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.debug(f"Error recording learning event: {e}")
             return False
     
     def get_recent_weather_data(self, hours: int = 72) -> List[WeatherData]:
