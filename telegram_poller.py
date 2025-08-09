@@ -471,7 +471,6 @@ class TelegramPoller:
                 metrics = mon.get_current_metrics()
                 db_size = 0
                 try:
-                    import os
                     db_path = self.config.system.database_path
                     if os.path.exists(db_path):
                         db_size = os.path.getsize(db_path) // 1024 // 1024
