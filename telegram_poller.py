@@ -359,30 +359,36 @@ class TelegramPoller:
             try:
                 import tempfile
                 from datetime import timezone
-                from PIL import Image, ImageOps
+                try:
+                    from PIL import Image, ImageOps
+                    pil_available = True
+                except Exception:
+                    pil_available = False
 
-                # 1) Sestavit URL pro nejnovější snímek podle vzoru
+                # 1) Najít nejnovější dostupný snímek (poslední ~2 hodiny po 10 min)
                 base = (self.config.chmi.radar_pattern_url or '').strip()
                 if not base:
                     base = "https://opendata.chmi.cz/meteorology/weather/radar/composite/maxz/png/pacz2gmaps3.z_max3d.{date}.{time}.0.png"
-                now = datetime.now(timezone.utc)
-                date_str = now.strftime('%Y%m%d')
-                # ČHMÚ dává snímky v intervalu cca 10 min → zkusit postupně 00,10,20,30,40,50
-                minute_slot = (now.minute // 10) * 10
-                tried = []
-                url = None
-                for i in range(6):
-                    m = (minute_slot - i*10) % 60
-                    hour = (now.hour - ((minute_slot - i*10) < 0)) % 24 if (minute_slot - i*10) < 0 else now.hour
-                    time_str = f"{hour:02d}{m:02d}"
+                now_utc = datetime.now(timezone.utc)
+                chosen_url = None
+                chosen_dt = None
+                content = None
+                for step in range(0, 12):  # 12 * 10 min = 120 min zpět
+                    dt = now_utc - timedelta(minutes=step * 10)
+                    date_str = dt.strftime('%Y%m%d')
+                    time_str = dt.strftime('%H%M')
                     candidate = base.format(date=date_str, time=time_str)
-                    tried.append(candidate)
-                    resp = requests.get(candidate, timeout=12)
-                    if resp.ok and resp.headers.get('Content-Type','').startswith('image'):
-                        url = candidate
-                        content = resp.content
-                        break
-                if not url:
+                    try:
+                        resp = requests.get(candidate, timeout=12)
+                        if resp.ok and resp.headers.get('Content-Type', '').startswith('image'):
+                            chosen_url = candidate
+                            chosen_dt = dt
+                            content = resp.content
+                            break
+                    except Exception:
+                        continue
+
+                if content is None:
                     # Fallback na pevné URL z configu
                     fixed = (self.config.chmi.radar_image_url or '').strip()
                     if not fixed:
@@ -393,32 +399,57 @@ class TelegramPoller:
                         self.notifier.send_message(f"❌ Nelze stáhnout radar ({r.status_code}).", chat_id=chat_id)
                         return
                     content = r.content
+                    chosen_dt = None
 
-                # 2) Volitelné překrytí obrysu ČR
+                # 2) Volitelné překrytí obrysu ČR (pokud PIL dostupné)
                 outline_path = (self.config.chmi.radar_outline_path or '').strip()
                 with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
                     tmp.write(content)
                     tmp.flush()
-                    radar_path = tmp.name
+                    radar_tmp_path = tmp.name
 
-                if outline_path and os.path.exists(outline_path):
+                final_path = radar_tmp_path
+                extra_tmp_to_cleanup = []
+
+                if pil_available and outline_path and os.path.exists(outline_path):
                     try:
-                        radar_img = Image.open(radar_path).convert('RGBA')
+                        radar_img = Image.open(radar_tmp_path).convert('RGBA')
                         outline_img = Image.open(outline_path).convert('RGBA')
-                        # Pokus o centrované umístění – volitelně lze přizpůsobit
+                        # Přizpůsobit outline do velikosti radaru, zachovat poměr a vystředit
                         outline_resized = ImageOps.contain(outline_img, radar_img.size)
-                        composite = Image.alpha_composite(radar_img, outline_resized)
-                        composite_path = radar_path.replace('.png', '_cz.png')
+                        overlay_layer = Image.new('RGBA', radar_img.size, (0, 0, 0, 0))
+                        pos_x = (radar_img.width - outline_resized.width) // 2
+                        pos_y = (radar_img.height - outline_resized.height) // 2
+                        overlay_layer.paste(outline_resized, (pos_x, pos_y), mask=outline_resized)
+                        composite = Image.alpha_composite(radar_img, overlay_layer)
+                        composite_path = radar_tmp_path.replace('.png', '_cz.png')
                         composite.save(composite_path)
-                        radar_path = composite_path
+                        final_path = composite_path
+                        extra_tmp_to_cleanup.append(radar_tmp_path)
                     except Exception as e:
                         logger.warning(f"Overlay outline failed: {e}")
+                        final_path = radar_tmp_path
 
-                self.notifier.send_photo(radar_path, caption="Aktuální radar (ČHMÚ)", chat_id=chat_id)
+                # 3) Odeslat snímek s časovým popiskem (UTC) pokud znám
+                if chosen_dt is not None:
+                    caption = f"Aktuální radar (ČHMÚ) • {chosen_dt.strftime('%d.%m.%Y %H:%M')} UTC"
+                else:
+                    caption = "Aktuální radar (ČHMÚ)"
+
+                self.notifier.send_photo(final_path, caption=caption, chat_id=chat_id)
+
+                # 4) Úklid dočasných souborů
                 try:
-                    os.remove(radar_path)
+                    if os.path.exists(final_path):
+                        os.remove(final_path)
                 except Exception:
                     pass
+                for p in extra_tmp_to_cleanup:
+                    try:
+                        if os.path.exists(p):
+                            os.remove(p)
+                    except Exception:
+                        pass
             except Exception as e:
                 logger.error(f"/radar error: {e}")
                 self.notifier.send_message("❌ Došlo k chybě při stahování radaru.", chat_id=chat_id)
