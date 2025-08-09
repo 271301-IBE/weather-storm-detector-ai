@@ -580,7 +580,35 @@ class TelegramPoller:
                         break
 
                 if content is None:
-                    # Fallback na pevné URL z configu
+                    # 2a) Fallback: pokus o stažení posledního souboru z adresářového listing CHMI
+                    try:
+                        import re
+                        # Odvoď adresář z patternu
+                        pat = base
+                        dir_url = pat.rsplit('/', 1)[0] + '/'
+                        resp = requests.get(dir_url, timeout=12)
+                        if resp.ok:
+                            html = resp.text
+                            # Hledej soubory pacz2gmaps3.z_max3d.YYYYMMDD.HHMM.0.png
+                            matches = re.findall(r"pacz2gmaps3\.z_max3d\.(\d{8})\.(\d{4})\.0\.png", html)
+                            if matches:
+                                # seřadit dle (date,time) desc
+                                matches = sorted(matches, key=lambda t: (t[0], t[1]), reverse=True)
+                                fname = f"pacz2gmaps3.z_max3d.{matches[0][0]}.{matches[0][1]}.0.png"
+                                cand_url = dir_url + fname
+                                r2 = requests.get(cand_url, timeout=15)
+                                if r2.ok and r2.headers.get('Content-Type','').startswith('image'):
+                                    content = r2.content
+                                    try:
+                                        from datetime import datetime
+                                        chosen_dt = datetime.strptime(matches[0][0]+matches[0][1], "%Y%m%d%H%M").replace(tzinfo=timezone.utc)
+                                    except Exception:
+                                        chosen_dt = None
+                    except Exception:
+                        pass
+
+                if content is None:
+                    # 2b) Fallback na pevné URL z configu
                     fixed = (self.config.chmi.radar_image_url or '').strip()
                     if not fixed:
                         # zalogovat poslední pokusy pro diagnostiku
