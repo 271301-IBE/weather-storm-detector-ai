@@ -365,33 +365,61 @@ class TelegramPoller:
                 except Exception:
                     pil_available = False
 
-                # 1) Najít nejnovější dostupný snímek (poslední ~2 hodiny po 10 min)
+                # 1) Najít nejnovější dostupný snímek (výchozí 180 min po 10 min; konfigurovatelné)
                 base = (self.config.chmi.radar_pattern_url or '').strip()
                 if not base:
                     base = "https://opendata.chmi.cz/meteorology/weather/radar/composite/maxz/png/pacz2gmaps3.z_max3d.{date}.{time}.0.png"
                 now_utc = datetime.now(timezone.utc)
+                try:
+                    from zoneinfo import ZoneInfo
+                    tz_prg = ZoneInfo("Europe/Prague")
+                except Exception:
+                    tz_prg = None
+
+                try:
+                    lookback_minutes = int(os.getenv("CHMI_RADAR_LOOKBACK_MINUTES", "180"))
+                except Exception:
+                    lookback_minutes = 180
+                lookback_minutes = max(10, min(720, lookback_minutes))  # 10 min .. 12 h
+
                 chosen_url = None
                 chosen_dt = None
                 content = None
-                for step in range(0, 12):  # 12 * 10 min = 120 min zpět
-                    dt = now_utc - timedelta(minutes=step * 10)
-                    date_str = dt.strftime('%Y%m%d')
-                    time_str = dt.strftime('%H%M')
-                    candidate = base.format(date=date_str, time=time_str)
-                    try:
-                        resp = requests.get(candidate, timeout=12)
-                        if resp.ok and resp.headers.get('Content-Type', '').startswith('image'):
-                            chosen_url = candidate
-                            chosen_dt = dt
-                            content = resp.content
-                            break
-                    except Exception:
+                attempts_per_tz = (lookback_minutes // 10) + 1
+                tried_log = []
+                for tz_name, tz in (("UTC", timezone.utc), ("Europe/Prague", tz_prg)):
+                    if tz is None:
                         continue
+                    base_now = now_utc if tz_name == "UTC" else datetime.now(tz)
+                    for step in range(0, attempts_per_tz):
+                        dt = base_now - timedelta(minutes=step * 10)
+                        date_str = dt.strftime('%Y%m%d')
+                        time_str = dt.strftime('%H%M')
+                        candidate = base.format(date=date_str, time=time_str)
+                        try:
+                            resp = requests.get(candidate, timeout=12)
+                            ct = resp.headers.get('Content-Type', '') if resp is not None else ''
+                            tried_log.append(f"{tz_name} {date_str} {time_str} -> {resp.status_code if resp is not None else 'ERR'} {ct}")
+                            if resp.ok and (ct.startswith('image') or candidate.lower().endswith('.png')):
+                                chosen_url = candidate
+                                chosen_dt = dt if tz_name == "UTC" else dt.astimezone(timezone.utc)
+                                content = resp.content
+                                break
+                        except Exception as ex:
+                            tried_log.append(f"{tz_name} {date_str} {time_str} -> EXC {ex.__class__.__name__}")
+                            continue
+                    if content is not None:
+                        break
 
                 if content is None:
                     # Fallback na pevné URL z configu
                     fixed = (self.config.chmi.radar_image_url or '').strip()
                     if not fixed:
+                        # zalogovat poslední pokusy pro diagnostiku
+                        try:
+                            logger.debug("/radar tried: " + " | ".join(tried_log[-10:]))
+                        except Exception:
+                            pass
                         self.notifier.send_message("❌ Radar nelze stáhnout (žádný dostupný snímek).", chat_id=chat_id)
                         return
                     r = requests.get(fixed, timeout=15)
