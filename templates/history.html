@@ -25,6 +25,8 @@
     .history-table th, .history-table td {
         white-space: nowrap;
     }
+    .history-table { font-variant-numeric: tabular-nums; }
+    .history-table thead th { position: sticky; top: 0; z-index: 1; background: var(--card); }
 </style>
 {% endblock %}
 
@@ -47,16 +49,16 @@
                         </select>
                     </div>
                     <div class="history-table-container">
-                        <table class="table table-striped table-hover table-sm history-table">
+                        <table class="table table-striped table-hover table-sm history-table table-balanced table-sticky">
                             <thead>
                                 <tr>
-                                    <th>Timestamp</th>
-                                    <th>Temp (°C)</th>
-                                    <th>Humidity (%)</th>
-                                    <th>Pressure (hPa)</th>
-                                    <th>Wind (m/s)</th>
-                                    <th>Precip (mm)</th>
-                                    <th>Source</th>
+                                    <th class="nowrap col-w-md">Timestamp</th>
+                                    <th class="text-end col-w-xs">Temp (°C)</th>
+                                    <th class="text-end col-w-xs">Humidity (%)</th>
+                                    <th class="text-end col-w-sm">Pressure (hPa)</th>
+                                    <th class="text-end col-w-xs">Wind (m/s)</th>
+                                    <th class="text-end col-w-xs">Precip (mm)</th>
+                                    <th class="nowrap col-w-sm">Source</th>
                                 </tr>
                             </thead>
                             <tbody id="weather-history-body">
@@ -81,14 +83,14 @@
                         </select>
                     </div>
                     <div class="history-table-container">
-                        <table class="table table-striped table-hover table-sm history-table">
+                        <table class="table table-striped table-hover table-sm history-table table-balanced table-sticky">
                             <thead>
                                 <tr>
-                                    <th>Timestamp</th>
-                                    <th>Latitude</th>
-                                    <th>Longitude</th>
-                                    <th>Distance (km)</th>
-                                    <th>Czech Region</th>
+                                    <th class="nowrap col-w-md">Timestamp</th>
+                                    <th class="text-end col-w-sm">Latitude</th>
+                                    <th class="text-end col-w-sm">Longitude</th>
+                                    <th class="text-end col-w-sm">Distance (km)</th>
+                                    <th class="nowrap col-w-sm">Czech Region</th>
                                 </tr>
                             </thead>
                             <tbody id="lightning-history-body">

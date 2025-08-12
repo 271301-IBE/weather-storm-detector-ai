@@ -193,35 +193,35 @@
                                 <strong>🎯 Ensemble Forecast:</strong> Best predictions combining AI analysis, atmospheric physics, and machine learning
                             </div>
                             <div class="table-responsive">
-                                <table class="table table-striped table-hover">
+                                <table class="table table-striped table-hover table-sm table-balanced table-sticky">
                                     <thead class="table-success">
                                         <tr>
-                                            <th>Time</th>
-                                            <th>Temp (°C)</th>
-                                            <th>Humidity (%)</th>
-                                            <th>Pressure (hPa)</th>
-                                            <th>Wind (m/s)</th>
-                                            <th>Precip (mm)</th>
-                                            <th>Precip Prob (%)</th>
-                                            <th>Condition</th>
-                                            <th>Confidence</th>
+                                            <th class="nowrap col-w-xs">Time</th>
+                                            <th class="text-end col-w-xs">Temp (°C)</th>
+                                            <th class="text-end col-w-xs">Humidity (%)</th>
+                                            <th class="text-end col-w-sm">Pressure (hPa)</th>
+                                            <th class="text-end col-w-xs">Wind (m/s)</th>
+                                            <th class="text-end col-w-xs">Precip (mm)</th>
+                                            <th class="text-end col-w-sm">Precip Prob (%)</th>
+                                            <th class="col-w-md">Condition</th>
+                                            <th class="text-end col-w-sm">Confidence</th>
                                         </tr>
                                     </thead>
                                     <tbody id="ensembleForecastBody">
                                         {% if forecast_data and forecast_data.ensemble and forecast_data.ensemble.forecast %}
                                             {% for item in forecast_data.ensemble.forecast %}
                                             <tr>
-                                                <td><strong>{{ item.timestamp }}</strong></td>
-                                                <td>{{ item.temperature }}°C</td>
-                                                <td>{{ item.humidity }}%</td>
-                                                <td>{{ item.pressure }}</td>
-                                                <td>{{ item.wind_speed }}</td>
-                                                <td>{{ item.precipitation }}</td>
-                                                <td>{{ item.precipitation_probability }}%</td>
-                                                <td>
+                                                <td class="nowrap"><strong>{{ item.timestamp }}</strong></td>
+                                                <td class="text-end">{{ item.temperature }}°C</td>
+                                                <td class="text-end">{{ item.humidity }}%</td>
+                                                <td class="text-end">{{ item.pressure }}</td>
+                                                <td class="text-end">{{ item.wind_speed }}</td>
+                                                <td class="text-end">{{ item.precipitation }}</td>
+                                                <td class="text-end">{{ item.precipitation_probability }}%</td>
+                                                <td class="nowrap">
                                                     <span class="badge bg-light text-dark">{{ item.condition }}</span>
                                                 </td>
-                                                <td><span class="badge bg-success">{{ item.confidence }}%</span> <span class="badge bg-secondary">{{ item.confidence_level }}</span></td>
+                                                <td class="text-end"><span class="badge bg-success">{{ item.confidence }}%</span> <span class="badge bg-secondary">{{ item.confidence_level }}</span></td>
                                             </tr>
                                             {% endfor %}
                                         {% else %}
@@ -240,35 +240,35 @@
                                 <strong>🤖 AI Prediction:</strong> DeepSeek AI analysis using meteorological patterns and current conditions
                             </div>
                             <div class="table-responsive">
-                                <table class="table table-striped table-hover">
+                                <table class="table table-striped table-hover table-sm table-balanced table-sticky">
                                     <thead class="table-info">
                                         <tr>
-                                            <th>Time</th>
-                                            <th>Temp (°C)</th>
-                                            <th>Humidity (%)</th>
-                                            <th>Pressure (hPa)</th>
-                                            <th>Wind (m/s)</th>
-                                            <th>Precip (mm)</th>
-                                            <th>Precip Prob (%)</th>
-                                            <th>Condition</th>
-                                            <th>Confidence</th>
+                                            <th class="nowrap col-w-xs">Time</th>
+                                            <th class="text-end col-w-xs">Temp (°C)</th>
+                                            <th class="text-end col-w-xs">Humidity (%)</th>
+                                            <th class="text-end col-w-sm">Pressure (hPa)</th>
+                                            <th class="text-end col-w-xs">Wind (m/s)</th>
+                                            <th class="text-end col-w-xs">Precip (mm)</th>
+                                            <th class="text-end col-w-sm">Precip Prob (%)</th>
+                                            <th class="col-w-md">Condition</th>
+                                            <th class="text-end col-w-sm">Confidence</th>
                                         </tr>
                                     </thead>
                                     <tbody id="aiForecastBody">
                                         {% if forecast_data and forecast_data.ai and forecast_data.ai.forecast %}
                                             {% for item in forecast_data.ai.forecast %}
                                             <tr>
-                                                <td><strong>{{ item.timestamp }}</strong></td>
-                                                <td>{{ item.temperature }}°C</td>
-                                                <td>{{ item.humidity }}%</td>
-                                                <td>{{ item.pressure }}</td>
-                                                <td>{{ item.wind_speed }}</td>
-                                                <td>{{ item.precipitation }}</td>
-                                                <td>{{ item.precipitation_probability }}%</td>
-                                                <td>
+                                                <td class="nowrap"><strong>{{ item.timestamp }}</strong></td>
+                                                <td class="text-end">{{ item.temperature }}°C</td>
+                                                <td class="text-end">{{ item.humidity }}%</td>
+                                                <td class="text-end">{{ item.pressure }}</td>
+                                                <td class="text-end">{{ item.wind_speed }}</td>
+                                                <td class="text-end">{{ item.precipitation }}</td>
+                                                <td class="text-end">{{ item.precipitation_probability }}%</td>
+                                                <td class="nowrap">
                                                     <span class="badge bg-light text-dark">{{ item.condition }}</span>
                                                 </td>
-                                                <td><span class="badge bg-info">{{ item.confidence }}%</span> <span class="badge bg-secondary">{{ item.confidence_level }}</span></td>
+                                                <td class="text-end"><span class="badge bg-info">{{ item.confidence }}%</span> <span class="badge bg-secondary">{{ item.confidence_level }}</span></td>
                                             </tr>
                                             {% endfor %}
                                         {% else %}
@@ -287,35 +287,35 @@
                                 <strong>🧮 Local Physics:</strong> Atmospheric physics calculations and mathematical trend analysis
                             </div>
                             <div class="table-responsive">
-                                <table class="table table-striped table-hover">
+                                <table class="table table-striped table-hover table-sm table-balanced table-sticky">
                                     <thead class="table-warning">
                                         <tr>
-                                            <th>Time</th>
-                                            <th>Temp (°C)</th>
-                                            <th>Humidity (%)</th>
-                                            <th>Pressure (hPa)</th>
-                                            <th>Wind (m/s)</th>
-                                            <th>Precip (mm)</th>
-                                            <th>Precip Prob (%)</th>
-                                            <th>Condition</th>
-                                            <th>Confidence</th>
+                                            <th class="nowrap col-w-xs">Time</th>
+                                            <th class="text-end col-w-xs">Temp (°C)</th>
+                                            <th class="text-end col-w-xs">Humidity (%)</th>
+                                            <th class="text-end col-w-sm">Pressure (hPa)</th>
+                                            <th class="text-end col-w-xs">Wind (m/s)</th>
+                                            <th class="text-end col-w-xs">Precip (mm)</th>
+                                            <th class="text-end col-w-sm">Precip Prob (%)</th>
+                                            <th class="col-w-md">Condition</th>
+                                            <th class="text-end col-w-sm">Confidence</th>
                                         </tr>
                                     </thead>
                                     <tbody id="physicsForecastBody">
                                         {% if forecast_data and forecast_data.physics and forecast_data.physics.forecast %}
                                             {% for item in forecast_data.physics.forecast %}
                                             <tr>
-                                                <td><strong>{{ item.timestamp }}</strong></td>
-                                                <td>{{ item.temperature }}°C</td>
-                                                <td>{{ item.humidity }}%</td>
-                                                <td>{{ item.pressure }}</td>
-                                                <td>{{ item.wind_speed }}</td>
-                                                <td>{{ item.precipitation }}</td>
-                                                <td>{{ item.precipitation_probability }}%</td>
-                                                <td>
+                                                <td class="nowrap"><strong>{{ item.timestamp }}</strong></td>
+                                                <td class="text-end">{{ item.temperature }}°C</td>
+                                                <td class="text-end">{{ item.humidity }}%</td>
+                                                <td class="text-end">{{ item.pressure }}</td>
+                                                <td class="text-end">{{ item.wind_speed }}</td>
+                                                <td class="text-end">{{ item.precipitation }}</td>
+                                                <td class="text-end">{{ item.precipitation_probability }}%</td>
+                                                <td class="nowrap">
                                                     <span class="badge bg-light text-dark">{{ item.condition }}</span>
                                                 </td>
-                                                <td><span class="badge bg-warning">{{ item.confidence }}%</span> <span class="badge bg-secondary">{{ item.confidence_level }}</span></td>
+                                                <td class="text-end"><span class="badge bg-warning">{{ item.confidence }}%</span> <span class="badge bg-secondary">{{ item.confidence_level }}</span></td>
                                             </tr>
                                             {% endfor %}
                                         {% else %}
@@ -334,10 +334,10 @@
                                 <strong>📊 Method Comparison:</strong> Side-by-side comparison of all forecasting approaches
                             </div>
                             <div class="table-responsive">
-                                <table class="table table-striped table-hover table-sm">
+                                <table class="table table-striped table-hover table-sm table-balanced table-sticky">
                                     <thead class="table-dark">
                                         <tr>
-                                            <th rowspan="2">Time</th>
+                                            <th rowspan="2" class="nowrap col-w-xs">Time</th>
                                             <th colspan="3" class="text-center">Temperature (°C)</th>
                                             <th colspan="3" class="text-center">Humidity (%)</th>
                                             <th colspan="3" class="text-center">Pressure (hPa)</th>
@@ -358,16 +358,16 @@
                                         {% if forecast_data and forecast_data.ensemble and forecast_data.ensemble.forecast %}
                                             {% for i in range(forecast_data.ensemble.forecast|length) %}
                                             <tr>
-                                                <td><strong>{{ forecast_data.ensemble.forecast[i].timestamp }}</strong></td>
-                                                <td class="text-success">{{ forecast_data.ensemble.forecast[i].temperature if forecast_data.ensemble else '--' }}</td>
-                                                <td class="text-info">{{ forecast_data.ai.forecast[i].temperature if forecast_data.ai else '--' }}</td>
-                                                <td class="text-warning">{{ forecast_data.physics.forecast[i].temperature if forecast_data.physics else '--' }}</td>
-                                                <td class="text-success">{{ forecast_data.ensemble.forecast[i].humidity if forecast_data.ensemble else '--' }}</td>
-                                                <td class="text-info">{{ forecast_data.ai.forecast[i].humidity if forecast_data.ai else '--' }}</td>
-                                                <td class="text-warning">{{ forecast_data.physics.forecast[i].humidity if forecast_data.physics else '--' }}</td>
-                                                <td class="text-success">{{ forecast_data.ensemble.forecast[i].pressure if forecast_data.ensemble else '--' }}</td>
-                                                <td class="text-info">{{ forecast_data.ai.forecast[i].pressure if forecast_data.ai else '--' }}</td>
-                                                <td class="text-warning">{{ forecast_data.physics.forecast[i].pressure if forecast_data.physics else '--' }}</td>
+                                                <td class="nowrap"><strong>{{ forecast_data.ensemble.forecast[i].timestamp }}</strong></td>
+                                                <td class="text-end text-success">{{ forecast_data.ensemble.forecast[i].temperature if forecast_data.ensemble else '--' }}</td>
+                                                <td class="text-end text-info">{{ forecast_data.ai.forecast[i].temperature if forecast_data.ai else '--' }}</td>
+                                                <td class="text-end text-warning">{{ forecast_data.physics.forecast[i].temperature if forecast_data.physics else '--' }}</td>
+                                                <td class="text-end text-success">{{ forecast_data.ensemble.forecast[i].humidity if forecast_data.ensemble else '--' }}</td>
+                                                <td class="text-end text-info">{{ forecast_data.ai.forecast[i].humidity if forecast_data.ai else '--' }}</td>
+                                                <td class="text-end text-warning">{{ forecast_data.physics.forecast[i].humidity if forecast_data.physics else '--' }}</td>
+                                                <td class="text-end text-success">{{ forecast_data.ensemble.forecast[i].pressure if forecast_data.ensemble else '--' }}</td>
+                                                <td class="text-end text-info">{{ forecast_data.ai.forecast[i].pressure if forecast_data.ai else '--' }}</td>
+                                                <td class="text-end text-warning">{{ forecast_data.physics.forecast[i].pressure if forecast_data.physics else '--' }}</td>
                                             </tr>
                                             {% endfor %}
                                         {% else %}

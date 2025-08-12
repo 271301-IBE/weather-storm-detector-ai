@@ -24,15 +24,15 @@ function updateForecastDisplay(method, forecastData) {
         forecastData.forecast.forEach(item => {
             tableContent += `
                 <tr>
-                    <td><strong>${item.hour}:00</strong></td>
-                    <td>${item.temperature}°C</td>
-                    <td>${item.humidity}%</td>
-                    <td>${item.pressure} hPa</td>
-                    <td>${item.wind_speed} m/s</td>
-                    <td>${item.precipitation} mm</td>
-                    <td>${item.precipitation_probability}%</td>
-                    <td><span class="badge bg-light text-dark">${item.condition}</span></td>
-                    <td><span class="badge bg-success">${item.confidence}%</span> <span class="badge bg-secondary">${item.confidence_level}</span></td>
+                    <td class="nowrap"><strong>${item.hour}:00</strong></td>
+                    <td class="text-end">${item.temperature}°C</td>
+                    <td class="text-end">${item.humidity}%</td>
+                    <td class="text-end">${item.pressure} hPa</td>
+                    <td class="text-end">${item.wind_speed} m/s</td>
+                    <td class="text-end">${item.precipitation} mm</td>
+                    <td class="text-end">${item.precipitation_probability}%</td>
+                    <td class="nowrap"><span class="badge bg-light text-dark">${item.condition}</span></td>
+                    <td class="text-end"><span class="badge bg-success">${item.confidence}%</span> <span class="badge bg-secondary">${item.confidence_level}</span></td>
                 </tr>
             `;
         });
@@ -62,16 +62,16 @@ function updateComparisonTable(data) {
 
             tableContent += `
                 <tr>
-                    <td><strong>${ensemble.hour}:00</strong></td>
-                    <td class="text-success">${ensemble ? ensemble.temperature : '--'}</td>
-                    <td class="text-info">${ai ? ai.temperature : '--'}</td>
-                    <td class="text-warning">${physics ? physics.temperature : '--'}</td>
-                    <td class="text-success">${ensemble ? ensemble.humidity : '--'}</td>
-                    <td class="text-info">${ai ? ai.humidity : '--'}</td>
-                    <td class="text-warning">${physics ? physics.humidity : '--'}</td>
-                    <td class="text-success">${ensemble ? ensemble.pressure : '--'}</td>
-                    <td class="text-info">${ai ? ai.pressure : '--'}</td>
-                    <td class="text-warning">${physics ? physics.pressure : '--'}</td>
+                    <td class="nowrap"><strong>${ensemble.hour}:00</strong></td>
+                    <td class="text-end text-success">${ensemble ? ensemble.temperature : '--'}</td>
+                    <td class="text-end text-info">${ai ? ai.temperature : '--'}</td>
+                    <td class="text-end text-warning">${physics ? physics.temperature : '--'}</td>
+                    <td class="text-end text-success">${ensemble ? ensemble.humidity : '--'}</td>
+                    <td class="text-end text-info">${ai ? ai.humidity : '--'}</td>
+                    <td class="text-end text-warning">${physics ? physics.humidity : '--'}</td>
+                    <td class="text-end text-success">${ensemble ? ensemble.pressure : '--'}</td>
+                    <td class="text-end text-info">${ai ? ai.pressure : '--'}</td>
+                    <td class="text-end text-warning">${physics ? physics.pressure : '--'}</td>
                 </tr>
             `;
         }

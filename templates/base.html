@@ -152,6 +152,34 @@
         body.dark-mode .table td, 
         body.dark-mode .table th { border-color: var(--border) !important; }
 
+        /* Balanced tables utilities */
+        .table-balanced {
+            font-variant-numeric: tabular-nums; /* monospaced numerals for alignment */
+        }
+        .table-balanced th,
+        .table-balanced td {
+            vertical-align: middle;
+            border-color: var(--border);
+        }
+        .table-balanced thead th {
+            border-bottom: 1px solid var(--border);
+        }
+        .table-balanced tbody tr:hover {
+            background-color: rgba(14,165,177,0.06);
+        }
+        .table-sticky thead th {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background-color: var(--card);
+        }
+        .nowrap { white-space: nowrap; }
+        .col-w-xxs { width: 64px; }
+        .col-w-xs { width: 88px; }
+        .col-w-sm { width: 120px; }
+        .col-w-md { width: 160px; }
+        .col-w-lg { width: 220px; }
+
         /* Buttons tweaks for dark background readability */
         .btn-outline-light { border-color: var(--border); color: var(--text); }
         .btn-outline-light:hover { background: var(--sidebar-link-active-bg); color: var(--sidebar-link-active-text); }

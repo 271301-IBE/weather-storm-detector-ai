@@ -308,16 +308,16 @@
             return;
         }
         
-        let html = '<h6>Database Tables</h6><div class="table-responsive"><table class="table table-sm"><thead><tr><th>Table</th><th>Rows</th><th>Size Est.</th><th>Indexes</th></tr></thead><tbody>';
+        let html = '<h6>Database Tables</h6><div class="table-responsive"><table class="table table-sm table-balanced table-sticky"><thead><tr><th class="col-w-md">Table</th><th class="text-end col-w-sm">Rows</th><th class="text-end col-w-sm">Size Est.</th><th class="text-end col-w-xs">Indexes</th></tr></thead><tbody>';
         
         for (const [tableName, stats] of Object.entries(tableStats)) {
             const sizeKB = Math.round(stats.size_estimate / 1024);
             html += `
                 <tr>
-                    <td>${tableName}</td>
-                    <td>${stats.row_count.toLocaleString()}</td>
-                    <td>${sizeKB} KB</td>
-                    <td>${stats.indexes.length}</td>
+                    <td class="nowrap">${tableName}</td>
+                    <td class="text-end">${stats.row_count.toLocaleString()}</td>
+                    <td class="text-end">${sizeKB} KB</td>
+                    <td class="text-end">${stats.indexes.length}</td>
                 </tr>
             `;
         }
