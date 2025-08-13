@@ -742,7 +742,7 @@ def api_lightning_strikes():
 def api_lightning_dashboard_stats():
     """Get lightning detection statistics for the dashboard."""
     try:
-        cache_key = "lightning_dashboard_stats:v1"
+        cache_key = "lightning_dashboard_stats:v2:24h"
         cached = api_cache.get(cache_key)
         if cached:
             return jsonify(cached)
@@ -752,6 +752,7 @@ def api_lightning_dashboard_stats():
             
             # Prefer pre-aggregated totals from summary table (fast), fallback to raw counts
             stats = {}
+            cutoff_time = (datetime.now() - timedelta(hours=24)).isoformat()
             try:
                 cursor.execute(
                     """
@@ -760,22 +761,29 @@ def api_lightning_dashboard_stats():
                         COALESCE(SUM(czech_region_strikes),0),
                         COALESCE(SUM(nearby_strikes),0)
                     FROM lightning_activity_summary
+                    WHERE hour_timestamp > ?
                     """
+                , (cutoff_time,)
                 )
                 t, c, n = cursor.fetchone()
                 stats['total_strikes'] = t or 0
                 stats['czech_strikes'] = c or 0
                 stats['nearby_strikes'] = n or 0
             except Exception:
-                cursor.execute("SELECT COUNT(*) as total FROM lightning_strikes")
+                cursor.execute("SELECT COUNT(*) as total FROM lightning_strikes WHERE timestamp > ?", (cutoff_time,))
                 stats['total_strikes'] = cursor.fetchone()[0] or 0
-                cursor.execute("SELECT COUNT(*) as czech FROM lightning_strikes WHERE is_in_czech_region = 1")
+                cursor.execute("SELECT COUNT(*) as czech FROM lightning_strikes WHERE is_in_czech_region = 1 AND timestamp > ?", (cutoff_time,))
                 stats['czech_strikes'] = cursor.fetchone()[0] or 0
-                cursor.execute("SELECT COUNT(*) as nearby FROM lightning_strikes WHERE distance_from_brno <= 50")
+                cursor.execute("SELECT COUNT(*) as nearby FROM lightning_strikes WHERE distance_from_brno <= 50 AND timestamp > ?", (cutoff_time,))
                 stats['nearby_strikes'] = cursor.fetchone()[0] or 0
             
-            api_cache.set(cache_key, stats, ttl_seconds=300)
-            return jsonify(stats)
+            payload = {
+                **stats,
+                'period_hours': 24,
+                'last_updated': datetime.now().isoformat()
+            }
+            api_cache.set(cache_key, payload, ttl_seconds=120)
+            return jsonify(payload)
         
     except Exception as e:
         logger.error(f"Error fetching lightning statistics: {e}")
