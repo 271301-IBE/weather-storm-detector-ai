@@ -1764,6 +1764,83 @@ def api_enhanced_forecast():
         logger.error(f"Error getting enhanced forecast: {e}")
         return jsonify({'error': str(e)}), 500
 
+
+@app.route('/api/enhanced_forecast_24h')
+@login_required
+def api_enhanced_forecast_24h():
+    """Aggregate next 24h AI temperature forecast from stored enhanced_forecasts without new AI calls.
+
+    Falls back to 'ensemble' if AI data is insufficient. Returns list of points
+    with ISO timestamps and temperatures for the next 24 hours.
+    """
+    try:
+        now = datetime.now()
+        horizon = now + timedelta(hours=24)
+
+        def collect_points(method: str, limit_rows: int = 120):
+            points = []
+            with db.get_connection(read_only=True) as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    SELECT timestamp, forecast_data_json
+                    FROM enhanced_forecasts
+                    WHERE method = ?
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                    """,
+                    (method, limit_rows),
+                )
+                rows = cur.fetchall()
+            # Parse newest-first rows and collect future items within the next 24h
+            seen_iso = set()
+            for row in rows:
+                try:
+                    fdata = json.loads(row[1])
+                    for item in fdata.get('forecast_data', []) or []:
+                        ts = item.get('timestamp')
+                        if not ts or ts in seen_iso:
+                            continue
+                        try:
+                            dt = datetime.fromisoformat(str(ts).replace('Z', '+00:00'))
+                            dt = dt.replace(tzinfo=None)
+                        except Exception:
+                            continue
+                        if dt <= now or dt > horizon:
+                            continue
+                        seen_iso.add(ts)
+                        try:
+                            temp = float(item.get('temperature'))
+                        except Exception:
+                            continue
+                        points.append({'timestamp': dt.isoformat(), 'temperature': round(temp, 2)})
+                except Exception:
+                    continue
+            # Deduplicate by timestamp and sort ascending
+            points.sort(key=lambda p: p['timestamp'])
+            return points
+
+        # Prefer AI, fallback to ensemble
+        ai_points = collect_points('ai')
+        points = ai_points
+        if len(points) < 6:  # If too sparse, augment with ensemble
+            ens_points = collect_points('ensemble')
+            # Merge while preserving order and uniqueness
+            existing = {p['timestamp'] for p in points}
+            for p in ens_points:
+                if p['timestamp'] not in existing:
+                    points.append(p)
+            points.sort(key=lambda p: p['timestamp'])
+
+        return jsonify({
+            'method': 'ai' if len(ai_points) >= 6 else 'ensemble',
+            'points': points,
+            'generated_at': datetime.now().isoformat()
+        })
+    except Exception as e:
+        logger.error(f"Error getting 24h enhanced forecast: {e}")
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/forecast_accuracy')
 def api_forecast_accuracy():
     """Get forecast accuracy statistics."""

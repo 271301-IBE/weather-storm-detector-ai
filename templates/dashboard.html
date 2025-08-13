@@ -1047,6 +1047,39 @@
                         window.appCharts.push(weatherChart);
                     }
                 } catch (_) {}
+
+                // Fetch 24h future forecast temperatures and add as a dashed line
+                fetch('/api/enhanced_forecast_24h')
+                    .then(r => r.json())
+                    .then(future => {
+                        if (!future || !future.points || future.points.length === 0) return;
+                        const futureData = future.points.map(p => ({ x: new Date(p.timestamp), y: p.temperature }));
+                        // Extend the visible x-range to include up to +24h if needed
+                        try {
+                            const currentMax = new Date(data[data.length - 1].timestamp);
+                            const futureMax = new Date(future.points[future.points.length - 1].timestamp);
+                            const xScale = weatherChart.options.scales.x;
+                            const newMax = futureMax > currentMax ? futureMax : currentMax;
+                            if (!xScale.min || !xScale.max || newMax > new Date(xScale.max)) {
+                                xScale.min = new Date(data[0].timestamp);
+                                xScale.max = newMax;
+                            }
+                        } catch (_) {}
+
+                        weatherChart.data.datasets.push({
+                            label: `Future Temperature (next 24h) - ${future.method === 'ai' ? 'AI' : 'Ensemble'}`,
+                            data: futureData,
+                            borderColor: 'rgba(255, 0, 0, 0.9)',
+                            backgroundColor: 'rgba(255, 0, 0, 0.05)',
+                            borderDash: [8, 6],
+                            pointRadius: 0,
+                            tension: 0.25,
+                            fill: false,
+                            yAxisID: 'y-temp'
+                        });
+                        weatherChart.update('none');
+                    })
+                    .catch(() => {});
             })
             .catch(error => {
                 console.error('Error loading weather chart:', error);
