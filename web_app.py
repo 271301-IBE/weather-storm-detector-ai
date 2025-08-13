@@ -1862,51 +1862,95 @@ def api_enhanced_forecast_24h():
             ]
             return points
 
-        # Prefer AI, fallback to ensemble
+        # Prefer AI, but collect both and build an hourly grid with smart blending + interpolation
         ai_points = collect_points('ai')
-        points = ai_points
-        if len(points) < 6:  # If too sparse, augment with ensemble
-            ens_points = collect_points('ensemble')
-            # Merge while preserving order and uniqueness
-            existing = {p['timestamp'] for p in points}
-            for p in ens_points:
-                if p['timestamp'] not in existing:
-                    points.append(p)
-            points.sort(key=lambda p: p['timestamp'])
+        ens_points = collect_points('ensemble')
 
-        # Ensure we return a continuous hourly sequence up to 24h ahead
-        try:
-            # Build set for quick lookup
-            seen = {p['timestamp'] for p in points}
-            # Determine first target hour: next full hour from now
-            start_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
-            # Generate up to 24 hours
-            filled = []
-            last_temp = points[-1]['temperature'] if points else None
-            # Index points by timestamp for direct read
-            by_ts = {p['timestamp']: p['temperature'] for p in points}
-            for h in range(24):
-                ts = (start_hour + timedelta(hours=h)).isoformat()
-                if ts in by_ts:
-                    t = by_ts[ts]
-                    last_temp = t
+        # Index to dictionaries for quick lookup
+        def index_points(pts):
+            d = {}
+            for p in pts:
+                d[p['timestamp']] = float(p['temperature'])
+            return d
+        ai_map = index_points(ai_points)
+        ens_map = index_points(ens_points)
+
+        # Helper: find nearest previous and next known points from a map within +/-12h
+        def neighbors(ts_iso: str, m: dict):
+            ts = datetime.fromisoformat(ts_iso)
+            prev_ts = next_ts = None
+            # search backwards and forwards by hour
+            for k in range(1, 13):
+                t_prev = (ts - timedelta(hours=k)).isoformat()
+                t_next = (ts + timedelta(hours=k)).isoformat()
+                if prev_ts is None and t_prev in m:
+                    prev_ts = t_prev
+                if next_ts is None and t_next in m:
+                    next_ts = t_next
+                if prev_ts is not None and next_ts is not None:
+                    break
+            return prev_ts, next_ts
+
+        def lerp(v0: float, v1: float, t0: datetime, t1: datetime, t: datetime) -> float:
+            # Linear interpolation by time proportion
+            span = (t1 - t0).total_seconds()
+            if span <= 0:
+                return v0
+            w = (t - t0).total_seconds() / span
+            return v0 * (1 - w) + v1 * w
+
+        start_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+        hourly = []
+        ai_used = 0
+        last_temp_val = None
+        max_step = 3.0  # deg C per hour cap
+
+        for h in range(24):
+            ts_iso = (start_hour + timedelta(hours=h)).isoformat()
+            ts_dt = datetime.fromisoformat(ts_iso)
+            val = None
+            # 1) direct AI value
+            if ts_iso in ai_map:
+                val = ai_map[ts_iso]
+                ai_used += 1
+            else:
+                # 2) AI interpolation if both neighbors exist
+                p_ts, n_ts = neighbors(ts_iso, ai_map)
+                if p_ts and n_ts:
+                    v0 = ai_map[p_ts]
+                    v1 = ai_map[n_ts]
+                    val = lerp(v0, v1, datetime.fromisoformat(p_ts), datetime.fromisoformat(n_ts), ts_dt)
+                    ai_used += 1  # consider interpolated AI as AI-sourced
                 else:
-                    # Fill with last known temp if available
-                    t = last_temp if last_temp is not None else None
-                if t is not None:
-                    filled.append({'timestamp': ts, 'temperature': float(t)})
-            # Merge original and filled, preserve order and uniqueness
-            merged = {p['timestamp']: p for p in points}
-            for p in filled:
-                merged.setdefault(p['timestamp'], p)
-            points = [merged[k] for k in sorted(merged.keys()) if now < datetime.fromisoformat(k) <= horizon]
-        except Exception:
-            # If any error in filling, keep original points
-            pass
+                    # 3) direct ensemble
+                    if ts_iso in ens_map:
+                        val = ens_map[ts_iso]
+                    else:
+                        # 4) ensemble interpolation
+                        p_ts, n_ts = neighbors(ts_iso, ens_map)
+                        if p_ts and n_ts:
+                            v0 = ens_map[p_ts]
+                            v1 = ens_map[n_ts]
+                            val = lerp(v0, v1, datetime.fromisoformat(p_ts), datetime.fromisoformat(n_ts), ts_dt)
+
+            # Apply step cap to avoid unrealistic hour-to-hour jumps
+            if val is not None and last_temp_val is not None:
+                upper = last_temp_val + max_step
+                lower = last_temp_val - max_step
+                if val > upper:
+                    val = upper
+                elif val < lower:
+                    val = lower
+            if val is not None:
+                hourly.append({'timestamp': ts_iso, 'temperature': round(float(val), 2)})
+                last_temp_val = float(val)
+
+        # Decide reported method for label/coloring
+        method_flag = 'ai' if ai_used >= max(1, len(hourly)) * 0.5 else 'ensemble'
 
         return jsonify({
-            'method': 'ai' if len(ai_points) >= 6 else 'ensemble',
-            'points': points,
+            'method': method_flag,
+            'points': hourly,
             'generated_at': datetime.now().isoformat()
         })
     except Exception as e:
