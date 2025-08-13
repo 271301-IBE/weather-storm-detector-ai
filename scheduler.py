@@ -529,7 +529,8 @@ class WeatherMonitoringScheduler:
     def _should_run_ai_analysis(self, weather_data, chmi_warnings) -> bool:
         """
         Determine if AI analysis should run to save API costs.
-        Only run AI when there are storm indicators, including lightning activity.
+        Only run AI when a storm is near or risk is high (lightning, severe CHMI warnings,
+        or strong local indicators), otherwise skip.
         """
         # Check for recent lightning activity first (highest priority)
         lightning_activity = self.lightning_monitor.get_recent_lightning_activity(hours=1)
@@ -542,81 +543,82 @@ class WeatherMonitoringScheduler:
             
             for warning in chmi_warnings:
                 # Check for storm-related warning types (already filtered by get_storm_warnings)
-                # Focus on significant warnings (yellow, orange, red)
-                if warning.color in ['yellow', 'orange', 'red']:
+                # Focus only on severe warnings (orange/red), or yellow if very near-term/in progress
+                try:
+                    color = (getattr(warning, 'color', '') or '').lower()
+                    in_progress = bool(getattr(warning, 'in_progress', False))
                     
-                    # Parse warning start time to check if it's within next 24 hours
-                    try:
-                        if hasattr(warning, 'time_start_iso') and warning.time_start_iso:
-                            # Handle timezone info properly
-                            start_time_str = warning.time_start_iso.replace('Z', '+00:00')
-                            warning_start = datetime.fromisoformat(start_time_str)
-                            
-                            # Convert to local time if needed
-                            if warning_start.tzinfo:
-                                warning_start = warning_start.replace(tzinfo=None)
-                            
-                            # Smart timing for warnings:
-                            # - Immediate warnings (next 6 hours): analyze immediately
-                            # - Tomorrow's warnings: analyze only 3 hours before start time
-                            # - Far future warnings (>48h): ignore completely
-                            time_until_warning = (warning_start - current_time).total_seconds()
-                            
-                            if time_until_warning > 172800:  # More than 48 hours away
-                                logger.info(f"Skipping AI analysis for far future warning: {warning.event} starts in {time_until_warning/3600:.1f} hours")
-                                continue
-                            elif time_until_warning > 21600:  # More than 6 hours away (tomorrow's warnings)
-                                # Only analyze if warning starts within 3 hours 
-                                if time_until_warning > 10800:  # More than 3 hours away
-                                    logger.info(f"Tomorrow's warning scheduled - will analyze 3h before: {warning.event} starts in {time_until_warning/3600:.1f} hours")
-                                    continue
-                                
-                        # Check if we've already analyzed this specific warning recently
+                    # Parse warning start time
+                    time_until_warning = None
+                    if hasattr(warning, 'time_start_iso') and warning.time_start_iso:
+                        start_time_str = warning.time_start_iso.replace('Z', '+00:00')
+                        warning_start = datetime.fromisoformat(start_time_str)
+                        if warning_start.tzinfo:
+                            warning_start = warning_start.replace(tzinfo=None)
+                        time_until_warning = (warning_start - current_time).total_seconds()
+                    
+                    # Discard far-future warnings regardless of color
+                    if time_until_warning is not None and time_until_warning > 172800:
+                        logger.info(f"Skipping AI analysis for far future warning: {warning.event} starts in {time_until_warning/3600:.1f} hours")
+                        continue
+                    
+                    # Severe warnings: trigger
+                    if color in ['orange', 'red'] or in_progress:
                         warning_cache_key = f"chmi_{warning.identifier}_{warning.event}"
                         if self._is_warning_recently_analyzed(warning_cache_key):
                             logger.info(f"Skipping AI analysis - warning already analyzed recently: {warning.event}")
                             continue
-                            
-                        # Mark this warning as analyzed
                         self._mark_warning_analyzed(warning_cache_key)
-                        logger.info(f"AI analysis triggered by ČHMÚ warning: {warning.event}")
+                        logger.info(f"AI analysis triggered by ČHMÚ warning (severe/in-progress): {warning.event}")
                         return True
-                        
-                    except (ValueError, AttributeError) as e:
-                        logger.warning(f"Could not parse warning time for {warning.event}: {e}")
-                        # If we can't parse time, analyze it to be safe (but cache it)
-                        warning_cache_key = f"chmi_{warning.identifier}_{warning.event}"
-                        if not self._is_warning_recently_analyzed(warning_cache_key):
+                    
+                    # Yellow warnings only if within next 6 hours
+                    if color == 'yellow':
+                        if time_until_warning is not None and time_until_warning <= 21600:  # <= 6h
+                            warning_cache_key = f"chmi_{warning.identifier}_{warning.event}"
+                            if self._is_warning_recently_analyzed(warning_cache_key):
+                                logger.info(f"Skipping AI analysis - warning already analyzed recently: {warning.event}")
+                                continue
                             self._mark_warning_analyzed(warning_cache_key)
-                            logger.info(f"AI analysis triggered by ČHMÚ warning (unparseable time): {warning.event}")
+                            logger.info(f"AI analysis triggered by ČHMÚ warning (yellow, <=6h): {warning.event}")
                             return True
+                        else:
+                            logger.debug(f"Yellow warning too far out (>6h): {warning.event}")
+                            continue
+                except (ValueError, AttributeError) as e:
+                    logger.warning(f"Could not parse warning time or attributes for {getattr(warning, 'event', 'unknown')}: {e}")
+                    # If uncertain but warning exists, be conservative: require re-check later via cache
+                    warning_cache_key = f"chmi_{getattr(warning, 'identifier', 'unknown')}_{getattr(warning, 'event', 'unknown')}"
+                    if not self._is_warning_recently_analyzed(warning_cache_key):
+                        self._mark_warning_analyzed(warning_cache_key)
+                        logger.info(f"AI analysis triggered by ČHMÚ warning (unparseable time, conservative): {getattr(warning, 'event', 'unknown')}")
+                        return True
         
-        # Check weather conditions for storm indicators with caching
+        # Check weather conditions for strong storm indicators with caching (stricter)
         current_time = datetime.now()
         
         for data in weather_data:
-            # Very high precipitation probability (more conservative)
-            if data.precipitation_probability and data.precipitation_probability > 90:
-                cache_key = f"precip_prob_{data.precipitation_probability:.0f}"
+            # Combined local indicators: very high precip. probability + high humidity + low pressure
+            if (
+                (data.precipitation_probability is not None and data.precipitation_probability >= 90) and
+                (data.humidity is not None and data.humidity >= 85) and
+                (data.pressure is not None and data.pressure <= 1000)
+            ):
+                cache_key = f"combo_pp_hum_pres_{int(data.precipitation_probability)}_{int(data.humidity)}_{int(data.pressure)}"
                 if not self.database.is_weather_condition_recently_analyzed(cache_key):
-                    self.database.mark_weather_condition_analyzed(cache_key, 2)  # 2 hour cache
-                    logger.info(f"AI analysis triggered by very high precipitation probability: {data.precipitation_probability}%")
+                    self.database.mark_weather_condition_analyzed(cache_key, 6)  # 6 hour cache
+                    logger.info(
+                        f"AI analysis triggered by combined strong indicators: precip_prob={data.precipitation_probability}%, "
+                        f"humidity={data.humidity}%, pressure={data.pressure}hPa"
+                    )
                     return True
             
-            # Heavy precipitation only (increased threshold further)
-            if data.precipitation and data.precipitation > 12.0:
+            # Very heavy precipitation
+            if data.precipitation and data.precipitation > 20.0:
                 cache_key = f"precipitation_{data.precipitation:.1f}"
                 if not self.database.is_weather_condition_recently_analyzed(cache_key):
-                    self.database.mark_weather_condition_analyzed(cache_key, 2)  # 2 hour cache
-                    logger.info(f"AI analysis triggered by active precipitation: {data.precipitation}mm")
-                    return True
-            
-            # High humidity + low pressure (storm conditions - more restrictive)
-            if data.humidity > 90 and data.pressure < 1000:
-                cache_key = f"storm_conditions_{data.humidity:.0f}_{data.pressure:.0f}"
-                if not self.database.is_weather_condition_recently_analyzed(cache_key):
-                    self.database.mark_weather_condition_analyzed(cache_key, 2)  # 2 hour cache
-                    logger.info(f"AI analysis triggered by storm conditions: humidity {data.humidity}%, pressure {data.pressure}hPa")
+                    self.database.mark_weather_condition_analyzed(cache_key, 6)  # 6 hour cache
+                    logger.info(f"AI analysis triggered by very heavy precipitation: {data.precipitation}mm")
                     return True
             
             # Extreme wind speeds (severe gale/storm force winds only)
@@ -625,34 +627,11 @@ class WeatherMonitoringScheduler:
                 wind_range = int(data.wind_speed // 5) * 5  # Group into 5 m/s ranges
                 cache_key = f"extreme_wind_range_{wind_range}"
                 if not self.database.is_weather_condition_recently_analyzed(cache_key):
-                    self.database.mark_weather_condition_analyzed(cache_key, 2)  # 2 hour cache
+                    self.database.mark_weather_condition_analyzed(cache_key, 6)  # 6 hour cache
                     logger.info(f"AI analysis triggered by very high wind speed: {data.wind_speed} m/s (range {wind_range}-{wind_range+4})")
                     return True
                 else:
                     logger.debug(f"Skipping AI analysis - high wind speed {data.wind_speed} m/s already analyzed recently")
-            
-            # Stormy conditions in description
-            if data.description:
-                stormy_keywords = ['storm', 'thunder', 'lightning', 'heavy rain', 
-                                 'bouř', 'déšť', 'blesk', 'prudký']
-                if any(keyword in data.description.lower() for keyword in stormy_keywords):
-                    cache_key = f"description_{hash(data.description.lower())}"
-                    if not self.database.is_weather_condition_recently_analyzed(cache_key):
-                        self.database.mark_weather_condition_analyzed(cache_key)
-                        logger.info(f"AI analysis triggered by weather description: {data.description}")
-                        return True
-        
-        # Run AI analysis occasionally even in normal conditions (once per 4 hours max)
-        last_analysis = self.database.get_last_storm_analysis()
-        if last_analysis is None:
-            logger.info("AI analysis triggered - no previous analysis found")
-            return True
-        
-        # If last analysis was more than 4 hours ago, run periodic check
-        time_since_last = datetime.now() - last_analysis.timestamp
-        if time_since_last.total_seconds() > 14400:  # 4 hours
-            logger.info("AI analysis triggered - periodic check (>4 hours since last)")
-            return True
         
         # Skip AI analysis - normal conditions
         return False

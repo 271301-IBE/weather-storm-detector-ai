@@ -103,6 +103,23 @@ class ThunderstormPredictor:
         except Exception:
             return 0.0
 
+    @staticmethod
+    def _robust_slope_per_hour(series: pd.Series) -> float:
+        """Estimate slope per hour using a simple linear fit for robustness against noise."""
+        try:
+            if series.empty or len(series) < 3:
+                return ThunderstormPredictor._slope_per_hour(series)
+            import numpy as np
+            # Convert timestamps to hours relative to start
+            t0 = series.index[0]
+            x = np.array([(ts - t0).total_seconds() / 3600.0 for ts in series.index], dtype=float)
+            y = series.values.astype(float)
+            # Fit y = a*x + b; slope a per hour
+            a, _b = np.polyfit(x, y, 1)
+            return float(a)
+        except Exception:
+            return ThunderstormPredictor._slope_per_hour(series)
+
     def predict_next_storm(self) -> Tuple[datetime | None, float]:
         """
         Predict a thunderstorm window using multi-signal heuristics:
@@ -135,10 +152,10 @@ class ThunderstormPredictor:
         if last_30.empty or last_60.empty or len(last_30) < 2 or len(last_60) < 2:
             return None, 0.0
 
-        # Compute slopes and deltas
-        pressure_slope = self._slope_per_hour(last_60['pressure'])  # hPa/hour
-        humidity_slope = self._slope_per_hour(last_60['humidity'])  # %/hour
-        wind_slope = self._slope_per_hour(last_60['wind_speed'])    # m/s per hour
+        # Compute slopes and deltas (use robust fitting)
+        pressure_slope = self._robust_slope_per_hour(last_60['pressure'])  # hPa/hour
+        humidity_slope = self._robust_slope_per_hour(last_60['humidity'])  # %/hour
+        wind_slope = self._robust_slope_per_hour(last_60['wind_speed'])    # m/s per hour
 
         pressure_delta_30 = float(last_30['pressure'].iloc[-1] - last_30['pressure'].iloc[0])
         humidity_delta_30 = float(last_30['humidity'].iloc[-1] - last_30['humidity'].iloc[0])
@@ -166,26 +183,44 @@ class ThunderstormPredictor:
         # Weighted confidence components
         confidence = 0.0
         reasons = []
+        core_signals = 0  # Count of independent meteorological signals (for gating)
 
         if pressure_slope <= -1.0 or pressure_delta_30 <= -2.0:
             confidence += 0.22
             reasons.append(f"pressure_drop({pressure_slope:.2f} hPa/h)")
+            core_signals += 1
 
         if humidity_slope >= 10.0 or humidity_delta_30 >= 8.0:
             confidence += 0.18
             reasons.append(f"humidity_rise(+{humidity_delta_30:.1f}%)")
+            core_signals += 1
 
-        if wind_slope >= 3.0 or wind_delta_30 >= 3.0 or float(df_10['wind_speed'].iloc[-1]) >= 8.0:
+        wind_latest = float(df_10['wind_speed'].iloc[-1])
+        if wind_slope >= 3.0 or wind_delta_30 >= 3.0 or wind_latest >= 8.0:
             confidence += 0.15
             reasons.append("wind_increase")
+            core_signals += 1
+        # Extra weight for extreme winds per config
+        try:
+            if wind_latest >= max(12.0, float(self.config.prediction.wind_speed_threshold)):
+                confidence += 0.08
+                reasons.append("wind_extreme")
+        except Exception:
+            pass
 
         if dewpoint_spread <= 2.0:
             confidence += 0.10
             reasons.append(f"dewpoint_spread({dewpoint_spread:.1f}°C)")
+            core_signals += 1
 
-        if recent_precip >= 0.5 or precip_prob >= 80.0:
+        try:
+            precip_thresh = float(self.config.prediction.precipitation_threshold)
+        except Exception:
+            precip_thresh = 1.0
+        if recent_precip >= max(0.5, precip_thresh) or precip_prob >= 80.0:
             confidence += 0.12
             reasons.append("precip_signal")
+            core_signals += 1
 
         # Lightning increases confidence heavily
         if lightning.get('nearby_strikes', 0) > 0:
@@ -195,9 +230,23 @@ class ThunderstormPredictor:
             confidence += 0.20
             reasons.append("regional_lightning")
 
-        # ČHMÚ warnings weight by severity
+        # ČHMÚ warnings weight by severity and timing
         if warnings:
             colors = {getattr(w, 'color', '').lower() for w in warnings}
+            soonest_start_s = None
+            for w in warnings:
+                try:
+                    if getattr(w, 'in_progress', False):
+                        soonest_start_s = 0 if soonest_start_s is None else min(soonest_start_s, 0)
+                    ts = getattr(w, 'time_start_iso', None)
+                    if ts:
+                        dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                        dt = dt.replace(tzinfo=None)
+                        delta = (dt - datetime.now()).total_seconds()
+                        if soonest_start_s is None or delta < soonest_start_s:
+                            soonest_start_s = delta
+                except Exception:
+                    continue
             if 'red' in colors:
                 confidence += 0.35
                 reasons.append("chmi_red")
@@ -205,18 +254,32 @@ class ThunderstormPredictor:
                 confidence += 0.25
                 reasons.append("chmi_orange")
             elif 'yellow' in colors:
-                confidence += 0.12
-                reasons.append("chmi_yellow")
+                # Only meaningful if within 6h
+                if soonest_start_s is not None and soonest_start_s <= 6 * 3600:
+                    confidence += 0.12
+                    reasons.append("chmi_yellow_<=6h")
 
         # Cap confidence between 0 and 1
         confidence = max(0.0, min(1.0, confidence))
+
+        # Conservative gating: require multiple core signals unless lightning or severe CHMI present
+        severe_chmi = any(getattr(w, 'color', '').lower() in ['orange', 'red'] or getattr(w, 'in_progress', False) for w in warnings or [])
+        lightning_evidence = lightning.get('nearby_strikes', 0) > 0 or lightning.get('czech_strikes', 0) >= 3
+        if not (severe_chmi or lightning_evidence):
+            if core_signals < 2 and confidence < 0.7:
+                logger.info("Suppressing prediction: insufficient corroborating signals (core_signals < 2)")
+                return None, 0.0
 
         if confidence >= 0.55:
             # Tighter ETA if lightning is close, otherwise wider window
             if lightning.get('nearby_strikes', 0) > 0:
                 eta_minutes = 20 if (lightning.get('closest_distance_km') or 999) <= 20 else 35
             else:
-                eta_minutes = 45 if confidence < 0.75 else 30
+                # If strong pressure drop + wind increase, earlier arrival
+                if (pressure_slope <= -1.5 and wind_latest >= 10.0) or severe_chmi:
+                    eta_minutes = 30
+                else:
+                    eta_minutes = 45 if confidence < 0.75 else 35
             predicted_time = datetime.now() + timedelta(minutes=eta_minutes)
             logger.info(
                 f"Potential storm detected (conf={confidence:.2f}) ETA {eta_minutes}m; reasons: {', '.join(reasons)}"
