@@ -1874,6 +1874,36 @@ def api_enhanced_forecast_24h():
                     points.append(p)
             points.sort(key=lambda p: p['timestamp'])
 
+        # Ensure we return a continuous hourly sequence up to 24h ahead
+        try:
+            # Build set for quick lookup
+            seen = {p['timestamp'] for p in points}
+            # Determine first target hour: next full hour from now
+            start_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+            # Generate up to 24 hours
+            filled = []
+            last_temp = points[-1]['temperature'] if points else None
+            # Index points by timestamp for direct read
+            by_ts = {p['timestamp']: p['temperature'] for p in points}
+            for h in range(24):
+                ts = (start_hour + timedelta(hours=h)).isoformat()
+                if ts in by_ts:
+                    t = by_ts[ts]
+                    last_temp = t
+                else:
+                    # Fill with last known temp if available
+                    t = last_temp if last_temp is not None else None
+                if t is not None:
+                    filled.append({'timestamp': ts, 'temperature': float(t)})
+            # Merge original and filled, preserve order and uniqueness
+            merged = {p['timestamp']: p for p in points}
+            for p in filled:
+                merged.setdefault(p['timestamp'], p)
+            points = [merged[k] for k in sorted(merged.keys()) if now < datetime.fromisoformat(k) <= horizon]
+        except Exception:
+            # If any error in filling, keep original points
+            pass
+
         return jsonify({
             'method': 'ai' if len(ai_points) >= 6 else 'ensemble',
             'points': points,
