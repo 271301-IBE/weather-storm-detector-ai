@@ -1799,6 +1799,10 @@ def api_enhanced_forecast_24h():
         now = datetime.now()
         horizon = now + timedelta(hours=24)
         local_tz = datetime.now().astimezone().tzinfo
+        # Query params for client control
+        method_pref = request.args.get('method', 'auto')  # auto | ai | blend (blend reserved)
+        interp = request.args.get('interp', 'linear')     # linear | monotone (placeholder)
+        blend_mode = request.args.get('blend', 'confidence')
 
         def collect_points(method: str, limit_rows: int = 180):
             # Keep only the newest prediction for each hour bucket to avoid jagged merges
@@ -1898,6 +1902,9 @@ def api_enhanced_forecast_24h():
                 return v0
             w = (t - t0).total_seconds() / span
             return v0 * (1 - w) + v1 * w
+        def monotone(v0: float, v1: float, t0: datetime, t1: datetime, t: datetime) -> float:
+            # Placeholder monotone: could be replaced by PCHIP; use linear for now
+            return lerp(v0, v1, t0, t1, t)
 
         start_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
         hourly = []
@@ -1909,17 +1916,20 @@ def api_enhanced_forecast_24h():
             ts_iso = (start_hour + timedelta(hours=h)).isoformat()
             ts_dt = datetime.fromisoformat(ts_iso)
             val = None
-            # 1) direct AI value
-            if ts_iso in ai_map:
+            # 1) direct AI value (if AI is allowed by preference)
+            if (method_pref in ('ai','auto')) and ts_iso in ai_map:
                 val = ai_map[ts_iso]
                 ai_used += 1
             else:
                 # 2) AI interpolation if both neighbors exist
                 p_ts, n_ts = neighbors(ts_iso, ai_map)
-                if p_ts and n_ts:
+                if (method_pref in ('ai','auto')) and p_ts and n_ts:
                     v0 = ai_map[p_ts]
                     v1 = ai_map[n_ts]
-                    val = lerp(v0, v1, datetime.fromisoformat(p_ts), datetime.fromisoformat(n_ts), ts_dt)
+                    if interp == 'monotone':
+                        val = monotone(v0, v1, datetime.fromisoformat(p_ts), datetime.fromisoformat(n_ts), ts_dt)
+                    else:
+                        val = lerp(v0, v1, datetime.fromisoformat(p_ts), datetime.fromisoformat(n_ts), ts_dt)
                     ai_used += 1  # consider interpolated AI as AI-sourced
                 else:
                     # 3) direct ensemble
@@ -1931,7 +1941,10 @@ def api_enhanced_forecast_24h():
                         if p_ts and n_ts:
                             v0 = ens_map[p_ts]
                             v1 = ens_map[n_ts]
-                            val = lerp(v0, v1, datetime.fromisoformat(p_ts), datetime.fromisoformat(n_ts), ts_dt)
+                            if interp == 'monotone':
+                                val = monotone(v0, v1, datetime.fromisoformat(p_ts), datetime.fromisoformat(n_ts), ts_dt)
+                            else:
+                                val = lerp(v0, v1, datetime.fromisoformat(p_ts), datetime.fromisoformat(n_ts), ts_dt)
 
             # Apply step cap to avoid unrealistic hour-to-hour jumps
             if val is not None and last_temp_val is not None:
@@ -1946,7 +1959,7 @@ def api_enhanced_forecast_24h():
                 last_temp_val = float(val)
 
         # Decide reported method for label/coloring
-        method_flag = 'ai' if ai_used >= max(1, len(hourly)) * 0.5 else 'ensemble'
+        method_flag = 'ai' if method_pref == 'ai' else ('blend' if method_pref == 'blend' else ('ai' if ai_used >= max(1, len(hourly)) * 0.5 else 'ensemble'))
 
         return jsonify({
             'method': method_flag,
