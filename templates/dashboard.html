@@ -21,7 +21,7 @@
     <div class="row">
         <div class="col-lg-4">
             <div class="card">
-                <div class="card-header">Current Weather 🌤️</div>
+                <div class="card-header">Aktuální počasí 🌤️</div>
                 <div class="card-body" id="currentWeather">
                     <p class="text-center">Loading weather data...</p>
                 </div>
@@ -29,7 +29,7 @@
         </div>
         <div class="col-lg-4">
             <div class="card">
-                <div class="card-header">System Stats (24h) 📊</div>
+                <div class="card-header">Statistiky systému (24 h) 📊</div>
                 <div class="card-body" id="systemStats">
                     <p class="text-center">Loading statistics...</p>
                 </div>
@@ -37,7 +37,7 @@
         </div>
         <div class="col-lg-4">
             <div class="card">
-                <div class="card-header">Next Predicted Storm ⛈️</div>
+                <div class="card-header">Příští predikce bouřky ⛈️</div>
                 <div class="card-body" id="nextStormPrediction">
                     <p class="text-center">Loading prediction...</p>
                 </div>
@@ -46,8 +46,11 @@
         <div class="col-lg-4 mt-4">
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
-                    <span>Lightning Stats ⚡</span>
-                    <a href="/map" class="btn btn-sm btn-outline-primary">Open Map</a>
+                    <span>Statistika blesků ⚡</span>
+                    <div class="btn-group">
+                        <a href="/map" class="btn btn-sm btn-outline-primary">Otevřít mapu</a>
+                        <a href="/map" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary">Nová záložka</a>
+                    </div>
                 </div>
                 <div class="card-body" id="lightningStats">
                     <p class="text-center">Loading lightning stats...</p>
@@ -56,7 +59,7 @@
         </div>
         <div class="col-lg-4 mt-4">
             <div class="card">
-                <div class="card-header">System Status 💻</div>
+                <div class="card-header">Stav systému 💻</div>
                 <div class="card-body" id="systemStatus">
                     <p class="text-center">Loading system status...</p>
                 </div>
@@ -64,7 +67,7 @@
         </div>
         <div class="col-lg-4">
             <div class="card">
-                <div class="card-header">Recent AI Analysis 🤖</div>
+                <div class="card-header">Nedávné analýzy AI 🤖</div>
                 <div class="card-body" id="recentAnalysis">
                     <p class="text-center">Loading analysis data...</p>
                 </div>
@@ -75,26 +78,52 @@
         <div class="col-lg-12 mt-3">
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
-                    <span>Alert Tools & Accuracy Controls</span>
+                    <span>Nástroje výstrah a přesnost</span>
                 </div>
                 <div class="card-body">
                     <div class="row g-3 align-items-end">
                         <div class="col-md-4">
-                            <label for="stormThreshold" class="form-label">Storm Confidence Threshold (0–1)</label>
+                            <label for="stormThreshold" class="form-label">Prahová hodnota jistoty bouřky (0–1)</label>
                             <div class="input-group">
                                 <input type="number" step="0.01" min="0" max="1" class="form-control" id="stormThreshold" placeholder="0.99" />
-                                <button class="btn btn-outline-primary" id="saveThresholdBtn">Save</button>
+                                <button class="btn btn-outline-primary" id="saveThresholdBtn">Uložit</button>
                             </div>
-                            <small class="text-muted">Tune when alerts are sent (ROC-like control).</small>
+                            <small class="text-muted">Ladění okamžiku odeslání výstrah (podle ROC/PR).</small>
                             <div id="thresholdStatus" class="small mt-1"></div>
                         </div>
                         <div class="col-md-4">
-                            <button class="btn btn-warning" id="sendTestAlertBtn">Send Test Alert Email</button>
+                            <button class="btn btn-warning" id="sendTestAlertBtn">Odeslat testovací e‑mail výstrahy</button>
                             <div id="testAlertStatus" class="small mt-2"></div>
                         </div>
                         <div class="col-md-4">
-                            <button class="btn btn-outline-primary" id="sendTestTelegramBtn">Send Test Telegram</button>
+                            <button class="btn btn-outline-primary" id="sendTestTelegramBtn">Odeslat testovací Telegram</button>
                             <div id="testTelegramStatus" class="small mt-2"></div>
+                        </div>
+                    </div>
+
+                    <!-- ROC/PR placeholders -->
+                    <div class="row mt-4">
+                        <div class="col-md-6">
+                            <h6 class="mb-2">ROC křivka <span class="text-muted small" id="rocMeta"></span></h6>
+                            <canvas id="rocChart" height="140"></canvas>
+                        </div>
+                        <div class="col-md-6">
+                            <h6 class="mb-2">PR křivka <span class="text-muted small" id="prMeta"></span></h6>
+                            <canvas id="prChart" height="140"></canvas>
+                        </div>
+                    </div>
+                    <div class="row mt-3">
+                        <div class="col-md-6">
+                            <div class="input-group">
+                                <label class="input-group-text" for="autoTuneObjective">Cíl</label>
+                                <select id="autoTuneObjective" class="form-select">
+                                    <option value="f1" selected>Maximalizovat F1</option>
+                                    <option value="recall">Minimalizovat false negatives</option>
+                                    <option value="precision">Minimalizovat false alarms</option>
+                                </select>
+                                <button class="btn btn-success" id="autoTuneBtn">Auto‑tune práh</button>
+                            </div>
+                            <div id="autoTuneStatus" class="small mt-2"></div>
                         </div>
                     </div>
                 </div>
@@ -106,9 +135,21 @@
     <div class="row mt-4" id="snow">
         <div class="col-lg-12">
             <div class="card">
-                <div class="card-header">SNOW ❄️</div>
+                <div class="card-header">Sníh a mráz ❄️</div>
                 <div class="card-body" id="snowSummary">
                     <p class="text-center">Loading snow & frost info...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Data sources status -->
+    <div class="row mt-4">
+        <div class="col-lg-12">
+            <div class="card">
+                <div class="card-header">Datové zdroje ⛅</div>
+                <div class="card-body" id="sourceStatus">
+                    <p class="text-center">Načítám stav zdrojů…</p>
                 </div>
             </div>
         </div>
@@ -154,9 +195,9 @@
                     <div class="d-flex justify-content-between align-items-center">
                         <span>Next 6 Hours Forecast 🔮</span>
                         <div>
-                            <span class="badge bg-info me-2" id="forecastMethod">Loading...</span>
-                            <span class="badge bg-secondary" id="forecastConfidence">Confidence: --</span>
-                            <small class="text-muted ms-2" id="forecastLastUpdated">Last updated: --</small>
+                            <span class="badge bg-info me-2" id="forecastMethod">Načítám…</span>
+                            <span class="badge bg-secondary" id="forecastConfidence">Jistota: --</span>
+                            <small class="text-muted ms-2" id="forecastLastUpdated">Aktualizováno: --</small>
                         </div>
                     </div>
                 </div>
@@ -190,21 +231,21 @@
                         <!-- Ensemble Forecast -->
                         <div class="tab-pane fade show active" id="ensemble-pane" role="tabpanel">
                             <div class="alert alert-success" role="alert">
-                                <strong>🎯 Ensemble Forecast:</strong> Best predictions combining AI analysis, atmospheric physics, and machine learning
+                                <strong>🎯 Ensemble předpověď:</strong> Kombinace AI, fyzikálních modelů a učení pro nejlepší odhad
                             </div>
                             <div class="table-responsive">
                                 <table class="table table-striped table-hover table-sm table-balanced table-sticky">
                                     <thead class="table-success">
                                         <tr>
-                                            <th class="nowrap col-w-xs">Time</th>
-                                            <th class="text-end col-w-xs">Temp (°C)</th>
-                                            <th class="text-end col-w-xs">Humidity (%)</th>
-                                            <th class="text-end col-w-sm">Pressure (hPa)</th>
-                                            <th class="text-end col-w-xs">Wind (m/s)</th>
-                                            <th class="text-end col-w-xs">Precip (mm)</th>
-                                            <th class="text-end col-w-sm">Precip Prob (%)</th>
-                                            <th class="col-w-md">Condition</th>
-                                            <th class="text-end col-w-sm">Confidence</th>
+                                            <th class="nowrap col-w-xs">Čas</th>
+                                            <th class="text-end col-w-xs">Teplota (°C)</th>
+                                            <th class="text-end col-w-xs">Vlhkost (%)</th>
+                                            <th class="text-end col-w-sm">Tlak (hPa)</th>
+                                            <th class="text-end col-w-xs">Vítr (m/s)</th>
+                                            <th class="text-end col-w-xs">Srážky (mm)</th>
+                                            <th class="text-end col-w-sm">Pravděp. srážek (%)</th>
+                                            <th class="col-w-md">Stav</th>
+                                            <th class="text-end col-w-sm">Jistota <span title="Jistota = odhadovaná pravděpodobnost jevu pro daný časový krok">ℹ️</span></th>
                                         </tr>
                                     </thead>
                                     <tbody id="ensembleForecastBody">
@@ -237,21 +278,21 @@
                         <!-- AI Forecast -->
                         <div class="tab-pane fade" id="ai-pane" role="tabpanel">
                             <div class="alert alert-info" role="alert">
-                                <strong>🤖 AI Prediction:</strong> DeepSeek AI analysis using meteorological patterns and current conditions
+                                <strong>🤖 Předpověď AI:</strong> Analýza AI na základě vzorů v datech a aktuálních podmínek
                             </div>
                             <div class="table-responsive">
                                 <table class="table table-striped table-hover table-sm table-balanced table-sticky">
                                     <thead class="table-info">
                                         <tr>
-                                            <th class="nowrap col-w-xs">Time</th>
-                                            <th class="text-end col-w-xs">Temp (°C)</th>
-                                            <th class="text-end col-w-xs">Humidity (%)</th>
-                                            <th class="text-end col-w-sm">Pressure (hPa)</th>
-                                            <th class="text-end col-w-xs">Wind (m/s)</th>
-                                            <th class="text-end col-w-xs">Precip (mm)</th>
-                                            <th class="text-end col-w-sm">Precip Prob (%)</th>
-                                            <th class="col-w-md">Condition</th>
-                                            <th class="text-end col-w-sm">Confidence</th>
+                                            <th class="nowrap col-w-xs">Čas</th>
+                                            <th class="text-end col-w-xs">Teplota (°C)</th>
+                                            <th class="text-end col-w-xs">Vlhkost (%)</th>
+                                            <th class="text-end col-w-sm">Tlak (hPa)</th>
+                                            <th class="text-end col-w-xs">Vítr (m/s)</th>
+                                            <th class="text-end col-w-xs">Srážky (mm)</th>
+                                            <th class="text-end col-w-sm">Pravděp. srážek (%)</th>
+                                            <th class="col-w-md">Stav</th>
+                                            <th class="text-end col-w-sm">Jistota <span title="Jistota = odhadovaná pravděpodobnost jevu pro daný časový krok">ℹ️</span></th>
                                         </tr>
                                     </thead>
                                     <tbody id="aiForecastBody">
@@ -284,21 +325,21 @@
                         <!-- Physics Forecast -->
                         <div class="tab-pane fade" id="physics-pane" role="tabpanel">
                             <div class="alert alert-warning" role="alert">
-                                <strong>🧮 Local Physics:</strong> Atmospheric physics calculations and mathematical trend analysis
+                                <strong>🧮 Lokální fyzika:</strong> Výpočty fyziky atmosféry a analýza trendů
                             </div>
                             <div class="table-responsive">
                                 <table class="table table-striped table-hover table-sm table-balanced table-sticky">
                                     <thead class="table-warning">
                                         <tr>
-                                            <th class="nowrap col-w-xs">Time</th>
-                                            <th class="text-end col-w-xs">Temp (°C)</th>
-                                            <th class="text-end col-w-xs">Humidity (%)</th>
-                                            <th class="text-end col-w-sm">Pressure (hPa)</th>
-                                            <th class="text-end col-w-xs">Wind (m/s)</th>
-                                            <th class="text-end col-w-xs">Precip (mm)</th>
-                                            <th class="text-end col-w-sm">Precip Prob (%)</th>
-                                            <th class="col-w-md">Condition</th>
-                                            <th class="text-end col-w-sm">Confidence</th>
+                                            <th class="nowrap col-w-xs">Čas</th>
+                                            <th class="text-end col-w-xs">Teplota (°C)</th>
+                                            <th class="text-end col-w-xs">Vlhkost (%)</th>
+                                            <th class="text-end col-w-sm">Tlak (hPa)</th>
+                                            <th class="text-end col-w-xs">Vítr (m/s)</th>
+                                            <th class="text-end col-w-xs">Srážky (mm)</th>
+                                            <th class="text-end col-w-sm">Pravděp. srážek (%)</th>
+                                            <th class="col-w-md">Stav</th>
+                                            <th class="text-end col-w-sm">Jistota <span title="Jistota = odhadovaná pravděpodobnost jevu pro daný časový krok">ℹ️</span></th>
                                         </tr>
                                     </thead>
                                     <tbody id="physicsForecastBody">
@@ -411,7 +452,7 @@
     <div class="row">
         <div class="col-lg-4">
             <div class="card">
-                <div class="card-header">API Usage Stats 🔗</div>
+                <div class="card-header">Využití API 🔗</div>
                 <div class="card-body" id="apiUsageStats">
                     <p class="text-center">Loading API usage...</p>
                 </div>
@@ -537,6 +578,23 @@
             });
         }
 
+        const autoBtn = document.getElementById('autoTuneBtn');
+        if (autoBtn) {
+            autoBtn.addEventListener('click', () => {
+                const objective = document.getElementById('autoTuneObjective').value;
+                fetch('/api/auto_tune_threshold', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ objective }) })
+                    .then(r=>r.json()).then(d=>{
+                        const el = document.getElementById('autoTuneStatus');
+                        if (d.success) {
+                            document.getElementById('stormThreshold').value = d.threshold?.toFixed?.(2) ?? d.threshold;
+                            el.innerHTML = `<span class="text-success">Nový práh: ${d.threshold}</span>`;
+                        } else {
+                            el.innerHTML = `<span class="text-danger">${d.error||'Nepodařilo se naladit práh'}</span>`;
+                        }
+                    }).catch(()=>{ document.getElementById('autoTuneStatus').innerHTML = '<span class="text-danger">Chyba komunikace</span>'; });
+            });
+        }
+
         // Send test alert
         const testBtn = document.getElementById('sendTestAlertBtn');
         if (testBtn) {
@@ -641,8 +699,10 @@
         loadLightningStats();
         loadSystemStatus();
         loadSnowSummary();
+        loadSourceStatus();
         loadRecentEmails();
         updateLastUpdateTime();
+        loadClassifierMetrics();
     }
     
     function updateLastUpdateTime() {
@@ -659,27 +719,27 @@
                     container.innerHTML = `
                         <ul class="list-group list-group-flush">
                             <li class="list-group-item d-flex justify-content-between align-items-center">
-                                Temperature
+                                Teplota
                                 <span class="badge rounded-pill ${getSeverityClass(latest.temperature, 'temperature')}">${latest.temperature?.toFixed(1) || 'N/A'}°C</span>
                             </li>
                             <li class="list-group-item d-flex justify-content-between align-items-center">
-                                Humidity
+                                Vlhkost
                                 <span class="badge rounded-pill ${getSeverityClass(latest.humidity, 'humidity')}">${latest.humidity?.toFixed(0) || 'N/A'}%</span>
                             </li>
                             <li class="list-group-item d-flex justify-content-between align-items-center">
-                                Pressure
+                                Tlak
                                 <span class="badge rounded-pill ${getSeverityClass(latest.pressure, 'pressure')}">${latest.pressure?.toFixed(0) || 'N/A'} hPa</span>
                             </li>
                             <li class="list-group-item d-flex justify-content-between align-items-center">
-                                Wind Speed
+                                Rychlost větru
                                 <span class="badge rounded-pill ${getSeverityClass(latest.wind_speed, 'wind_speed')}">${latest.wind_speed?.toFixed(1) || 'N/A'} m/s</span>
                             </li>
                             <li class="list-group-item d-flex justify-content-between align-items-center">
-                                Precipitation
+                                Srážky
                                 <span class="badge rounded-pill ${getSeverityClass(latest.precipitation, 'precipitation')}">${latest.precipitation?.toFixed(1) || 'N/A'} mm</span>
                             </li>
                             <li class="list-group-item d-flex justify-content-between align-items-center">
-                                Source
+                                Zdroj
                                 <span class="badge bg-secondary rounded-pill">${latest.source || 'N/A'}</span>
                             </li>
                         </ul>
@@ -702,23 +762,23 @@
                 container.innerHTML = `
                     <ul class="list-group list-group-flush">
                         <li class="list-group-item d-flex justify-content-between align-items-center">
-                            Weather Data Points
+                            Datové body počasí
                             <span class="badge bg-primary rounded-pill">${data.weather_data_24h || 0}</span>
                         </li>
                         <li class="list-group-item d-flex justify-content-between align-items-center">
-                            AI Analyses
+                            Analýz AI
                             <span class="badge bg-primary rounded-pill">${data.ai_analysis_24h || 0}</span>
                         </li>
                         <li class="list-group-item d-flex justify-content-between align-items-center">
-                            Emails Sent
+                            Odeslané e‑maily
                             <span class="badge bg-primary rounded-pill">${data.emails_24h || 0}</span>
                         </li>
                         <li class="list-group-item d-flex justify-content-between align-items-center">
-                            Storms Detected (7d)
+                            Detekované bouřky (7 dní)
                             <span class="badge bg-primary rounded-pill">${data.storms_detected_7d || 0}</span>
                         </li>
                         <li class="list-group-item d-flex justify-content-between align-items-center">
-                            Avg Confidence (7d)
+                            Průměrná jistota (7 dní)
                             <span class="badge bg-primary rounded-pill">${data.avg_confidence_7d || 0}%</span>
                         </li>
                     </ul>
@@ -738,19 +798,26 @@
                 container.innerHTML = `
                     <ul class="list-group list-group-flush">
                         <li class="list-group-item d-flex justify-content-between align-items-center">
-                            Total Strikes
+                            Údery celkem
                             <span class="badge bg-primary rounded-pill">${data.total_strikes || 0}</span>
                         </li>
                         <li class="list-group-item d-flex justify-content-between align-items-center">
-                            In Czech Republic
+                            V ČR
                             <span class="badge bg-primary rounded-pill">${data.czech_strikes || 0}</span>
                         </li>
                         <li class="list-group-item d-flex justify-content-between align-items-center">
-                            Nearby Strikes
+                            V okolí
                             <span class="badge bg-primary rounded-pill">${data.nearby_strikes || 0}</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <span class="text-muted small">Posledních 24 h</span>
+                            <small class="text-muted" id="lightningUpdated"></small>
                         </li>
                     </ul>
                 `;
+                const t = data.last_updated ? new Date(data.last_updated).toLocaleTimeString('cs-CZ') : new Date().toLocaleTimeString('cs-CZ');
+                const el = document.getElementById('lightningUpdated');
+                if (el) el.textContent = `aktualizováno ${t}`;
             })
             .catch(error => {
                 document.getElementById('lightningStats').innerHTML = '<p class="text-center text-danger">Error loading lightning stats</p>';
@@ -777,18 +844,18 @@
 
                         return `
                             <div class="list-group-item">
-                                <strong>${analysis.storm_detected ? '⚡ Storm Detected' : '✅ Normal Conditions'}</strong>
+                                <strong>${analysis.storm_detected ? '⚡ Detekována bouřka' : '✅ Normální stav'}</strong>
                                 <span class="float-end ${confidenceClass}">${confidence}%</span>
-                                <div class="text-muted small">${timestamp} - Alert: <span class="${alertLevelClass}">${analysis.alert_level}</span></div>
+                                <div class="text-muted small">${timestamp} – Stav výstrah: <span class="${alertLevelClass}">${analysis.alert_level}</span></div>
                             </div>
                         `;
                     }).join('');
                 } else {
-                    container.innerHTML = '<p class="text-center">No analysis data available</p>';
+                    container.innerHTML = '<p class="text-center">Žádná data analýz</p>';
                 }
             })
             .catch(error => {
-                document.getElementById('recentAnalysis').innerHTML = '<p class="text-center text-danger">Error loading analysis data</p>';
+                document.getElementById('recentAnalysis').innerHTML = '<p class="text-center text-danger">Chyba při načítání dat analýz</p>';
                 console.error('Error:', error);
             });
     }
@@ -807,16 +874,22 @@
                     const predictionDate = new Date(data.prediction_timestamp);
                     const confidence = (data.confidence * 100).toFixed(1);
                     container.innerHTML = `
-                        <h4 class="text-center">${predictionDate.toLocaleDateString()} at ${predictionDate.toLocaleTimeString()}</h4>
-                        <p class="text-center">Confidence: ${confidence}%</p>
+                        <h4 class="text-center">${predictionDate.toLocaleDateString('cs-CZ')} ${predictionDate.toLocaleTimeString('cs-CZ')}</h4>
+                        <p class="text-center">Jistota: ${confidence}%</p>
                     `;
                 } else {
-                    container.innerHTML = '<p class="text-center">No prediction available yet.</p>';
+                    const reason = (data && data.reason) ? data.reason : 'Čekám na nová data/okno modelu.';
+                    const nextRun = (data && data.next_run) ? new Date(data.next_run).toLocaleTimeString('cs-CZ') : '—';
+                    container.innerHTML = `<div class="text-center">
+                        <p>Predikce zatím není dostupná.</p>
+                        <p class="text-muted small">Důvod: ${reason}</p>
+                        <p class="text-muted small">Další běh modelu kolem: <strong>${nextRun}</strong></p>
+                    </div>`;
                 }
             })
             .catch(error => {
                 const container = document.getElementById('nextStormPrediction');
-                container.innerHTML = '<p class="text-center">No prediction available yet.</p>';
+                container.innerHTML = '<p class="text-center">Predikce zatím není dostupná.</p>';
                 console.error('Error loading next storm prediction:', error);
             });
     }
@@ -1108,7 +1181,7 @@
                 const container = document.getElementById('apiUsageStats');
                 let html = '<ul class="list-group list-group-flush">';
                 
-                html += '<li class="list-group-item list-group-item-info"><strong>24h API volání:</strong></li>';
+                html += '<li class="list-group-item list-group-item-info d-flex justify-content-between align-items-center"><strong>Volání API (24 h)</strong><small class="text-muted" id="apiUsageUpdated"></small></li>';
                 if (data.usage_24h && Object.keys(data.usage_24h).length > 0) {
                     Object.entries(data.usage_24h).forEach(([source, count]) => {
                         html += `<li class="list-group-item d-flex justify-content-between align-items-center">
@@ -1122,6 +1195,8 @@
                 
                 html += '</ul>';
                 container.innerHTML = html;
+                const el = document.getElementById('apiUsageUpdated');
+                if (el) el.textContent = `aktualizováno ${new Date().toLocaleTimeString('cs-CZ')}`;
             })
             .catch(error => {
                 document.getElementById('apiUsageStats').innerHTML = '<p class="text-center text-danger">Error loading API usage data</p>';
@@ -1278,19 +1353,19 @@
                 container.innerHTML = `
                     <ul class="list-group list-group-flush">
                         <li class="list-group-item d-flex justify-content-between align-items-center">
-                            CPU Teplota
+                            Teplota CPU
                             <span class="badge rounded-pill ${tempClass}">${data.cpu_temp?.toFixed(1) || 'N/A'}°C</span>
                         </li>
                         <li class="list-group-item d-flex justify-content-between align-items-center">
-                            CPU Využití
+                            Využití CPU
                             <span class="badge rounded-pill ${cpuClass}">${data.cpu_percent?.toFixed(1) || 'N/A'}%</span>
                         </li>
                         <li class="list-group-item d-flex justify-content-between align-items-center">
-                            RAM Využití
+                            Využití RAM
                             <span class="badge rounded-pill ${ramClass}">${data.ram_percent?.toFixed(1) || 'N/A'}%</span>
                         </li>
                         <li class="list-group-item d-flex justify-content-between align-items-center">
-                            Velikost DB
+                            Velikost databáze
                             <span class="badge bg-info rounded-pill">${data.database_size_mb?.toFixed(2) || 'N/A'} MB</span>
                         </li>
                     </ul>
@@ -1388,6 +1463,95 @@
             .catch(error => {
                 document.getElementById('recentEmails').innerHTML = '<p class="text-center text-danger">Error loading email history.</p>';
                 console.error('Error:', error);
+            });
+    }
+
+    // Render ROC/PR using Chart.js
+    let rocChartInstance = null;
+    let prChartInstance = null;
+    function buildRocChart(points, auc) {
+        const ctx = document.getElementById('rocChart');
+        if (!ctx) return;
+        if (rocChartInstance) { try { rocChartInstance.destroy(); } catch(_) {} }
+        const data = points.sort((a,b)=>a.fpr-b.fpr).map(p=>({x:p.fpr, y:p.tpr}));
+        rocChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: { datasets: [{ label: `ROC (AUC ${auc ?? ''})`, data, borderColor: '#0ea5b1', backgroundColor: 'rgba(14,165,177,0.15)', fill: false, tension: 0.2 }] },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                parsing: false,
+                scales: {
+                    x: { type: 'linear', min: 0, max: 1, title: { display: true, text: 'FPR' } },
+                    y: { type: 'linear', min: 0, max: 1, title: { display: true, text: 'TPR' } },
+                },
+                plugins: { legend: { display: false }, tooltip: { enabled: true } }
+            }
+        });
+    }
+    function buildPrChart(points, ap) {
+        const ctx = document.getElementById('prChart');
+        if (!ctx) return;
+        if (prChartInstance) { try { prChartInstance.destroy(); } catch(_) {} }
+        const data = points.sort((a,b)=>a.recall-b.recall).map(p=>({x:p.recall, y:p.precision}));
+        prChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: { datasets: [{ label: `PR (AP ${ap ?? ''})`, data, borderColor: '#22d3ee', backgroundColor: 'rgba(34,211,238,0.15)', fill: false, tension: 0.2 }] },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                parsing: false,
+                scales: {
+                    x: { type: 'linear', min: 0, max: 1, title: { display: true, text: 'Recall' } },
+                    y: { type: 'linear', min: 0, max: 1, title: { display: true, text: 'Precision' } },
+                },
+                plugins: { legend: { display: false }, tooltip: { enabled: true } }
+            }
+        });
+    }
+    function loadClassifierMetrics() {
+        fetch('/api/classifier_metrics?days=30').then(r=>r.json()).then(m=>{
+            if (m.error) return;
+            const rocMeta = document.getElementById('rocMeta');
+            const prMeta = document.getElementById('prMeta');
+            if (rocMeta) rocMeta.textContent = `AUC ${m.auc ?? '–'} • vzorků ${m.counts?.total ?? '–'}`;
+            if (prMeta) prMeta.textContent = `AP ${m.avg_precision ?? '–'} • Brier ${m.brier ?? '–'}`;
+            buildRocChart(m.roc || [], m.auc);
+            buildPrChart(m.pr || [], m.avg_precision);
+        }).catch(()=>{});
+    }
+
+    function loadSourceStatus() {
+        fetch('/api/source_status')
+            .then(r => r.json())
+            .then(data => {
+                const container = document.getElementById('sourceStatus');
+                if (!data || !data.sources) {
+                    container.innerHTML = '<p class="text-center">Žádná data o zdrojích</p>';
+                    return;
+                }
+                const statusBadge = (ok) => ok ? 'bg-success' : 'bg-danger';
+                const rows = [
+                    { key: 'openweather', label: 'OpenWeather' },
+                    { key: 'tomorrow_io', label: 'Tomorrow.io' },
+                    { key: 'visual_crossing', label: 'Visual Crossing' },
+                    { key: 'chmi', label: 'ČHMÚ scraping' }
+                ].map(src => {
+                    const s = data.sources[src.key] || {};
+                    const t = s.last_ok ? new Date(s.last_ok).toLocaleString('cs-CZ') : '—';
+                    const err = s.last_error ? `<div class="text-danger small">${s.last_error}</div>` : '';
+                    return `<li class="list-group-item d-flex justify-content-between align-items-center">
+                        <span>${src.label}</span>
+                        <span>
+                            <span class="badge ${statusBadge(s.ok)} me-2">${s.ok ? 'OK' : 'Chyba'}</span>
+                            <small class="text-muted">${t}</small>
+                        </span>
+                        ${err}
+                    </li>`;
+                }).join('');
+                container.innerHTML = `<ul class="list-group list-group-flush">${rows}</ul>`;
+            })
+            .catch(() => {
+                const container = document.getElementById('sourceStatus');
+                container.innerHTML = '<p class="text-center text-danger">Chyba při načítání stavu zdrojů</p>';
             });
     }
 

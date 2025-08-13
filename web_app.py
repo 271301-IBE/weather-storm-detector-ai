@@ -21,6 +21,7 @@ from system_monitor import get_system_monitor, start_system_monitoring
 from log_rotation import get_log_rotator, setup_weather_logging
 from telegram_poller import start_telegram_polling
 from database_optimizer import get_database_optimizer
+import math
 
 # Configure rotating file logging to weather_monitor.log
 setup_weather_logging('weather_monitor.log')
@@ -104,6 +105,11 @@ class SimpleTTLCache:
                 self._data.pop(k, None)
 
 api_cache = SimpleTTLCache(max_items=256)
+
+# Simple in-memory tunable threshold (persists for process lifetime)
+_AUTO_TUNE_STATE = {
+    'storm_confidence_threshold': None,
+}
 
 def login_required(f):
     @wraps(f)
@@ -1510,7 +1516,7 @@ def api_chmi_warnings():
 @app.route('/api/next_storm_prediction')
 @login_required
 def api_next_storm_prediction():
-    """Get the latest thunderstorm prediction."""
+    """Get the latest thunderstorm prediction. Returns reason/next_run if unavailable."""
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
@@ -1543,13 +1549,16 @@ def api_next_storm_prediction():
                 # Do not show stale predictions in the past
                 now_dt = datetime.now()
                 if predicted_dt <= now_dt:
-                    return jsonify({'error': 'No prediction available'}), 404
+                    # Provide reason and suggest next run
+                    next_run = (now_dt + timedelta(hours=1)).isoformat()
+                    return jsonify({'error': 'No prediction available', 'reason': 'Latest predikce je v minulosti', 'next_run': next_run}), 404
 
                 # Optional freshness guard: hide very old records (e.g., > 12 hours old)
                 try:
                     created_dt = datetime.fromisoformat(row[2]) if len(row) > 2 and row[2] else None
                     if created_dt and (now_dt - created_dt).total_seconds() > 12 * 3600:
-                        return jsonify({'error': 'No prediction available'}), 404
+                        next_run = (now_dt + timedelta(hours=1)).isoformat()
+                        return jsonify({'error': 'No prediction available', 'reason': 'Zastaralá predikce (>12h)', 'next_run': next_run}), 404
                 except Exception:
                     # If created_at is malformed, ignore freshness check
                     pass
@@ -1560,12 +1569,15 @@ def api_next_storm_prediction():
                 }
                 return jsonify(prediction)
             else:
-                return jsonify({'error': 'No prediction available'}), 404
+                # Nothing in DB yet – provide a friendly reason and a guess for next run
+                next_run = (datetime.now() + timedelta(hours=1)).isoformat()
+                return jsonify({'error': 'No prediction available', 'reason': 'Žádná predikce zatím nebyla vygenerována', 'next_run': next_run}), 404
             
     except Exception as e:
         # This can happen if the table doesn't exist yet
         if "no such table" in str(e):
-            return jsonify({'error': 'No prediction available, table not found'}), 404
+            next_run = (datetime.now() + timedelta(hours=1)).isoformat()
+            return jsonify({'error': 'No prediction available, table not found', 'reason': 'Tabulka predikcí zatím neexistuje', 'next_run': next_run}), 404
         logger.error(f"Error fetching next storm prediction: {e}")
         return jsonify({'error': str(e)}), 500
 
@@ -1588,7 +1600,8 @@ def api_test_forecast():
 def api_current_threshold():
     """Return current storm confidence threshold (0..1)."""
     try:
-        return jsonify({'storm_confidence_threshold': config.ai.storm_confidence_threshold})
+        value = _AUTO_TUNE_STATE.get('storm_confidence_threshold') or config.ai.storm_confidence_threshold
+        return jsonify({'storm_confidence_threshold': value})
     except Exception as e:
         logger.error(f"Error getting threshold: {e}")
         return jsonify({'error': 'Could not read threshold'}), 500
@@ -1609,6 +1622,7 @@ def api_set_threshold():
             return jsonify({'error': 'Threshold must be between 0 and 1'}), 400
         # Update in-memory config (scheduler holds a reference to this object)
         config.ai.storm_confidence_threshold = value
+        _AUTO_TUNE_STATE['storm_confidence_threshold'] = value
         return jsonify({'success': True, 'storm_confidence_threshold': value})
     except Exception as e:
         logger.error(f"Error setting threshold: {e}")
@@ -1924,6 +1938,263 @@ def api_forecast_accuracy():
         logger.error(f"Error fetching forecast accuracy: {e}")
         return jsonify({'error': str(e)}), 500
 
+
+@app.route('/api/classifier_metrics')
+@login_required
+def api_classifier_metrics():
+    """Compute ROC and PR curves, Brier score and reliability diagram bins.
+
+    Data source: storm_analysis(confidence_score FLOAT, storm_detected INTEGER/BOOLEAN).
+    Period: last 30 days (configurable via ?days=N).
+    """
+    try:
+        days = request.args.get('days', 30, type=int)
+        with db.get_connection(read_only=True) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT confidence_score, storm_detected
+                FROM storm_analysis
+                WHERE datetime(timestamp) > datetime('now', ?)
+                AND confidence_score IS NOT NULL
+                ORDER BY timestamp DESC
+                """,
+                (f'-{days} days',)
+            )
+            rows = cur.fetchall()
+
+        if not rows:
+            return jsonify({'error': 'No data'}), 404
+
+        y_true = [1 if bool(r[1]) else 0 for r in rows]
+        y_prob = [float(r[0]) for r in rows]
+        n = len(y_true)
+        pos = sum(y_true)
+        neg = n - pos
+
+        # Safety guards
+        if n == 0 or pos == 0 or neg == 0:
+            # Degenerate, still compute Brier and reliability on available data
+            brier = sum((p - y) ** 2 for p, y in zip(y_prob, y_true)) / max(1, n)
+            reliability = []
+            bins = 10
+            for b in range(bins):
+                lo = b / bins
+                hi = (b + 1) / bins
+                idx = [i for i, p in enumerate(y_prob) if (p >= lo and (p < hi if b < bins - 1 else p <= hi))]
+                if not idx:
+                    continue
+                mean_p = sum(y_prob[i] for i in idx) / len(idx)
+                emp = sum(y_true[i] for i in idx) / len(idx)
+                reliability.append({'bin_low': lo, 'bin_high': hi, 'mean_pred': mean_p, 'empirical': emp, 'count': len(idx)})
+            return jsonify({
+                'counts': {'total': n, 'positives': pos, 'negatives': neg},
+                'brier': brier,
+                'roc': [],
+                'auc': None,
+                'pr': [],
+                'avg_precision': None,
+                'reliability': reliability,
+                'days': days,
+            })
+
+        # Threshold sweep 0..1 step 0.01
+        thresholds = [i / 100 for i in range(0, 101)]
+        roc_points = []  # (fpr, tpr)
+        pr_points = []   # (recall, precision)
+        # For AP integration sort by recall ascending later
+        for thr in thresholds:
+            tp = fp = tn = fn = 0
+            for y, p in zip(y_true, y_prob):
+                y_hat = 1 if p >= thr else 0
+                if y_hat == 1 and y == 1:
+                    tp += 1
+                elif y_hat == 1 and y == 0:
+                    fp += 1
+                elif y_hat == 0 and y == 0:
+                    tn += 1
+                else:
+                    fn += 1
+            tpr = (tp / (tp + fn)) if (tp + fn) else 0.0
+            fpr = (fp / (fp + tn)) if (fp + tn) else 0.0
+            precision = (tp / (tp + fp)) if (tp + fp) else 1.0  # define precision=1 when no positives predicted
+            recall = tpr
+            roc_points.append({'threshold': thr, 'fpr': fpr, 'tpr': tpr})
+            pr_points.append({'threshold': thr, 'recall': recall, 'precision': precision})
+
+        # AUC via trapezoidal integration on ROC sorted by FPR
+        roc_sorted = sorted(roc_points, key=lambda d: d['fpr'])
+        auc = 0.0
+        for i in range(1, len(roc_sorted)):
+            x0, y0 = roc_sorted[i-1]['fpr'], roc_sorted[i-1]['tpr']
+            x1, y1 = roc_sorted[i]['fpr'], roc_sorted[i]['tpr']
+            auc += (x1 - x0) * (y0 + y1) / 2.0
+
+        # Average precision (AP) via trapezoidal on recall
+        pr_sorted = sorted(pr_points, key=lambda d: d['recall'])
+        ap = 0.0
+        for i in range(1, len(pr_sorted)):
+            r0, p0 = pr_sorted[i-1]['recall'], pr_sorted[i-1]['precision']
+            r1, p1 = pr_sorted[i]['recall'], pr_sorted[i]['precision']
+            ap += (r1 - r0) * ((p0 + p1) / 2.0)
+
+        # Brier score
+        brier = sum((p - y) ** 2 for p, y in zip(y_prob, y_true)) / n
+
+        # Reliability diagram (10 bins)
+        reliability = []
+        bins = 10
+        for b in range(bins):
+            lo = b / bins
+            hi = (b + 1) / bins
+            idx = [i for i, p in enumerate(y_prob) if (p >= lo and (p < hi if b < bins - 1 else p <= hi))]
+            if not idx:
+                continue
+            mean_p = sum(y_prob[i] for i in idx) / len(idx)
+            emp = sum(y_true[i] for i in idx) / len(idx)
+            reliability.append({'bin_low': lo, 'bin_high': hi, 'mean_pred': mean_p, 'empirical': emp, 'count': len(idx)})
+
+        return jsonify({
+            'counts': {'total': n, 'positives': pos, 'negatives': neg},
+            'brier': round(brier, 4),
+            'roc': roc_points,
+            'auc': round(auc, 4),
+            'pr': pr_points,
+            'avg_precision': round(ap, 4),
+            'reliability': reliability,
+            'days': days,
+        })
+    except Exception as e:
+        logger.error(f"classifier_metrics error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/source_status')
+@login_required
+def api_source_status():
+    """Report status of external data sources (OpenWeather, Tomorrow.io, Visual Crossing, CHMI).
+
+    Uses available DB timestamps as last successful fetch. Error state is inferred trivially
+    if no data was fetched recently (e.g., > 3h). For CHMI, rely on monitor health if available.
+    """
+    try:
+        with db.get_connection(read_only=True) as conn:
+            cur = conn.cursor()
+            # Last successful weather_data per source
+            cur.execute(
+                """
+                SELECT source, MAX(timestamp) as last_ok
+                FROM weather_data GROUP BY source
+                """
+            )
+            last_by_source = {row[0]: row[1] for row in cur.fetchall() if row and row[0]}
+
+        def assess(source_key: str, label: str):
+            last_ok = last_by_source.get(source_key)
+            ok = False
+            last_error = None
+            if last_ok:
+                try:
+                    dt = datetime.fromisoformat(str(last_ok).replace('Z', '+00:00'))
+                    ok = (datetime.now() - dt).total_seconds() <= 3 * 3600
+                except Exception:
+                    ok = True
+            else:
+                ok = False
+                last_error = 'Žádná data'
+            return {'ok': ok, 'last_ok': last_ok, 'last_error': last_error}
+
+        sources = {
+            'openweather': assess('openweather', 'OpenWeather'),
+            'tomorrow_io': assess('tomorrow_io', 'Tomorrow.io'),
+            'visual_crossing': assess('visual_crossing', 'Visual Crossing'),
+        }
+
+        # CHMI health – attempt fetch; if fails, mark error
+        try:
+            from chmi_warnings import ChmiWarningMonitor
+            chmi_monitor = ChmiWarningMonitor(config)
+            warnings = chmi_monitor.get_all_active_warnings()
+            ok = isinstance(warnings, list)
+            sources['chmi'] = {
+                'ok': ok,
+                'last_ok': datetime.now().isoformat() if ok else None,
+                'last_error': None if ok else 'CHMI fetch failed'
+            }
+        except Exception as e:
+            sources['chmi'] = {'ok': False, 'last_ok': None, 'last_error': str(e)}
+
+        return jsonify({'sources': sources, 'generated_at': datetime.now().isoformat()})
+    except Exception as e:
+        logger.error(f"Error building source status: {e}")
+        return jsonify({'error': 'Failed to build source status'}), 500
+
+
+@app.route('/api/auto_tune_threshold', methods=['POST'])
+@login_required
+def api_auto_tune_threshold():
+    """Naive auto-tune of storm confidence threshold from recent labeled events.
+
+    This is a placeholder: it uses recent `storm_analysis` rows as positives when
+    `storm_detected=1`, and negatives otherwise. It scans candidate thresholds
+    and picks the best by chosen objective: f1 | recall | precision.
+    """
+    try:
+        objective = (request.get_json(force=True, silent=True) or {}).get('objective', 'f1')
+        if objective not in {'f1', 'recall', 'precision'}:
+            return jsonify({'success': False, 'error': 'Invalid objective'}), 400
+
+        with db.get_connection(read_only=True) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT confidence_score, storm_detected
+                FROM storm_analysis
+                WHERE datetime(timestamp) > datetime('now','-30 days')
+                AND confidence_score IS NOT NULL
+                ORDER BY timestamp DESC
+                LIMIT 5000
+                """
+            )
+            rows = cur.fetchall()
+        if not rows:
+            return jsonify({'success': False, 'error': 'No recent analysis data'}), 400
+
+        y_true = [1 if bool(r[1]) else 0 for r in rows]
+        y_score = [float(r[0]) for r in rows]
+
+        # Sweep thresholds 0.10..0.99
+        best = {'score': -1, 'threshold': None, 'metrics': {}}
+        for t_i in range(10, 100):
+            thr = t_i / 100.0
+            tp = fp = tn = fn = 0
+            for y, s in zip(y_true, y_score):
+                y_hat = 1 if s >= thr else 0
+                if y_hat == 1 and y == 1: tp += 1
+                elif y_hat == 1 and y == 0: fp += 1
+                elif y_hat == 0 and y == 0: tn += 1
+                elif y_hat == 0 and y == 1: fn += 1
+            precision = (tp / (tp + fp)) if (tp + fp) else 0.0
+            recall = (tp / (tp + fn)) if (tp + fn) else 0.0
+            f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
+            metric = {'f1': f1, 'recall': recall, 'precision': precision}[objective]
+            if metric > best['score']:
+                best = {
+                    'score': metric,
+                    'threshold': thr,
+                    'metrics': {'f1': round(f1,3), 'recall': round(recall,3), 'precision': round(precision,3)}
+                }
+
+        if best['threshold'] is None:
+            return jsonify({'success': False, 'error': 'Could not determine threshold'}), 500
+
+        # Apply in-memory
+        config.ai.storm_confidence_threshold = best['threshold']
+        _AUTO_TUNE_STATE['storm_confidence_threshold'] = best['threshold']
+
+        return jsonify({'success': True, 'threshold': best['threshold'], 'metrics': best['metrics'], 'objective': objective})
+    except Exception as e:
+        logger.error(f"auto_tune_threshold error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 @app.route('/api/forecast_comparison')
 def api_forecast_comparison():
     """Get side-by-side comparison of all forecast methods."""

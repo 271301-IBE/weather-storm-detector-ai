@@ -266,12 +266,16 @@
             </li>
         </ul>
         <div class="position-absolute bottom-0 w-100 p-3">
-            <div class="form-check form-switch mb-2">
-                <input class="form-check-input" type="checkbox" id="darkModeSwitch" aria-label="Toggle dark mode">
-                <label class="form-check-label" for="darkModeSwitch">
-                    <span id="themeLabel">Dark Mode</span>
-                    <i id="themeIcon" class="bi bi-moon-stars ms-1"></i>
-                </label>
+            <div class="mb-2">
+                <label for="themeMode" class="form-label mb-1">Režim vzhledu</label>
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text" id="themeIconWrap"><i id="themeIcon" class="bi bi-moon-stars"></i></span>
+                    <select id="themeMode" class="form-select" aria-label="Theme mode">
+                        <option value="auto" selected>Auto (systém)</option>
+                        <option value="light">Světlý</option>
+                        <option value="dark">Tmavý</option>
+                    </select>
+                </div>
             </div>
             <button class="btn btn-outline-info w-100 mb-2" id="enableNotifications">Enable Notifications</button>
             <a href="/logout" class="btn btn-outline-light w-100">Logout</a>
@@ -291,43 +295,49 @@
         window.addEventListener('load', () => {
             // Theme Manager: controls dark/light mode, persists state, notifies charts and maps
             const body = document.body;
-            const THEME_KEY = 'darkMode'; // 'enabled' | null
+            const THEME_KEY = 'themeMode'; // 'auto' | 'light' | 'dark'
 
-            function setTheme(dark) {
-                const currentlyDark = body.classList.contains('dark-mode');
-                if (dark && !currentlyDark) {
+            function evaluateSystemPrefersDark() {
+                try { return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches; } catch(_) { return false; }
+            }
+
+            function setThemeMode(mode) {
+                const isDark = (mode === 'dark') || (mode === 'auto' && evaluateSystemPrefersDark());
+                if (isDark) {
                     body.classList.add('dark-mode');
-                    try { localStorage.setItem(THEME_KEY, 'enabled'); } catch(_) {}
-                } else if (!dark && currentlyDark) {
+                } else {
                     body.classList.remove('dark-mode');
-                    try { localStorage.removeItem(THEME_KEY); } catch(_) {}
                 }
-                // Notify listeners (charts, map)
-                window.dispatchEvent(new CustomEvent('themechange', { detail: { dark } }));
+                try { localStorage.setItem(THEME_KEY, mode); } catch(_) {}
+                const themeIcon = document.getElementById('themeIcon');
+                if (themeIcon) themeIcon.className = isDark ? 'bi bi-moon-stars' : 'bi bi-sun';
+                window.dispatchEvent(new CustomEvent('themechange', { detail: { dark: isDark, mode } }));
             }
 
             // Initialize from storage
             (function initTheme() {
-                let dark = false;
+                let mode = 'auto';
                 try {
                     const saved = localStorage.getItem(THEME_KEY);
-                    dark = saved === 'enabled';
+                    if (saved === 'light' || saved === 'dark' || saved === 'auto') mode = saved;
                 } catch(_) {}
-                if (dark) body.classList.add('dark-mode');
-                const themeIcon = document.getElementById('themeIcon');
-                const themeLabel = document.getElementById('themeLabel');
-                if (themeIcon) themeIcon.className = dark ? 'bi bi-moon-stars ms-1' : 'bi bi-sun ms-1';
-                if (themeLabel) themeLabel.textContent = dark ? 'Dark Mode' : 'Light Mode';
-                // notify so components can sync
-                window.dispatchEvent(new CustomEvent('themechange', { detail: { dark } }));
+                setThemeMode(mode);
+                const themeSelect = document.getElementById('themeMode');
+                if (themeSelect) themeSelect.value = mode;
             })();
 
             // Toggle binding
-            const darkModeSwitch = document.getElementById('darkModeSwitch');
-            if (darkModeSwitch) {
-                // reflect initial state
-                darkModeSwitch.checked = document.body.classList.contains('dark-mode');
-                darkModeSwitch.addEventListener('change', () => setTheme(darkModeSwitch.checked));
+            const themeSelect = document.getElementById('themeMode');
+            if (themeSelect) {
+                themeSelect.addEventListener('change', () => setThemeMode(themeSelect.value));
+                // React to system changes in auto mode
+                try {
+                    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+                    mq.addEventListener('change', () => {
+                        const saved = localStorage.getItem(THEME_KEY) || 'auto';
+                        if (saved === 'auto') setThemeMode('auto');
+                    });
+                } catch(_) {}
             }
 
             // Navbar sidebar toggle (mobile)
