@@ -953,42 +953,101 @@ Requirements:
         return None
     
     def _convert_ai_to_enhanced_forecast(self, ai_data: Dict, weather_data: List[WeatherData]) -> EnhancedWeatherForecast:
-        """Convert AI response to enhanced forecast format."""
-        forecast_items = []
+        """Convert AI response to enhanced forecast format with bias calibration and smoothing."""
         overall_confidence = ai_data.get('overall_confidence', 0.7)
-        
-        for item in ai_data.get('forecast', []):
+
+        # Extract raw items first
+        raw_items = []
+        for item in ai_data.get('forecast', []) or []:
             try:
+                ts = datetime.fromisoformat(item['timestamp'])
+                raw_items.append({
+                    'timestamp': ts,
+                    'temperature': float(item['temperature']),
+                    'humidity': float(item['humidity']),
+                    'pressure': float(item['pressure']),
+                    'wind_speed': float(item['wind_speed']),
+                    'wind_direction': float(item['wind_direction']),
+                    'precipitation': float(item['precipitation']),
+                    'precipitation_probability': float(item['precipitation_probability']),
+                    'condition': str(item['condition']),
+                    'cloud_cover': float(item['cloud_cover']),
+                    'visibility': float(item['visibility']),
+                    'description': str(item.get('description', '')),
+                    'confidence': float(item.get('confidence', overall_confidence)),
+                })
+            except Exception as e:
+                logger.warning(f"Skipping invalid AI forecast item during extraction: {e}")
+                continue
+
+        # Bias calibration based on latest observed temperature
+        latest_obs_temp = None
+        try:
+            if weather_data:
+                latest_obs = max(weather_data, key=lambda d: d.timestamp)
+                latest_obs_temp = float(latest_obs.temperature)
+        except Exception:
+            latest_obs_temp = None
+
+        if latest_obs_temp is not None and raw_items:
+            try:
+                ai_first_temp = raw_items[0]['temperature']
+                bias = ai_first_temp - latest_obs_temp
+                # Apply partial correction with cap
+                correction_factor = 0.7  # correct 70% of bias
+                max_correction = 3.0
+                applied = max(-max_correction, min(max_correction, correction_factor * bias))
+                if abs(applied) >= 0.1:
+                    logger.info(f"AI forecast temperature bias detected: {bias:+.2f}°C, applying {applied:+.2f}°C correction")
+                    for it in raw_items:
+                        it['temperature'] = it['temperature'] - applied
+            except Exception:
+                pass
+
+        # Smooth unrealistic hour-to-hour jumps (limit per-hour delta)
+        forecast_items: List[EnhancedPredictedWeatherData] = []
+        prev_temp = None
+        for it in raw_items:
+            try:
+                temp = it['temperature']
+                if prev_temp is not None:
+                    max_step = 3.0
+                    if temp > prev_temp + max_step:
+                        temp = prev_temp + max_step
+                    elif temp < prev_temp - max_step:
+                        temp = prev_temp - max_step
+                prev_temp = temp
+
                 metadata = ForecastMetadata(
                     method=ForecastMethod.AI_DEEPSEEK,
-                    confidence=item.get('confidence', overall_confidence),
-                    confidence_level=self._get_confidence_level(item.get('confidence', overall_confidence)),
+                    confidence=it['confidence'],
+                    confidence_level=self._get_confidence_level(it['confidence']),
                     generated_at=datetime.now(),
-                    data_quality=0.9,  # AI typically has good data quality
-                    model_version="deepseek_v1.0",
-                    uncertainty_range=None
+                    data_quality=0.9,
+                    model_version="deepseek_v1.1_calibrated",
+                    uncertainty_range=(temp - 2.5, temp + 2.5)
                 )
-                
+
                 forecast_items.append(EnhancedPredictedWeatherData(
-                    timestamp=datetime.fromisoformat(item['timestamp']),
-                    temperature=item['temperature'],
-                    humidity=item['humidity'],
-                    pressure=item['pressure'],
-                    wind_speed=item['wind_speed'],
-                    wind_direction=item['wind_direction'],
-                    precipitation=item['precipitation'],
-                    precipitation_probability=item['precipitation_probability'],
-                    condition=WeatherCondition(item['condition']),
-                    cloud_cover=item['cloud_cover'],
-                    visibility=item['visibility'],
-                    description=item['description'],
+                    timestamp=it['timestamp'],
+                    temperature=temp,
+                    humidity=it['humidity'],
+                    pressure=it['pressure'],
+                    wind_speed=it['wind_speed'],
+                    wind_direction=it['wind_direction'],
+                    precipitation=it['precipitation'],
+                    precipitation_probability=it['precipitation_probability'],
+                    condition=WeatherCondition(it['condition']),
+                    cloud_cover=it['cloud_cover'],
+                    visibility=it['visibility'],
+                    description=it['description'],
                     metadata=metadata,
                     alternative_predictions=None
                 ))
-            except (KeyError, ValueError) as e:
-                logger.warning(f"Skipping invalid AI forecast item: {e}")
+            except Exception as e:
+                logger.warning(f"Skipping AI forecast item after calibration: {e}")
                 continue
-        
+
         return EnhancedWeatherForecast(
             timestamp=datetime.now(),
             forecast_data=forecast_items,
@@ -1030,11 +1089,28 @@ Requirements:
         
         # Combine forecasts with weighted ensemble
         ensemble_data = []
+        # Base weights
         method_weights = {
             'physics': 0.4,
             'ai': 0.5 if ai_forecast else 0.0,
             'statistical': 0.1 if statistical_predictions else 0.0
         }
+
+        # Dynamically adjust AI weight based on disagreement with physics and AI confidence
+        try:
+            if ai_forecast and physics_forecast and ai_forecast.forecast_data and physics_forecast.forecast_data:
+                overlap = min(len(ai_forecast.forecast_data), len(physics_forecast.forecast_data))
+                if overlap >= 3:
+                    diffs = [abs(ai_forecast.forecast_data[i].temperature - physics_forecast.forecast_data[i].temperature) for i in range(overlap)]
+                    mean_diff = sum(diffs) / overlap
+                    ai_conf = ai_forecast.method_confidences.get('ai_deepseek', 0.5)
+                    if mean_diff > 3.0 or ai_conf < 0.5:
+                        # Reduce AI influence, increase physics
+                        method_weights['ai'] = 0.2
+                        method_weights['physics'] = 0.7
+                        logger.info(f"Reducing AI weight due to disagreement/confidence (mean_diff={mean_diff:.2f}, ai_conf={ai_conf:.2f})")
+        except Exception:
+            pass
         
         # Normalize weights
         total_weight = sum(method_weights.values())
