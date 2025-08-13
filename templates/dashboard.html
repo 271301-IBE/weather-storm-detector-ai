@@ -1053,7 +1053,20 @@
                     .then(r => r.json())
                     .then(future => {
                         if (!future || !future.points || future.points.length === 0) return;
-                        const futureData = future.points.map(p => ({ x: new Date(p.timestamp), y: p.temperature }));
+                        // Smooth future temps to avoid jagged lines and limit step per hour
+                        const raw = future.points.map(p => ({ x: new Date(p.timestamp), y: p.temperature }));
+                        raw.sort((a,b)=>a.x-b.x);
+                        const futureData = [];
+                        for (let i=0;i<raw.length;i++) {
+                            const prev = i>0 ? futureData[i-1].y : null;
+                            let y = raw[i].y;
+                            if (prev !== null) {
+                                const maxStep = 2.5;
+                                if (y > prev + maxStep) y = prev + maxStep;
+                                if (y < prev - maxStep) y = prev - maxStep;
+                            }
+                            futureData.push({ x: raw[i].x, y });
+                        }
                         // Extend the visible x-range to include up to +24h if needed
                         try {
                             const currentMax = new Date(data[data.length - 1].timestamp);
@@ -1069,8 +1082,8 @@
                         weatherChart.data.datasets.push({
                             label: `Future Temperature (next 24h) - ${future.method === 'ai' ? 'AI' : 'Ensemble'}`,
                             data: futureData,
-                            borderColor: 'rgba(255, 0, 0, 0.9)',
-                            backgroundColor: 'rgba(255, 0, 0, 0.05)',
+                            borderColor: future.method === 'ai' ? 'rgba(255, 0, 0, 0.9)' : 'rgba(0, 128, 0, 0.9)',
+                            backgroundColor: future.method === 'ai' ? 'rgba(255, 0, 0, 0.05)' : 'rgba(0, 128, 0, 0.05)',
                             borderDash: [8, 6],
                             pointRadius: 0,
                             tension: 0.25,

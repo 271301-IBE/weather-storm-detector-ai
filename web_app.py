@@ -1776,14 +1776,16 @@ def api_enhanced_forecast_24h():
     try:
         now = datetime.now()
         horizon = now + timedelta(hours=24)
+        local_tz = datetime.now().astimezone().tzinfo
 
-        def collect_points(method: str, limit_rows: int = 120):
-            points = []
+        def collect_points(method: str, limit_rows: int = 180):
+            # Keep only the newest prediction for each hour bucket to avoid jagged merges
+            best_per_hour = {}
             with db.get_connection(read_only=True) as conn:
                 cur = conn.cursor()
                 cur.execute(
                     """
-                    SELECT timestamp, forecast_data_json
+                    SELECT timestamp, forecast_data_json, created_at
                     FROM enhanced_forecasts
                     WHERE method = ?
                     ORDER BY timestamp DESC
@@ -1793,31 +1795,49 @@ def api_enhanced_forecast_24h():
                 )
                 rows = cur.fetchall()
             # Parse newest-first rows and collect future items within the next 24h
-            seen_iso = set()
             for row in rows:
                 try:
                     fdata = json.loads(row[1])
+                    created_str = row[2] if len(row) > 2 else None
+                    created_dt = None
+                    try:
+                        created_dt = datetime.fromisoformat(created_str) if created_str else None
+                    except Exception:
+                        created_dt = None
                     for item in fdata.get('forecast_data', []) or []:
                         ts = item.get('timestamp')
-                        if not ts or ts in seen_iso:
+                        if not ts:
                             continue
                         try:
                             dt = datetime.fromisoformat(str(ts).replace('Z', '+00:00'))
-                            dt = dt.replace(tzinfo=None)
+                            # Convert to local timezone if tzinfo present
+                            if dt.tzinfo is not None:
+                                dt = dt.astimezone(local_tz).replace(tzinfo=None)
                         except Exception:
                             continue
                         if dt <= now or dt > horizon:
                             continue
-                        seen_iso.add(ts)
+                        # Bucket by hour
+                        hour_key = dt.replace(minute=0, second=0, microsecond=0)
                         try:
                             temp = float(item.get('temperature'))
                         except Exception:
                             continue
-                        points.append({'timestamp': dt.isoformat(), 'temperature': round(temp, 2)})
+                        # Keep newest created_at for this hour
+                        prev = best_per_hour.get(hour_key)
+                        if not prev or (created_dt and prev.get('created_at') and created_dt > prev['created_at']) or (created_dt and not prev.get('created_at')):
+                            best_per_hour[hour_key] = {
+                                'timestamp': dt.replace(minute=0, second=0, microsecond=0).isoformat(),
+                                'temperature': round(temp, 2),
+                                'created_at': created_dt
+                            }
                 except Exception:
                     continue
-            # Deduplicate by timestamp and sort ascending
-            points.sort(key=lambda p: p['timestamp'])
+            # Sort ascending by hour
+            points = [
+                {'timestamp': v['timestamp'], 'temperature': v['temperature']}
+                for k, v in sorted(best_per_hour.items(), key=lambda kv: kv[0])
+            ]
             return points
 
         # Prefer AI, fallback to ensemble
