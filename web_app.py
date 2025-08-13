@@ -1945,6 +1945,15 @@ def api_enhanced_forecast_24h():
                                 val = monotone(v0, v1, datetime.fromisoformat(p_ts), datetime.fromisoformat(n_ts), ts_dt)
                             else:
                                 val = lerp(v0, v1, datetime.fromisoformat(p_ts), datetime.fromisoformat(n_ts), ts_dt)
+                        else:
+                            # 5) persistence fallback: use nearest previous value (AI preferred)
+                            p_ai, _ = neighbors(ts_iso, ai_map)
+                            p_en, _ = neighbors(ts_iso, ens_map)
+                            if (method_pref in ('ai','auto')) and p_ai:
+                                val = ai_map[p_ai]
+                                ai_used += 1
+                            elif p_en:
+                                val = ens_map[p_en]
 
             # Apply step cap to avoid unrealistic hour-to-hour jumps
             if val is not None and last_temp_val is not None:
