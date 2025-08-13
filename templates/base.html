@@ -141,6 +141,9 @@
         }
         body.dark-mode .badge.bg-secondary { color: #e6e6e6; }
         canvas { background: transparent; }
+        /* Compact chart helper to avoid huge canvases */
+        .chart-compact { height: 180px !important; max-height: 180px !important; }
+        .chart-compact-container { height: 180px; }
 
         /* Dark mode overrides for common Bootstrap utility classes */
         body.dark-mode .text-dark { color: var(--text) !important; }

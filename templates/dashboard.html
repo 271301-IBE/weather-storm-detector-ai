@@ -105,11 +105,15 @@
                     <div class="row mt-4">
                         <div class="col-md-6">
                             <h6 class="mb-2">ROC křivka <span class="text-muted small" id="rocMeta"></span></h6>
-                            <canvas id="rocChart" height="140"></canvas>
+                            <div class="chart-compact-container">
+                                <canvas id="rocChart" class="chart-compact"></canvas>
+                            </div>
                         </div>
                         <div class="col-md-6">
                             <h6 class="mb-2">PR křivka <span class="text-muted small" id="prMeta"></span></h6>
-                            <canvas id="prChart" height="140"></canvas>
+                            <div class="chart-compact-container">
+                                <canvas id="prChart" class="chart-compact"></canvas>
+                            </div>
                         </div>
                     </div>
                     <div class="row mt-3">
@@ -1473,18 +1477,21 @@
         const ctx = document.getElementById('rocChart');
         if (!ctx) return;
         if (rocChartInstance) { try { rocChartInstance.destroy(); } catch(_) {} }
-        const data = points.sort((a,b)=>a.fpr-b.fpr).map(p=>({x:p.fpr, y:p.tpr}));
+        const data = points.sort((a,b)=>a.fpr-b.fpr).map(p=>({x:+p.fpr.toFixed(3), y:+p.tpr.toFixed(3)}));
         rocChartInstance = new Chart(ctx, {
             type: 'line',
-            data: { datasets: [{ label: `ROC (AUC ${auc ?? ''})`, data, borderColor: '#0ea5b1', backgroundColor: 'rgba(14,165,177,0.15)', fill: false, tension: 0.2 }] },
+            data: { datasets: [{ label: `ROC (AUC ${auc ?? ''})`, data, borderColor: '#0ea5b1', backgroundColor: 'rgba(14,165,177,0.15)', fill: false, tension: 0.1, pointRadius: 0 }] },
             options: {
                 responsive: true, maintainAspectRatio: false,
                 parsing: false,
                 scales: {
-                    x: { type: 'linear', min: 0, max: 1, title: { display: true, text: 'FPR' } },
-                    y: { type: 'linear', min: 0, max: 1, title: { display: true, text: 'TPR' } },
+                    x: { type: 'linear', min: 0, max: 1, title: { display: true, text: 'FPR' }, ticks: { maxTicksLimit: 6 } },
+                    y: { type: 'linear', min: 0, max: 1, title: { display: true, text: 'TPR' }, ticks: { maxTicksLimit: 6 } },
                 },
-                plugins: { legend: { display: false }, tooltip: { enabled: true } }
+                plugins: { legend: { display: false }, tooltip: { enabled: false } },
+                elements: { line: { borderWidth: 2 } },
+                animation: false,
+                interaction: { mode: 'nearest', intersect: false }
             }
         });
     }
@@ -1492,23 +1499,26 @@
         const ctx = document.getElementById('prChart');
         if (!ctx) return;
         if (prChartInstance) { try { prChartInstance.destroy(); } catch(_) {} }
-        const data = points.sort((a,b)=>a.recall-b.recall).map(p=>({x:p.recall, y:p.precision}));
+        const data = points.sort((a,b)=>a.recall-b.recall).map(p=>({x:+p.recall.toFixed(3), y:+p.precision.toFixed(3)}));
         prChartInstance = new Chart(ctx, {
             type: 'line',
-            data: { datasets: [{ label: `PR (AP ${ap ?? ''})`, data, borderColor: '#22d3ee', backgroundColor: 'rgba(34,211,238,0.15)', fill: false, tension: 0.2 }] },
+            data: { datasets: [{ label: `PR (AP ${ap ?? ''})`, data, borderColor: '#22d3ee', backgroundColor: 'rgba(34,211,238,0.15)', fill: false, tension: 0.1, pointRadius: 0 }] },
             options: {
                 responsive: true, maintainAspectRatio: false,
                 parsing: false,
                 scales: {
-                    x: { type: 'linear', min: 0, max: 1, title: { display: true, text: 'Recall' } },
-                    y: { type: 'linear', min: 0, max: 1, title: { display: true, text: 'Precision' } },
+                    x: { type: 'linear', min: 0, max: 1, title: { display: true, text: 'Recall' }, ticks: { maxTicksLimit: 6 } },
+                    y: { type: 'linear', min: 0, max: 1, title: { display: true, text: 'Precision' }, ticks: { maxTicksLimit: 6 } },
                 },
-                plugins: { legend: { display: false }, tooltip: { enabled: true } }
+                plugins: { legend: { display: false }, tooltip: { enabled: false } },
+                elements: { line: { borderWidth: 2 } },
+                animation: false,
+                interaction: { mode: 'nearest', intersect: false }
             }
         });
     }
     function loadClassifierMetrics() {
-        fetch('/api/classifier_metrics?days=30').then(r=>r.json()).then(m=>{
+        fetch('/api/classifier_metrics?days=30', { cache: 'no-store' }).then(r=>r.json()).then(m=>{
             if (m.error) return;
             const rocMeta = document.getElementById('rocMeta');
             const prMeta = document.getElementById('prMeta');
